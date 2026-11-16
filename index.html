@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Iron Crowns</title>
+  <meta name="description" content="A turn-based medieval strategy game of raids, sieges and great armies.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=EB+Garamond:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">⚔️ <span>Iron Crowns</span></div>
+    <div id="resources" class="resources"></div>
+    <div class="actions">
+      <button id="endTurn" class="btn primary" title="End your turn (E)">End Turn ⏭</button>
+      <button id="menuBtn" class="btn" title="Menu">☰</button>
+    </div>
+  </header>
+
+  <main id="game">
+    <div id="mapWrap">
+      <canvas id="map"></canvas>
+      <div id="toast" class="toast hidden"></div>
+    </div>
+    <aside id="panel">
+      <section id="info"></section>
+      <section id="logWrap">
+        <h3>Chronicle</h3>
+        <ol id="log"></ol>
+      </section>
+    </aside>
+  </main>
+
+  <div id="modal" class="overlay hidden"><div id="modalBox" class="box"></div></div>
+
+  <div id="battle" class="overlay hidden">
+    <div class="box battle-box">
+      <h2 id="bTitle"></h2>
+      <div id="bSides" class="bsides"></div>
+      <canvas id="bcv"></canvas>
+      <div id="bResult" class="bresult"></div>
+      <div class="bbtns">
+        <button id="bSkip" class="btn">Skip ⏩</button>
+        <button id="bCont" class="btn primary hidden">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
