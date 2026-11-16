@@ -4,17 +4,27 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Iron Crowns</title>
-  <meta name="description" content="A turn-based medieval strategy game of raids, sieges and great armies.">
+  <meta name="description" content="A turn-based medieval strategy game of raids, sieges and great armies, in 3D.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=EB+Garamond:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
 </head>
 <body>
   <header id="topbar">
     <div class="brand">⚔️ <span>Iron Crowns</span></div>
     <div id="resources" class="resources"></div>
     <div class="actions">
+      <button id="viewBtn" class="btn hidden" title="Switch map view">🗺 2D</button>
+      <button id="dipBtn" class="btn" title="Diplomacy (D)">🕊 Diplomacy</button>
       <button id="endTurn" class="btn primary" title="End your turn (E)">End Turn ⏭</button>
       <button id="menuBtn" class="btn" title="Menu">☰</button>
     </div>
@@ -23,6 +33,9 @@
   <main id="game">
     <div id="mapWrap">
       <canvas id="map"></canvas>
+      <canvas id="map3d" class="hidden"></canvas>
+      <div id="mapHelp" class="maphelp hidden"><span class="mouse">Drag to pan · Right-drag to rotate · Scroll to zoom</span><span class="touch">Drag to pan · Pinch to zoom · Two fingers to rotate</span></div>
+      <div id="tip" class="tip hidden"></div>
       <div id="toast" class="toast hidden"></div>
     </div>
     <aside id="panel">
@@ -41,6 +54,8 @@
       <h2 id="bTitle"></h2>
       <div id="bSides" class="bsides"></div>
       <canvas id="bcv"></canvas>
+      <canvas id="bcv3" class="hidden"></canvas>
+      <div id="bHud" class="bhud hidden"></div>
       <div id="bResult" class="bresult"></div>
       <div class="bbtns">
         <button id="bSkip" class="btn">Skip ⏩</button>
