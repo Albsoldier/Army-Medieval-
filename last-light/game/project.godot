@@ -1,0 +1,30 @@
+; Engine configuration file.
+; Last Light: a shared-island survival game.
+
+config_version=5
+
+[application]
+
+config/name="Last Light"
+config/description="Survive a shared island. Find what other survivors left behind."
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.4", "GL Compatibility")
+config/icon="res://icon.svg"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[last_light]
+
+api/base_url=""
+
+[rendering]
+
+textures/canvas_textures/default_texture_filter=0
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.07, 0.13, 0.2, 1)

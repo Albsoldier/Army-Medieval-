@@ -27,3 +27,7 @@ Shortcuts: **E** ends the turn, **Esc** deselects.
 - `index.html`: page layout
 - `style.css`: styling
 - `game.js`: map generation, rules, battle system, computer opponents, rendering and UI
+
+## Also in this repository
+
+- [`last-light/`](last-light/): **Last Light**, a Godot survival game on a shared daily island, with a Cloudflare Worker + Turso server. See its [README](last-light/README.md).

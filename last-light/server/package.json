@@ -1,0 +1,17 @@
+{
+  "name": "last-light-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test test/*.test.js",
+    "db:setup": "node scripts/setup-db.js"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.18.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.165.0"
+  }
+}
