@@ -574,7 +574,8 @@ func _attack() -> void:
 			wolf.hurt(damage, player.pos)
 			if wolf.hp <= 0:
 				wolves.erase(wolf)
-				wolf.queue_free()
+				var fall_time: float = wolf.die()
+				get_tree().create_timer(fall_time + 1.0).timeout.connect(wolf.queue_free)
 				player.add_item("raw_meat", 2)
 				hud.toast("The wolf falls. +2 raw meat")
 
@@ -754,6 +755,7 @@ func _refresh_hud() -> void:
 
 func _die() -> void:
 	alive = false
+	player.die()
 	hud.set_hint("")
 	var days := day - 1
 	api.record_local_best(seed_value, days)

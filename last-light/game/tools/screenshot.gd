@@ -34,6 +34,10 @@ func _run() -> void:
 	main.clock = 240.0 * 0.25
 	await _frames(40)
 	await _shot("2-day")
+	main.zoom = 0.55
+	await _frames(40)
+	await _shot("2b-day-close")
+	main.zoom = 1.0
 
 	# Build a camp and wait for dusk.
 	main.player.add_item("wood", 20)
@@ -61,6 +65,8 @@ func _run() -> void:
 	await _shot("4-night")
 
 	main.zoom = 0.6
+	if wolf.pos != Vector2.INF:
+		wolf.pos = p + Vector2(30, 18)
 	await _frames(30)
 	await _shot("5-night-close")
 	print("Screenshots written to ", _dir)
