@@ -79,7 +79,7 @@ var soldiers: Array = []
 var army_mode := "follow"
 var build_mode := false
 var build_index := 0
-var _ghost: Node3D
+var _ghost: Structure
 var _ghost_key := ""
 
 
@@ -914,7 +914,16 @@ func _add_structure(kind: String, cell: Vector2i, hp: float = -1.0, items: Dicti
 	entities.add_child(b)
 	buildings[cell] = b
 	world.add_structure(cell, kind)
+	_line_up_around(cell)
 	return b
+
+
+## Re-aligns walls and gates on a tile and its four neighbours.
+func _line_up_around(cell: Vector2i) -> void:
+	for offset in [Vector2i.ZERO, Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		var c: Vector2i = cell + offset
+		if buildings.has(c):
+			buildings[c].line_up(world.structures)
 
 
 func _remove_structure(cell: Vector2i) -> void:
@@ -922,6 +931,7 @@ func _remove_structure(cell: Vector2i) -> void:
 		buildings[cell].queue_free()
 		buildings.erase(cell)
 	world.remove_structure(cell)
+	_line_up_around(cell)
 
 
 func _set_build_mode(on: bool) -> void:
@@ -1032,6 +1042,8 @@ func _update_build_preview() -> void:
 		_ghost = g
 		_ghost_key = key
 	_ghost.position = world.to_3d(world.cell_center(cell))
+	_ghost.cell = cell
+	_ghost.line_up(world.structures)
 	var names := PackedStringArray()
 	for i in Structure.ORDER.size():
 		var n: String = Structure.info(Structure.ORDER[i])["name"]

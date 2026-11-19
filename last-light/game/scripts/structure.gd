@@ -24,7 +24,9 @@ const TYPES := {
 		"about": "Recruit soldiers here (3 per barracks)."},
 }
 const ORDER := ["wood_wall", "stone_wall", "gate", "torch_post", "chest", "tent", "barracks"]
-const TORCH_RADIUS := 80.0  # game pixels: wolves won't come closer to a lit torch post
+const TORCH_RADIUS := 80.0
+## Walls and gates turn to line up with the walls next to them.
+const LINES_UP := ["wood_wall", "stone_wall", "gate"]  # game pixels: wolves won't come closer to a lit torch post
 
 var world: World
 var kind := ""
@@ -95,6 +97,19 @@ func make_ghost(valid: bool) -> void:
 		var light := child as Light3D
 		if light:
 			light.visible = false
+
+
+## Turns a wall or gate so it runs north-south when its neighbours do.
+func line_up(structures: Dictionary) -> void:
+	if not kind in LINES_UP:
+		return
+	var east_west := _joins(structures, Vector2i(1, 0)) or _joins(structures, Vector2i(-1, 0))
+	var north_south := _joins(structures, Vector2i(0, 1)) or _joins(structures, Vector2i(0, -1))
+	rotation.y = PI / 2 if north_south and not east_west else 0.0
+
+
+func _joins(structures: Dictionary, offset: Vector2i) -> bool:
+	return str(structures.get(cell + offset, "")) in LINES_UP
 
 
 func _process(delta: float) -> void:

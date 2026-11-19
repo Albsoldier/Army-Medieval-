@@ -116,7 +116,7 @@ func _run_game() -> void:
 	main.player.add_item("wood", 300)
 	main.player.add_item("stone", 150)
 	main.player.add_item("berries", 150)
-	var cells := _free_cells(world, world.cell_of(main.player.pos), 6)
+	var cells := _free_cells(world, world.cell_of(main.player.pos), 6, [tree_cell])
 	_check(cells.size() == 6, "found room to build")
 	_check(main._try_build("wood_wall", cells[0]), "built a wooden wall")
 	_check(not world.is_walkable(world.cell_center(cells[0])), "walls block the way")
@@ -136,6 +136,13 @@ func _run_game() -> void:
 	_check(main._recruit(25) == 10, "one barracks houses 10 soldiers")
 	_check(main._try_build("torch_post", cells[4]), "built a torch post")
 	_check(main._try_build("tent", cells[5]), "pitched a tent")
+	var line: Array = _free_line(world, world.cell_of(main.player.pos) + Vector2i(0, 13))
+	_check(line.size() == 3, "found room for a north-south wall")
+	for c in line:
+		main._try_build("wood_wall", c)
+	_check(is_equal_approx(main.buildings[line[1]].rotation.y, PI / 2), "walls in a north-south line turn to match")
+	for c in line:
+		main._demolish(c)
 	_check(main.home == world.cell_center(cells[5]), "the tent is your new home")
 	main._toggle_army_mode()
 	_check(main.army_mode == "guard" and main.soldiers[0].mode == "guard", "soldiers can guard a spot")
@@ -220,12 +227,26 @@ func _fail(label: String) -> void:
 	printerr("  FAIL ", label)
 
 
-func _free_cells(world, around: Vector2i, n: int) -> Array:
+func _free_cells(world, around: Vector2i, n: int, avoid: Array = []) -> Array:
 	var found := []
 	for r in range(2, 12):
 		for dz in range(-r, r + 1):
 			for dx in range(-r, r + 1):
 				var c := around + Vector2i(dx, dz)
-				if found.size() < n and maxi(absi(dx), absi(dz)) == r and world.can_build(c):
+				if found.size() < n and maxi(absi(dx), absi(dz)) == r and world.can_build(c) and not c in avoid:
 					found.append(c)
 	return found
+
+
+## Three free tiles in a north-south line, searching around `start`.
+func _free_line(world, start: Vector2i) -> Array:
+	for r in range(0, 12):
+		for dx in range(-r, r + 1):
+			var top := start + Vector2i(dx, r)
+			var line := [top, top + Vector2i(0, 1), top + Vector2i(0, 2)]
+			var ok := true
+			for c in line:
+				ok = ok and world.can_build(c)
+			if ok:
+				return line
+	return []
