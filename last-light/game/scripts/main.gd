@@ -969,7 +969,7 @@ func _on_account_created(ok: bool, data: Variant) -> void:
 			"You're logged in as %s. Your game is saved on the island server.\n\nOn another browser or device, choose \"I have an account\" (or Esc → Account → Log in) and use this username and password." % api.username,
 			PackedStringArray(["Great"]), Callable())
 		return
-	var reason := {
+	var reason: String = {
 		"username_taken": "That username is taken. Try another.",
 		"bad_username": "Usernames are 3 to 20 letters, numbers, - or _.",
 		"bad_password": "Passwords need 8 to 100 characters.",
@@ -1042,7 +1042,7 @@ func _on_login_password(choice: int, text: String, from_welcome: bool) -> void:
 
 func _on_logged_in(ok: bool, data: Variant, from_welcome: bool) -> void:
 	if not ok:
-		var reason := {
+		var reason: String = {
 			"wrong_login": "That username and password don't match.",
 			"too_many_attempts": "Too many wrong tries. Wait 15 minutes and try again.",
 			"network": "Couldn't reach the island server.",
