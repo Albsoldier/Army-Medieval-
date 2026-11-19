@@ -324,8 +324,8 @@ func _setup_environment() -> void:
 	env.background_mode = Environment.BG_COLOR
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.fog_enabled = true
-	env.fog_density = 0.008
+	# No fog: in the Compatibility renderer even light fog washed out the whole scene.
+	env.fog_enabled = false
 	var world_env := WorldEnvironment.new()
 	world_env.environment = env
 	add_child(world_env)
@@ -360,7 +360,6 @@ func _update_lighting() -> void:
 
 	var sky := _sky_blend(Color(0.58, 0.77, 0.94), Color(0.93, 0.56, 0.38), Color(0.02, 0.03, 0.07), n)
 	env.background_color = sky
-	env.fog_light_color = sky
 	env.ambient_light_color = _sky_blend(Color(0.62, 0.68, 0.8), Color(0.55, 0.47, 0.5), Color(0.05, 0.06, 0.12), n)
 	env.ambient_light_energy = lerpf(0.55, 1.0, n)
 
