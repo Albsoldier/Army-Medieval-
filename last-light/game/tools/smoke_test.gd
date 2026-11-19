@@ -20,10 +20,13 @@ func _initialize() -> void:
 
 
 func _run_game() -> void:
+	var started := Time.get_ticks_msec()
+	print("  ..   loading the main scene")
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	var main: Node = scene.instantiate()
 	root.add_child(main)
 	await process_frame
+	print("  ..   main scene ready in %d ms" % (Time.get_ticks_msec() - started))
 
 	var world = main.world
 	_check(world.land_tile_count() > 3000, "island has enough land (%d tiles)" % world.land_tile_count())
@@ -34,8 +37,10 @@ func _run_game() -> void:
 	_check(ground > -0.5 and ground < 6.0, "spawn height looks sane (%.2f m)" % ground)
 
 	# Same seed, same island.
+	var gen_start := Time.get_ticks_msec()
 	var copy = load("res://scripts/world.gd").new()
 	copy.generate(main.seed_value)
+	print("  ..   island generated in %d ms" % (Time.get_ticks_msec() - gen_start))
 	_check(copy.props.size() == world.props.size(), "generation is deterministic")
 	copy.free()
 
@@ -67,6 +72,7 @@ func _run_game() -> void:
 			break
 		main._process(0.25)
 		if i % 200 == 0:
+			print("  ..   step %d/%d, day %d, %d ms" % [i, steps, main.day, Time.get_ticks_msec() - started])
 			await process_frame
 	_check(main.day >= 2 or not main.alive, "time passes (day %d, alive %s)" % [main.day, main.alive])
 
