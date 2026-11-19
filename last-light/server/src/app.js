@@ -2,7 +2,9 @@
 // src/index.js wires this to Turso inside a Cloudflare Worker; the tests use a local database.
 
 export const DAY_SECONDS = 240; // must match DAY_LENGTH in game/scripts/main.gd
-export const WORLD_PX = 160 * 16; // island size in pixels (World.SIZE * World.TILE)
+export const WORLD_PX = 1024 * 16; // island size in pixels (World.SIZE * World.TILE)
+// Islands that accept new runs and traces. The game uses one permanent island.
+export const OPEN_ISLANDS = new Set([1]);
 export const LIMITS = { note: 10, stash: 5, camp: 25 }; // per player, per island
 export const ITEMS = ["wood", "stone", "berries", "cooked_meat"];
 const MAX_BODY = 4096;
@@ -83,7 +85,7 @@ async function createPlayer(ctx) {
 async function startRun(ctx) {
   const player = await auth(ctx);
   const body = await readBody(ctx);
-  const seed = writableSeed(body.seed, ctx.now);
+  const seed = writableSeed(body.seed);
   const id = crypto.randomUUID();
   await ctx.db.execute({
     sql: "INSERT INTO runs (id, player_id, seed, started_at) VALUES (?, ?, ?, ?)",
@@ -154,7 +156,7 @@ async function listTraces(ctx, seedParam) {
 
 async function createTrace(ctx, seedParam) {
   const player = await auth(ctx);
-  const seed = writableSeed(seedParam, ctx.now);
+  const seed = writableSeed(seedParam);
   const body = await readBody(ctx);
   const kind = body.kind;
   if (!Object.hasOwn(LIMITS, kind)) throw new HttpError(400, "bad_kind");
@@ -245,32 +247,18 @@ async function readBody(ctx) {
   }
 }
 
-// Islands are named by their UTC date: 20261119.
+// An island id: a positive whole number. Old daily islands (20261119) can still be read.
 export function parseSeed(value) {
   const s = String(value ?? "");
-  if (!/^\d{8}$/.test(s)) throw new HttpError(400, "bad_seed");
-  const date = seedDate(Number(s));
-  if (Number.isNaN(date.getTime()) || dateSeed(date) !== Number(s)) throw new HttpError(400, "bad_seed");
+  if (!/^[1-9]\d{0,7}$/.test(s)) throw new HttpError(400, "bad_seed");
   return Number(s);
 }
 
-// Only today's island (give or take a day for time zones and runs past midnight) accepts new traces.
-export function writableSeed(value, now) {
+// Only open islands accept new runs and traces.
+export function writableSeed(value) {
   const seed = parseSeed(value);
-  const diffDays = Math.abs(seedDate(seed).getTime() - seedDate(dateSeed(new Date(now))).getTime()) / 86400000;
-  if (diffDays > 1) throw new HttpError(403, "island_closed");
+  if (!OPEN_ISLANDS.has(seed)) throw new HttpError(403, "island_closed");
   return seed;
-}
-
-function seedDate(seed) {
-  const y = Math.floor(seed / 10000);
-  const m = Math.floor(seed / 100) % 100;
-  const d = seed % 100;
-  return new Date(Date.UTC(y, m - 1, d));
-}
-
-export function dateSeed(date) {
-  return date.getUTCFullYear() * 10000 + (date.getUTCMonth() + 1) * 100 + date.getUTCDate();
 }
 
 function position(body) {

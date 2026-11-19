@@ -10,6 +10,7 @@ F                    eat
 N                    write a note for others
 G                    leave a stash for others
 Mouse wheel     zoom
+Esc                 pause menu, save
 H                    show / hide this help
 
 [ Crafting ]
@@ -205,8 +206,8 @@ func _panel_style() -> StyleBoxFlat:
 
 # ---------- Public API used by main.gd ----------
 
-func set_island(island_name: String, seed_value: int) -> void:
-	_island_label.text = "%s  ·  island #%d" % [island_name, seed_value]
+func set_island(island_name: String, subtitle: String) -> void:
+	_island_label.text = "%s  ·  %s" % [island_name, subtitle]
 
 
 func set_connection(text: String) -> void:
