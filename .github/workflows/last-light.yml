@@ -66,7 +66,15 @@ jobs:
           mkdir -p last-light/build/web
           godot --headless --path last-light/game --export-release "Web" ../build/web/index.html
           test -f last-light/build/web/index.html
+          # Cloudflare Pages rejects files over 25 MiB, and index.wasm is ~42 MiB.
+          # Ship it gzipped; web/wasm-gz.js unpacks it in the browser.
+          gzip -9 -n last-light/build/web/index.wasm
+          cp last-light/web/wasm-gz.js last-light/build/web/
+          grep -q 'wasm-gz.js' last-light/build/web/index.html
           ls -la last-light/build/web
+          if find last-light/build/web -type f -size +25M | grep .; then
+            echo "::error::A file is over Cloudflare Pages' 25 MiB limit"; exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -118,4 +126,4 @@ jobs:
         working-directory: last-light/server
         run: |
           npx wrangler pages project create last-light --production-branch main || true
-          npx wrangler pages deploy "$GITHUB_WORKSPACE/web" --project-name last-light --branch main
+          npx wrangler pages deploy "$GITHUB_WORKSPACE/web" --project-name last-light --branch main --commit-dirty=true
