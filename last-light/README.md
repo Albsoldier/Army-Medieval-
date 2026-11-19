@@ -54,29 +54,20 @@ last-light/
 
 ## Set up (one time)
 
-**1. Create the database (Turso CLI)**
+**1. Create the database**
 
-```bash
-turso db create last-light
+On the Turso website (app.turso.tech), create a database named `last-light`. Copy its URL (`libsql://...`) and create a token for it. Then create the tables from `last-light/server`. In PowerShell:
+
+```powershell
+npm install
+$env:TURSO_DATABASE_URL="libsql://your-db-url"
+$env:TURSO_AUTH_TOKEN="your-token"
+npm run db:setup
 ```
 
-```bash
-turso db shell last-light < last-light/server/schema.sql
-```
-
-```bash
-turso db show last-light --url
-```
-
-```bash
-turso db tokens create last-light
-```
+On macOS or Linux with the Turso CLI, you can instead run `turso db shell last-light < schema.sql`.
 
 **2. Deploy the island server (Cloudflare Worker)**
-
-```bash
-cd last-light/server && npm install
-```
 
 ```bash
 npx wrangler secret put TURSO_DATABASE_URL
