@@ -77,6 +77,41 @@ func _run() -> void:
 	main._update_lighting()
 	await _frames(20)
 	await _shot("6-wolf-day")
+	# A walled base with a gate, torch posts, tent, chest and barracks, and an army.
+	wolf.queue_free()
+	var w = main.world
+	main.player.add_item("wood", 600)
+	main.player.add_item("stone", 300)
+	main.player.add_item("berries", 300)
+	var c: Vector2i = w.cell_of(main.player.pos)
+	for dz in range(-5, 6):
+		for dx in range(-5, 6):
+			if maxi(absi(dx), absi(dz)) != 5:
+				continue
+			var kind := "wood_wall"
+			if absi(dx) == 5 and absi(dz) == 5:
+				kind = "torch_post"
+			elif dz == 5 and dx == 0:
+				kind = "gate"
+			elif dz == -5:
+				kind = "stone_wall"
+			main._try_build(kind, c + Vector2i(dx, dz))
+	main._try_build("barracks", c + Vector2i(-3, -3))
+	main._try_build("barracks", c + Vector2i(3, -3))
+	main._try_build("tent", c + Vector2i(-3, 2))
+	main._try_build("chest", c + Vector2i(3, 2))
+	main._recruit(20)
+	main.clock = 240.0 * 0.3
+	main.zoom = 1.6
+	for i in 90:
+		main._tick_army(0.1)
+	await _frames(40)
+	await _shot("7-base-day")
+	main.clock = 240.0 * 0.8
+	main.zoom = 1.3
+	await _frames(30)
+	await _shot("8-base-night")
+
 	print("Screenshots written to ", _dir)
 	quit(0)
 

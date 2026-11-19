@@ -111,6 +111,58 @@ func _run_game() -> void:
 	for i in 3:
 		world.harvest(tree_cell, main.day)
 	_check(world.prop_type(tree_cell) == "stump", "tree felled")
+
+	# Build a small base and raise an army.
+	main.player.add_item("wood", 300)
+	main.player.add_item("stone", 150)
+	main.player.add_item("berries", 150)
+	var cells := _free_cells(world, world.cell_of(main.player.pos), 6, [tree_cell])
+	_check(cells.size() == 6, "found room to build")
+	_check(main._try_build("wood_wall", cells[0]), "built a wooden wall")
+	_check(not world.is_walkable(world.cell_center(cells[0])), "walls block the way")
+	_check(not main._try_build("stone_wall", cells[0]), "can't build on top of a building")
+	_check(main._try_build("gate", cells[1]), "built a gate")
+	var gate_pos: Vector2 = world.cell_center(cells[1])
+	_check(world.is_walkable(gate_pos) and not world.is_walkable(gate_pos, true), "gates let people through but not wolves")
+	_check(main._try_build("chest", cells[2]), "built a chest")
+	var chest = main.buildings[cells[2]]
+	var wood_before: int = main.player.count("wood")
+	main._chest_store(chest)
+	_check(main.player.count("wood") == 0 and int(chest.items.get("wood", 0)) == wood_before, "the chest stores items")
+	main._chest_take(chest)
+	_check(main.player.count("wood") == wood_before, "the chest gives them back")
+	_check(main._recruit(1) == 0, "no soldiers without a barracks")
+	_check(main._try_build("barracks", cells[3]), "built a barracks")
+	_check(main._recruit(25) == 10, "one barracks houses 10 soldiers")
+	_check(main._try_build("torch_post", cells[4]), "built a torch post")
+	_check(main._try_build("tent", cells[5]), "pitched a tent")
+	var line: Array = _free_line(world, world.cell_of(main.player.pos) + Vector2i(0, 13))
+	_check(line.size() == 3, "found room for a north-south wall")
+	for c in line:
+		main._try_build("wood_wall", c)
+	_check(is_equal_approx(main.buildings[line[1]].rotation.y, PI / 2), "walls in a north-south line turn to match")
+	for c in line:
+		main._demolish(c)
+	_check(main.home == world.cell_center(cells[5]), "the tent is your new home")
+	main._toggle_army_mode()
+	_check(main.army_mode == "guard" and main.soldiers[0].mode == "guard", "soldiers can guard a spot")
+	main._toggle_army_mode()
+	for i in 60:
+		main._tick_army(0.1)
+	var near := 0
+	for soldier in main.soldiers:
+		if soldier.pos.distance_to(main.player.pos) < 120.0:
+			near += 1
+	_check(near >= 8, "soldiers gather behind you (%d of %d nearby)" % [near, main.soldiers.size()])
+	var pup = load("res://scripts/wolf.gd").new()
+	pup.world = world
+	pup.pos = main.soldiers[0].pos + Vector2(12, 0)
+	main.entities.add_child(pup)
+	main.wolves.append(pup)
+	var army_meat_before: int = main.player.count("raw_meat")
+	for i in 80:
+		main._tick_army(0.1)
+	_check(not main.wolves.has(pup) and main.player.count("raw_meat") > army_meat_before, "soldiers kill wolves for you")
 	main.save_game()
 	var saved: Dictionary = load("res://scripts/save_game.gd").read()
 	_check(saved.get("props", {}).has("%d,%d" % [tree_cell.x, tree_cell.y]), "save remembers the felled tree")
@@ -126,8 +178,14 @@ func _run_game() -> void:
 	_check(copy_main.player.has_spear, "resumed with the spear")
 	_check(copy_main.world.prop_type(tree_cell) == "stump", "felled tree is still a stump after reload")
 	_check(copy_main.campfires.size() == 1, "campfire is still there after reload")
+	_check(copy_main.buildings.size() == main.buildings.size(), "buildings are still there after reload (%d)" % copy_main.buildings.size())
+	_check(copy_main.soldiers.size() == main.soldiers.size(), "the army is still there after reload (%d)" % copy_main.soldiers.size())
+	_check(not copy_main.world.is_walkable(world.cell_center(cells[0])), "walls still block after reload")
 	copy_main.queue_free()
 	await process_frame
+
+	main._demolish(cells[0])
+	_check(world.is_walkable(world.cell_center(cells[0])), "demolishing a wall frees the tile")
 
 	# Stumps grow back into trees.
 	world.regrow(main.day + 10)
@@ -167,3 +225,28 @@ func _check(condition: bool, label: String) -> void:
 func _fail(label: String) -> void:
 	_failed = true
 	printerr("  FAIL ", label)
+
+
+func _free_cells(world, around: Vector2i, n: int, avoid: Array = []) -> Array:
+	var found := []
+	for r in range(2, 12):
+		for dz in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				var c := around + Vector2i(dx, dz)
+				if found.size() < n and maxi(absi(dx), absi(dz)) == r and world.can_build(c) and not c in avoid:
+					found.append(c)
+	return found
+
+
+## Three free tiles in a north-south line, searching around `start`.
+func _free_line(world, start: Vector2i) -> Array:
+	for r in range(0, 12):
+		for dx in range(-r, r + 1):
+			var top := start + Vector2i(dx, r)
+			var line := [top, top + Vector2i(0, 1), top + Vector2i(0, 2)]
+			var ok := true
+			for c in line:
+				ok = ok and world.can_build(c)
+			if ok:
+				return line
+	return []

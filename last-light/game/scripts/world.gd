@@ -32,6 +32,10 @@ const TERRAIN_COLORS := [
 
 ## Prop types that are drawn. "rubble" is what's left of a broken rock.
 const PROP_TYPES := ["tree", "stump", "rock", "rubble", "bush", "bush_empty"]
+## Saved prop changes may also be "cleared": the ground under a building.
+const CHANGE_TYPES := ["tree", "stump", "rock", "rubble", "bush", "bush_empty", "cleared"]
+## Props you can build over (they are cleared for good).
+const BUILD_OVER := ["", "stump", "rubble", "bush_empty", "cleared"]
 ## Days before something you used grows back.
 const REGROW_DAYS := {"stump": 5, "rubble": 6, "bush_empty": 2}
 
@@ -39,6 +43,9 @@ var seed_value := 0
 var spawn_cell := Vector2i.ZERO
 ## Vector2i cell -> {"type": String, "hp": int, "regrow_day": int}. Saved.
 var prop_changes: Dictionary = {}
+## Vector2i cell -> structure type, for everything the player built. The 3D
+## nodes and their hit points live in main.gd.
+var structures: Dictionary = {}
 
 var _noise: FastNoiseLite
 var _continent: FastNoiseLite
@@ -159,12 +166,30 @@ func is_land(cell: Vector2i) -> bool:
 	return t != DEEP and t != WATER
 
 
-func is_walkable(pos: Vector2) -> bool:
+## Whether a creature can stand at `pos`. Gates let people through but not wolves.
+func is_walkable(pos: Vector2, wolf: bool = false) -> bool:
 	var cell := cell_of(pos)
 	if not is_land(cell):
 		return false
+	if structures.has(cell):
+		return structures[cell] == "gate" and not wolf
 	var kind := prop_type(cell)
 	return kind != "tree" and kind != "rock"
+
+
+func can_build(cell: Vector2i) -> bool:
+	return is_land(cell) and not structures.has(cell) and prop_type(cell) in BUILD_OVER
+
+
+func add_structure(cell: Vector2i, kind: String) -> void:
+	structures[cell] = kind
+	if prop_type(cell) != "" and prop_type(cell) != "cleared":
+		prop_changes[cell] = {"type": "cleared", "hp": 0, "regrow_day": 0}
+		_props_dirty = true
+
+
+func remove_structure(cell: Vector2i) -> void:
+	structures.erase(cell)
 
 
 func world_size_px() -> int:
@@ -306,7 +331,7 @@ func import_changes(data: Dictionary) -> void:
 		if parts.size() != 2 or typeof(v) != TYPE_ARRAY or v.size() < 3:
 			continue
 		var kind := str(v[0])
-		if not kind in PROP_TYPES:
+		if not kind in CHANGE_TYPES:
 			continue
 		prop_changes[Vector2i(parts[0].to_int(), parts[1].to_int())] = {
 			"type": kind, "hp": int(v[1]), "regrow_day": int(v[2]),
