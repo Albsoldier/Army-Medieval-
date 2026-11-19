@@ -12,7 +12,13 @@ func _initialize() -> void:
 	if _dir == "":
 		_dir = OS.get_user_data_dir().path_join("shots")
 	DirAccess.make_dir_recursive_absolute(_dir)
+	create_timer(240.0).timeout.connect(_on_watchdog)
 	_run.call_deferred()
+
+
+func _on_watchdog() -> void:
+	printerr("Screenshot run timed out")
+	quit(1)
 
 
 func _run() -> void:

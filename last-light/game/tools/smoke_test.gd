@@ -16,7 +16,14 @@ func _initialize() -> void:
 	if _failed:
 		quit(1)
 		return
+	# If a script error stops the test part-way, fail instead of hanging.
+	create_timer(120.0).timeout.connect(_on_watchdog)
 	_run_game.call_deferred()
+
+
+func _on_watchdog() -> void:
+	_fail("timed out: the test stopped part-way (see errors above)")
+	quit(1)
 
 
 func _run_game() -> void:
@@ -27,6 +34,10 @@ func _run_game() -> void:
 	root.add_child(main)
 	await process_frame
 	print("  ..   main scene ready in %d ms" % (Time.get_ticks_msec() - started))
+	if main.get_script() == null or not ("world" in main):
+		_fail("main scene's script did not attach (check the root node type in main.tscn)")
+		quit(1)
+		return
 
 	var world = main.world
 	_check(world.land_tile_count() > 3000, "island has enough land (%d tiles)" % world.land_tile_count())
