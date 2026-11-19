@@ -339,6 +339,7 @@ func _build_terrain() -> void:
 
 	var mat := StandardMaterial3D.new()
 	mat.vertex_color_use_as_albedo = true
+	mat.vertex_color_is_srgb = true  # our colours are sRGB, like everywhere else in Godot
 	mat.roughness = 1.0
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 
@@ -424,6 +425,7 @@ func _build_prop_layers() -> void:
 			inst.multimesh = mm
 			var mat := StandardMaterial3D.new()
 			mat.vertex_color_use_as_albedo = true
+			mat.vertex_color_is_srgb = true
 			mat.roughness = 0.95
 			inst.material_override = mat
 			add_child(inst)

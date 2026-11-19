@@ -325,7 +325,7 @@ func _setup_environment() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.fog_enabled = true
-	env.fog_density = 0.018
+	env.fog_density = 0.008
 	var world_env := WorldEnvironment.new()
 	world_env.environment = env
 	add_child(world_env)
@@ -355,14 +355,14 @@ func _update_lighting() -> void:
 	var moon := Vector3(-50.0, 30.0, 0.0)
 	var angles := Vector3(sun_pitch, sun_yaw, 0.0).lerp(moon, clampf((n - 0.5) * 2.0, 0.0, 1.0))
 	sun.rotation_degrees = angles
-	sun.light_color = _sky_blend(Color(1.0, 0.96, 0.88), Color(1.0, 0.6, 0.35), Color(0.55, 0.65, 1.0), n)
-	sun.light_energy = lerpf(1.25, 0.1, n)
+	sun.light_color = _sky_blend(Color(1.0, 0.96, 0.88), Color(1.0, 0.72, 0.5), Color(0.55, 0.65, 1.0), n)
+	sun.light_energy = lerpf(1.0, 0.1, n)
 
 	var sky := _sky_blend(Color(0.58, 0.77, 0.94), Color(0.93, 0.56, 0.38), Color(0.02, 0.03, 0.07), n)
 	env.background_color = sky
 	env.fog_light_color = sky
-	env.ambient_light_color = _sky_blend(Color(0.62, 0.66, 0.75), Color(0.6, 0.45, 0.42), Color(0.05, 0.06, 0.12), n)
-	env.ambient_light_energy = 1.0
+	env.ambient_light_color = _sky_blend(Color(0.62, 0.68, 0.8), Color(0.55, 0.47, 0.5), Color(0.05, 0.06, 0.12), n)
+	env.ambient_light_energy = lerpf(0.55, 1.0, n)
 
 
 func _update_camera(delta: float) -> void:
