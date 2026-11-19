@@ -13,6 +13,7 @@ var _actions: Dictionary = {}  # action -> animation name in the model
 var _current := ""
 var _oneshot := 0.0
 var _flash_mat: StandardMaterial3D
+var _flashing := false
 
 
 ## scene: the imported model. target: wanted height in metres (or length, when
@@ -69,6 +70,9 @@ func tick(delta: float) -> void:
 
 
 func flash(on: bool) -> void:
+	if on == _flashing:
+		return
+	_flashing = on
 	for mi in _meshes:
 		(mi as MeshInstance3D).material_overlay = _flash_mat if on else null
 
