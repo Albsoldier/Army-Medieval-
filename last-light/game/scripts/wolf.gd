@@ -13,6 +13,8 @@ var bite_cooldown := 0.0
 var hurt_flash := 0.0
 var knock := Vector2.ZERO
 var facing := Vector2.RIGHT
+## The tile of a wall or building this wolf bumped into this frame, if any.
+var blocked_cell := Vector2i(-1, -1)
 
 const CharacterModel = preload("res://scripts/character_model.gd")
 const WOLF_MODEL := preload("res://models/wolf.glb")
@@ -76,12 +78,17 @@ func hurt(damage: int, from: Vector2) -> void:
 
 
 func _slide(step: Vector2) -> void:
+	blocked_cell = Vector2i(-1, -1)
 	var next_x := pos + Vector2(step.x, 0)
-	if world.is_walkable(next_x):
+	if world.is_walkable(next_x, true):
 		pos = next_x
+	elif world.structures.has(world.cell_of(next_x)):
+		blocked_cell = world.cell_of(next_x)
 	var next_y := pos + Vector2(0, step.y)
-	if world.is_walkable(next_y):
+	if world.is_walkable(next_y, true):
 		pos = next_y
+	elif world.structures.has(world.cell_of(next_y)):
+		blocked_cell = world.cell_of(next_y)
 
 
 func _animate(delta: float) -> void:

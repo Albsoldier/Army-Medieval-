@@ -10,6 +10,8 @@ F                    eat
 N                    write a note for others
 G                    leave a stash for others
 Mouse wheel     zoom
+B                    build: walls, gates, chests, barracks…
+T                    army: follow me / guard here
 Esc                 pause menu: save, account
 H                    show / hide this help
 

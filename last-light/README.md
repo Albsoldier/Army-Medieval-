@@ -19,6 +19,20 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
 - **The island recovers.** Felled trees, broken rocks and picked bushes grow back after a few days.
 - **Leaderboard.** When you die you see the longest lives on the island.
 - **Pause menu (Esc):** save now, or start over with a fresh save.
+- **Build a base (B).** Aim with the mouse and click (or E) to build, X to demolish for half the materials back:
+
+  | Key | Structure | Cost | What it does |
+  |---|---|---|---|
+  | 1 | Wooden wall | 4 wood | Blocks wolves; they gnaw through it slowly at night |
+  | 2 | Stone wall | 3 stone, 1 wood | 2.5× tougher, gnawed 3× slower |
+  | 3 | Gate | 6 wood | You and your soldiers pass, wolves don't |
+  | 4 | Torch post | 2 wood, 1 stone | Permanent light; wolves keep away, eases your mind |
+  | 5 | Storage chest | 8 wood | Store and take items |
+  | 6 | Tent | 10 wood, 3 berries | Wake here after dying; sleep through the night |
+  | 7 | Barracks | 20 wood, 10 stone | Houses 10 soldiers |
+
+  Press E at a damaged wall to repair it.
+- **Raise an army.** At a barracks, recruit soldiers for 3 wood, 2 stone and 5 berries each: up to 10 per barracks and 100 in all. Soldiers fight wolves (you get the meat), and wolves fight back. Press T to switch between *follow me* (rows behind you) and *guard here* (rings around the spot).
 
 Controls: WASD/arrows to move, mouse wheel to zoom, `E` (hold) to gather or use, `Space`/click to attack, `F` to eat, `H` to show or hide help.
 
@@ -32,6 +46,8 @@ last-light/
     scripts/main.gd       game loop, rules, crafting, day/night, death
     scripts/world.gd      the permanent island, generated and drawn in chunks around you
     scripts/save_game.gd  the save file (stored in the browser)
+    scripts/structure.gd  walls, gates, torch posts, chests, tents and barracks
+    scripts/soldier.gd    your soldiers: following, guarding and fighting
     scripts/art.gd        helpers for the low-poly models
     scripts/character_model.gd  loads, sizes and animates the rigged characters
     models/               survivor and wolf models (CC0, by Quaternius: see models/CREDITS.md)

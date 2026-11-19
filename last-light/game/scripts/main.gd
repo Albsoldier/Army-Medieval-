@@ -9,6 +9,12 @@ const Trace = preload("res://scripts/trace.gd")
 const Hud = preload("res://scripts/hud.gd")
 const Api = preload("res://scripts/api.gd")
 const SaveGame = preload("res://scripts/save_game.gd")
+const Structure = preload("res://scripts/structure.gd")
+const Soldier = preload("res://scripts/soldier.gd")
+
+const RECRUIT_COST := {"wood": 3, "stone": 2, "berries": 5}
+const BUILD_RANGE := 8  # tiles from the player
+const MAX_TORCH_POSTS := 24  # lights are expensive in the browser renderer
 
 const ISLAND_ID := 1  # the permanent island, as the server knows it
 const WORLD_SEED := 20261119  # the island's shape never changes
@@ -68,6 +74,13 @@ var _cloud_dirty := false
 var _cloud_busy := false
 var _login_name := ""
 var _new_username := ""
+var buildings: Dictionary = {}  # Vector2i cell -> Structure node
+var soldiers: Array = []
+var army_mode := "follow"
+var build_mode := false
+var build_index := 0
+var _ghost: Node3D
+var _ghost_key := ""
 
 
 func _ready() -> void:
@@ -155,6 +168,9 @@ func _setup_input() -> void:
 	_bind("leave_stash", [KEY_G])
 	_bind("help", [KEY_H])
 	_bind("menu", [KEY_ESCAPE])
+	_bind("build", [KEY_B])
+	_bind("demolish", [KEY_X])
+	_bind("army", [KEY_T])
 	if InputMap.action_get_events("attack").size() < 2:
 		var click := InputEventMouseButton.new()
 		click.button_index = MOUSE_BUTTON_LEFT
@@ -283,7 +299,9 @@ func _process(delta: float) -> void:
 			fire.tick(delta)
 		_tick_survival(delta)
 		_tick_wolves(delta)
+		_tick_army(delta)
 		_update_hint()
+		_update_build_preview()
 		if player.health <= 0.0:
 			_die()
 	_update_camera(delta)
@@ -294,12 +312,18 @@ func _unhandled_input(event: InputEvent) -> void:
 	var wheel := event as InputEventMouseButton
 	if wheel and wheel.pressed:
 		if wheel.button_index == MOUSE_BUTTON_WHEEL_UP:
-			zoom = clampf(zoom - 0.1, 0.55, 1.8)
+			zoom = clampf(zoom - 0.1, 0.55, 2.5)
 		elif wheel.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			zoom = clampf(zoom + 0.1, 0.55, 1.8)
+			zoom = clampf(zoom + 0.1, 0.55, 2.5)
 	if not started or not alive or hud.is_modal():
 		return
-	if event.is_action_pressed("interact", true):
+	if build_mode and _build_input(event):
+		return
+	if event.is_action_pressed("build"):
+		_set_build_mode(true)
+	elif event.is_action_pressed("army"):
+		_toggle_army_mode()
+	elif event.is_action_pressed("interact", true):
 		_interact()
 	elif event.is_action_pressed("attack", true):
 		_attack()
@@ -443,7 +467,7 @@ func _tick_survival(delta: float) -> void:
 			loss *= 0.4
 		player.warmth = clampf(player.warmth - loss * delta, 0.0, 100.0)
 
-	if near_fire or has_torch or n < 0.5:
+	if near_fire or has_torch or n < 0.5 or _nearest(_torch_posts(), player.pos, Structure.TORCH_RADIUS) != null:
 		player.sanity = minf(player.sanity + 0.05 * delta, 100.0)
 	else:
 		player.sanity = maxf(player.sanity - 0.35 * delta, 0.0)
@@ -473,13 +497,23 @@ func _near_lit_fire(pos: Vector2) -> bool:
 	return false
 
 
+## Fires and torch posts: wolves keep away from both.
+func _lights() -> Array:
+	var lights := campfires.duplicate()
+	for b in buildings.values():
+		if b.kind == "torch_post":
+			lights.append(b)
+	return lights
+
+
 func _tick_wolves(delta: float) -> void:
 	var night := is_night()
 	if night:
 		wolf_spawn_timer -= delta
 		if wolf_spawn_timer <= 0.0:
 			wolf_spawn_timer = rng.randf_range(9.0, 16.0)
-			if wolves.size() < mini(1 + day, 6):
+			# Bigger armies draw bigger packs.
+			if wolves.size() < mini(1 + day, 6) + soldiers.size() / 10:
 				var pos := world.random_walkable_near(player.pos, 300.0, 420.0, rng)
 				if pos != Vector2.INF:
 					var wolf: Wolf = Wolf.new()
@@ -490,12 +524,42 @@ func _tick_wolves(delta: float) -> void:
 					if not howled_tonight:
 						howled_tonight = true
 						hud.toast("A howl rolls across the island…")
+	var lights := _lights()
 	for wolf in wolves.duplicate():
-		if wolf.tick(delta, player.pos, campfires, night):
-			_hurt(Wolf.BITE_DAMAGE, "wolves")
+		# Each wolf goes for whoever is closest: you or one of your soldiers.
+		var target_pos := player.pos
+		var victim: Soldier = null
+		var best: float = wolf.pos.distance_to(player.pos)
+		for soldier in soldiers:
+			if not soldier.dead:
+				var d: float = wolf.pos.distance_to(soldier.pos)
+				if d < best:
+					best = d
+					target_pos = soldier.pos
+					victim = soldier
+		if wolf.tick(delta, target_pos, lights, night):
+			if victim == null:
+				_hurt(Wolf.BITE_DAMAGE, "wolves")
+			elif victim.hurt(Wolf.BITE_DAMAGE):
+				_on_soldier_fallen(victim)
+		# A wolf pressed against your walls gnaws through them.
+		if night and buildings.has(wolf.blocked_cell):
+			var b: Structure = buildings[wolf.blocked_cell]
+			var rate := 4.0 if b.kind == "stone_wall" else 12.0
+			if b.damage(rate * delta):
+				hud.toast("Wolves broke through your %s!" % b.display_name().to_lower())
+				_remove_structure(b.cell)
 		if not night and wolf.pos.distance_to(player.pos) > 450.0:
 			wolves.erase(wolf)
 			wolf.queue_free()
+
+
+func _kill_wolf(wolf: Wolf, by_army: bool) -> void:
+	wolves.erase(wolf)
+	var fall_time: float = wolf.die()
+	get_tree().create_timer(fall_time + 1.0).timeout.connect(wolf.queue_free)
+	player.add_item("raw_meat", 2)
+	hud.toast("Your soldiers bring down a wolf. +2 raw meat" if by_army else "The wolf falls. +2 raw meat")
 
 
 # ---------- Actions ----------
@@ -523,6 +587,10 @@ func _interact() -> void:
 	var fire := _nearest(campfires, pos, 26.0)
 	if fire != null:
 		_use_fire(fire)
+		return
+	var building := _nearest(buildings.values(), pos, 24.0)
+	if building != null:
+		_use_building(building)
 		return
 	var cell := world.find_prop_near(pos, INTERACT_RADIUS)
 	if cell != World.NO_CELL:
@@ -634,11 +702,7 @@ func _attack() -> void:
 		if wolf.pos.distance_to(player.pos) <= reach:
 			wolf.hurt(damage, player.pos)
 			if wolf.hp <= 0:
-				wolves.erase(wolf)
-				var fall_time: float = wolf.die()
-				get_tree().create_timer(fall_time + 1.0).timeout.connect(wolf.queue_free)
-				player.add_item("raw_meat", 2)
-				hud.toast("The wolf falls. +2 raw meat")
+				_kill_wolf(wolf, false)
 
 
 func _eat() -> void:
@@ -784,6 +848,9 @@ func _update_hint() -> void:
 	var trace := _nearest(traces, pos, 22.0)
 	var fire := _nearest(campfires, pos, 26.0)
 	var cell := world.find_prop_near(pos, INTERACT_RADIUS)
+	var building := _nearest(buildings.values(), pos, 24.0)
+	if build_mode:
+		return  # the build bar uses the hint line
 	if trace != null:
 		var t: Trace = trace
 		hint = {"note": "E: read the note", "grave": "E: read the grave", "stash": "E: open the stash",
@@ -796,6 +863,8 @@ func _update_hint() -> void:
 			hint = "E: cook meat"
 		elif player.count("wood") > 0:
 			hint = "E: add wood to the fire"
+	elif building != null:
+		hint = _building_hint(building)
 	elif cell != World.NO_CELL:
 		hint = {"tree": "E: chop tree", "rock": "E: break rock", "bush": "E: pick berries"}.get(world.prop_type(cell), "")
 	elif is_night() and not _near_lit_fire(pos) and player.torch_time <= 0.0:
@@ -812,7 +881,355 @@ func _refresh_hud() -> void:
 		inv += "\nSpear"
 	if player.torch_time > 0.0:
 		inv += ("   " if player.has_spear else "\n") + "Torch %ds" % int(player.torch_time)
+	if not soldiers.is_empty() or _count("barracks") > 0:
+		inv += "\nArmy %d / %d  ·  %s (T)" % [soldiers.size(), _army_capacity(),
+			"following" if army_mode == "follow" else "guarding"]
 	hud.update_stats([player.health, player.hunger, player.warmth, player.sanity], day, time_label(), inv)
+
+
+# ---------- Building ----------
+
+func _count(kind: String) -> int:
+	var n := 0
+	for b in buildings.values():
+		if b.kind == kind:
+			n += 1
+	return n
+
+
+func _torch_posts() -> Array:
+	var posts := []
+	for b in buildings.values():
+		if b.kind == "torch_post":
+			posts.append(b)
+	return posts
+
+
+func _add_structure(kind: String, cell: Vector2i, hp: float = -1.0, items: Dictionary = {}) -> Structure:
+	var b: Structure = Structure.new()
+	b.setup(world, kind, cell)
+	if hp > 0.0:
+		b.hp = minf(hp, Structure.max_hp(kind))
+	b.items = items
+	entities.add_child(b)
+	buildings[cell] = b
+	world.add_structure(cell, kind)
+	return b
+
+
+func _remove_structure(cell: Vector2i) -> void:
+	if buildings.has(cell):
+		buildings[cell].queue_free()
+		buildings.erase(cell)
+	world.remove_structure(cell)
+
+
+func _set_build_mode(on: bool) -> void:
+	build_mode = on
+	if not on and _ghost:
+		_ghost.queue_free()
+		_ghost = null
+		_ghost_key = ""
+	if on:
+		hud.toast("Build mode: aim with the mouse, click or E to build, X to demolish, B to finish.")
+
+
+## Handles keys and clicks in build mode. Returns true if the event was used.
+func _build_input(event: InputEvent) -> bool:
+	var key := event as InputEventKey
+	if key and key.pressed and not key.echo:
+		var n: int = key.physical_keycode - KEY_1
+		if n >= 0 and n < Structure.ORDER.size():
+			build_index = n
+			return true
+	var click := event as InputEventMouseButton
+	if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT:
+		_try_build(Structure.ORDER[build_index], _build_target())
+		return true
+	if event.is_action_pressed("interact"):
+		_try_build(Structure.ORDER[build_index], _build_target())
+		return true
+	if event.is_action_pressed("demolish"):
+		_demolish(_build_target())
+		return true
+	if event.is_action_pressed("build") or event.is_action_pressed("menu"):
+		_set_build_mode(false)
+		return true
+	return false
+
+
+## The tile under the mouse, if it's close enough; otherwise the tile in front of you.
+func _build_target() -> Vector2i:
+	var here := world.cell_of(player.pos)
+	var mouse := get_viewport().get_mouse_position()
+	var origin := camera.project_ray_origin(mouse)
+	var dir := camera.project_ray_normal(mouse)
+	if absf(dir.y) > 0.001:
+		var t := (player.position.y - origin.y) / dir.y
+		if t > 0.0:
+			var hit := origin + dir * t
+			var cell := world.cell_of(Vector2(hit.x, hit.z) * World.TILE)
+			if cell != here and maxi(absi(cell.x - here.x), absi(cell.y - here.y)) <= BUILD_RANGE:
+				return cell
+	return world.cell_of(player.pos + player.facing * World.TILE * 1.2)
+
+
+func _build_problem(kind: String, cell: Vector2i) -> String:
+	if cell == world.cell_of(player.pos):
+		return "You're standing there."
+	if not world.can_build(cell):
+		return "You can't build there."
+	if kind == "torch_post" and _count("torch_post") >= MAX_TORCH_POSTS:
+		return "You have the most torch posts allowed (%d)." % MAX_TORCH_POSTS
+	if not player.can_afford(Structure.info(kind)["cost"]):
+		return "Needs %s." % _items_text(Structure.info(kind)["cost"])
+	return ""
+
+
+func _try_build(kind: String, cell: Vector2i) -> bool:
+	var problem := _build_problem(kind, cell)
+	if problem != "":
+		hud.toast(problem)
+		return false
+	player.pay(Structure.info(kind)["cost"])
+	_add_structure(kind, cell)
+	if kind == "tent":
+		home = world.cell_center(cell)
+		hud.toast("Tent pitched. You'll wake here if you fall.")
+	_save_timer = SAVE_INTERVAL - 1.0  # save within a second
+	return true
+
+
+func _demolish(cell: Vector2i) -> void:
+	if not buildings.has(cell):
+		hud.toast("There's nothing you built there.")
+		return
+	var b: Structure = buildings[cell]
+	var cost: Dictionary = Structure.info(b.kind)["cost"]
+	for item in cost:
+		player.add_item(item, int(cost[item]) / 2)
+	for item in b.items:
+		player.add_item(item, int(b.items[item]))
+	hud.toast("You take down the %s and get some materials back." % b.display_name().to_lower())
+	_remove_structure(cell)
+	_save_timer = SAVE_INTERVAL - 1.0
+
+
+func _update_build_preview() -> void:
+	if not build_mode:
+		return
+	var kind: String = Structure.ORDER[build_index]
+	var cell := _build_target()
+	var problem := _build_problem(kind, cell)
+	var key := "%s:%s" % [kind, problem == ""]
+	if key != _ghost_key:
+		if _ghost:
+			_ghost.queue_free()
+		var g: Structure = Structure.new()
+		g.setup(world, kind, cell)
+		add_child(g)
+		g.make_ghost(problem == "")
+		_ghost = g
+		_ghost_key = key
+	_ghost.position = world.to_3d(world.cell_center(cell))
+	var names := PackedStringArray()
+	for i in Structure.ORDER.size():
+		var n: String = Structure.info(Structure.ORDER[i])["name"]
+		names.append(("[%d %s]" if i == build_index else "%d %s") % [i + 1, n])
+	var info: Dictionary = Structure.info(kind)
+	hud.set_hint("%s\n%s: %s. %s  %s" % [
+		"  ".join(names), info["name"], _items_text(info["cost"]), info["about"],
+		problem if problem != "" else "Click or E to build · X demolish · B done"])
+
+
+func _building_hint(b: Structure) -> String:
+	var damaged: bool = b.hp < Structure.max_hp(b.kind) - 1.0
+	match b.kind:
+		"chest":
+			return "E: open the chest"
+		"tent":
+			return "E: sleep until morning" if is_night() else "E: rest at your tent"
+		"barracks":
+			return "E: recruit soldiers (%d / %d)" % [soldiers.size(), _army_capacity()]
+	if damaged:
+		return "E: repair the %s (%d%%)" % [b.display_name().to_lower(), int(100.0 * b.hp / Structure.max_hp(b.kind))]
+	return ""
+
+
+func _use_building(b: Structure) -> void:
+	match b.kind:
+		"chest":
+			_open_chest(b)
+			return
+		"tent":
+			home = b.pos
+			if is_night():
+				hud.open_dialog("Sleep until morning?",
+					"You crawl into your tent. Your soldiers keep watch.",
+					PackedStringArray(["Sleep", "Stay up"]), _on_sleep_choice)
+			else:
+				hud.toast("Your tent. You'll wake here if you fall. Come back at night to sleep.")
+			return
+		"barracks":
+			_open_barracks()
+			return
+	var max_hp := Structure.max_hp(b.kind)
+	if b.hp >= max_hp - 1.0:
+		hud.toast("The %s is in good shape." % b.display_name().to_lower())
+		return
+	var material := "stone" if b.kind == "stone_wall" else "wood"
+	if player.count(material) < 1:
+		hud.toast("Repairs need 1 %s." % material)
+		return
+	player.add_item(material, -1)
+	b.repair(max_hp * 0.4)
+	hud.toast("You patch up the %s." % b.display_name().to_lower())
+
+
+func _on_sleep_choice(choice: int, _text: String) -> void:
+	if choice != 0:
+		return
+	clock = DAY_LENGTH - 0.01  # dawn arrives on the next frame
+	player.warmth = 100.0
+	player.sanity = minf(player.sanity + 20.0, 100.0)
+	player.hunger = maxf(player.hunger - 15.0, 0.0)
+	for wolf in wolves:
+		wolf.queue_free()
+	wolves.clear()
+	hud.toast("You sleep through the night.")
+
+
+func _open_chest(b: Structure) -> void:
+	var stored: String = _items_text(b.items) if not b.items.is_empty() else "nothing"
+	hud.open_dialog("Storage chest", "In the chest: %s." % stored,
+		PackedStringArray(["Store everything", "Take everything", "Close"]), _on_chest_choice.bind(b))
+
+
+func _on_chest_choice(choice: int, _text: String, b: Structure) -> void:
+	if not is_instance_valid(b):
+		return
+	if choice == 0:
+		_chest_store(b)
+		hud.toast("You put everything in the chest.")
+	elif choice == 1:
+		_chest_take(b)
+		hud.toast("You take everything from the chest.")
+	_save_timer = SAVE_INTERVAL - 1.0
+
+
+func _chest_store(b: Structure) -> void:
+	for item in player.inventory:
+		var n := player.count(item)
+		if n > 0:
+			b.items[item] = int(b.items.get(item, 0)) + n
+			player.inventory[item] = 0
+
+
+func _chest_take(b: Structure) -> void:
+	for item in b.items:
+		if ITEM_NAMES.has(item):
+			player.add_item(item, int(b.items[item]))
+	b.items = {}
+
+
+# ---------- Army ----------
+
+func _army_capacity() -> int:
+	return mini(Soldier.MAX_ARMY, Soldier.PER_BARRACKS * _count("barracks"))
+
+
+func _open_barracks() -> void:
+	hud.open_dialog("Barracks",
+		"Your army: %d of %d (each barracks houses %d, up to %d in all).\n\nRecruit a soldier for %s." % [
+			soldiers.size(), _army_capacity(), Soldier.PER_BARRACKS, Soldier.MAX_ARMY, _items_text(RECRUIT_COST)],
+		PackedStringArray(["Recruit 1", "Recruit 5", "Recruit 10", "Close"]), _on_barracks_choice)
+
+
+func _on_barracks_choice(choice: int, _text: String) -> void:
+	var wanted: int = [1, 5, 10, 0][clampi(choice, 0, 3)] if choice >= 0 else 0
+	if wanted > 0:
+		var got := _recruit(wanted)
+		if got > 0:
+			hud.toast("%d soldier%s joined your army." % [got, "" if got == 1 else "s"])
+
+
+## Recruits up to `n` soldiers. Returns how many joined.
+func _recruit(n: int) -> int:
+	var barracks: Structure = _nearest(buildings.values().filter(func(b): return b.kind == "barracks"), player.pos, 99999.0)
+	if barracks == null:
+		hud.toast("Build a barracks first.")
+		return 0
+	var joined := 0
+	for i in n:
+		if soldiers.size() >= _army_capacity():
+			hud.toast("No room: build another barracks (each houses %d)." % Soldier.PER_BARRACKS)
+			break
+		if not player.can_afford(RECRUIT_COST):
+			hud.toast("Each soldier needs %s." % _items_text(RECRUIT_COST))
+			break
+		player.pay(RECRUIT_COST)
+		var spot := world.random_walkable_near(barracks.pos, 16.0, 40.0, rng)
+		_spawn_soldier(spot if spot != Vector2.INF else player.pos, Soldier.MAX_HP, army_mode, player.pos)
+		joined += 1
+	if joined > 0:
+		_save_timer = SAVE_INTERVAL - 1.0
+	return joined
+
+
+func _spawn_soldier(pos: Vector2, hp: float, mode: String, guard_point: Vector2) -> Soldier:
+	var s: Soldier = Soldier.new()
+	s.world = world
+	s.pos = pos
+	s.hp = clampf(hp, 1.0, Soldier.MAX_HP)
+	s.mode = "guard" if mode == "guard" else "follow"
+	s.guard_point = guard_point
+	s.slot = soldiers.size()
+	entities.add_child(s)
+	soldiers.append(s)
+	return s
+
+
+func _toggle_army_mode() -> void:
+	if soldiers.is_empty():
+		hud.toast("You have no soldiers yet. Build a barracks (B, then 7) and recruit some.")
+		return
+	army_mode = "guard" if army_mode == "follow" else "follow"
+	for s in soldiers:
+		s.mode = army_mode
+		s.guard_point = player.pos
+	hud.toast("Your army guards this spot." if army_mode == "guard" else "Your army follows you.")
+	_save_timer = SAVE_INTERVAL - 1.0
+
+
+func _tick_army(delta: float) -> void:
+	for s in soldiers:
+		var killed: Wolf = s.tick(delta, player.pos, player.facing, wolves)
+		if killed != null and wolves.has(killed):
+			_kill_wolf(killed, true)
+		s.set_shown(s.pos.distance_to(player.pos) < Soldier.DRAW_DISTANCE)
+
+
+func _on_soldier_fallen(s: Soldier) -> void:
+	soldiers.erase(s)
+	for i in soldiers.size():
+		soldiers[i].slot = i
+	get_tree().create_timer(3.0).timeout.connect(s.queue_free)
+	hud.toast("One of your soldiers has fallen.")
+
+
+func _export_structures() -> Array:
+	var out := []
+	for b in buildings.values():
+		out.append([b.cell.x, b.cell.y, b.kind, snappedf(b.hp, 0.1), b.items])
+	return out
+
+
+func _export_soldiers() -> Array:
+	var out := []
+	for s in soldiers:
+		out.append([snappedf(s.pos.x, 0.1), snappedf(s.pos.y, 0.1), snappedf(s.hp, 0.1), s.mode,
+			snappedf(s.guard_point.x, 0.1), snappedf(s.guard_point.y, 0.1)])
+	return out
 
 
 # ---------- Death ----------
@@ -1146,6 +1563,9 @@ func save_game(respawn: bool = false, upload: bool = false) -> void:
 		"fires": fires,
 		"bags": bags,
 		"read": _read_ids.keys(),
+		"structures": _export_structures(),
+		"soldiers": _export_soldiers(),
+		"army_mode": army_mode,
 		"player": {
 			"pos": [player.pos.x, player.pos.y],
 			"facing": [player.facing.x, player.facing.y],
@@ -1240,6 +1660,17 @@ func _apply_save(save: Dictionary) -> bool:
 	for b in save.get("bags", []):
 		if typeof(b) == TYPE_DICTIONARY:
 			_spawn_trace(b)
+	for st in save.get("structures", []):
+		if typeof(st) == TYPE_ARRAY and st.size() >= 4 and Structure.TYPES.has(str(st[2])):
+			var cell := Vector2i(int(st[0]), int(st[1]))
+			if world.can_build(cell):
+				var items: Variant = st[4] if st.size() > 4 else {}
+				_add_structure(str(st[2]), cell, float(st[3]), items if typeof(items) == TYPE_DICTIONARY else {})
+	army_mode = "guard" if str(save.get("army_mode", "follow")) == "guard" else "follow"
+	for so in save.get("soldiers", []):
+		if typeof(so) == TYPE_ARRAY and so.size() >= 6 and soldiers.size() < Soldier.MAX_ARMY:
+			_spawn_soldier(Vector2(float(so[0]), float(so[1])), float(so[2]), str(so[3]),
+				Vector2(float(so[4]), float(so[5])))
 	return true
 
 
