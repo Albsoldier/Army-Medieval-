@@ -27,6 +27,8 @@ last-light/
     scripts/main.gd       game loop, rules, crafting, day/night, death
     scripts/world.gd      island generated from the daily seed: 3D terrain, water, props
     scripts/art.gd        helpers for the low-poly models
+    scripts/character_model.gd  loads, sizes and animates the rigged characters
+    models/               survivor and wolf models (CC0, by Quaternius: see models/CREDITS.md)
     scripts/player.gd     stats, inventory, movement
     scripts/campfire.gd   warmth, light, cooking
     scripts/wolf.gd       night predators

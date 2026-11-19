@@ -34,6 +34,10 @@ func _run() -> void:
 	main.clock = 240.0 * 0.25
 	await _frames(40)
 	await _shot("2-day")
+	main.zoom = 0.55
+	await _frames(40)
+	await _shot("2b-day-close")
+	main.zoom = 1.0
 
 	# Build a camp and wait for dusk.
 	main.player.add_item("wood", 20)
@@ -51,18 +55,28 @@ func _run() -> void:
 	main._spawn_trace({"id": "a", "kind": "grave", "x": p.x + 40, "y": p.y - 10, "player_name": "Ada", "days": 3, "text": "Build the fire first."})
 	main._spawn_trace({"id": "b", "kind": "note", "x": p.x - 36, "y": p.y + 20, "player_name": "Bo", "text": "Berries to the east."})
 	main._spawn_trace({"id": "c", "kind": "stash", "x": p.x + 10, "y": p.y + 44, "player_name": "Cy", "items": {"wood": 3}})
+	# A wolf held still at the edge of the firelight (not added to the game's
+	# wolf list, so it doesn't run off before the picture is taken).
 	var wolf = load("res://scripts/wolf.gd").new()
 	wolf.world = main.world
-	wolf.pos = main.world.random_walkable_near(p, 60.0, 90.0, main.rng)
-	if wolf.pos != Vector2.INF:
-		main.entities.add_child(wolf)
-		main.wolves.append(wolf)
+	wolf.pos = p + Vector2(-34, 30)
+	wolf.facing = (p - wolf.pos).normalized()
+	main.entities.add_child(wolf)
+	await _frames(2)
+	wolf._model.rotation.y = atan2(wolf.facing.x, wolf.facing.y)
+	wolf._body.play("idle")
 	await _frames(30)
 	await _shot("4-night")
 
 	main.zoom = 0.6
 	await _frames(30)
 	await _shot("5-night-close")
+
+	# Daylight close-up of the wolf, for checking its size and look.
+	main.clock = 240.0 * 0.3
+	main._update_lighting()
+	await _frames(20)
+	await _shot("6-wolf-day")
 	print("Screenshots written to ", _dir)
 	quit(0)
 

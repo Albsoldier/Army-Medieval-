@@ -44,6 +44,17 @@ func _run_game() -> void:
 	_check(world.props.size() > 300, "island has props (%d)" % world.props.size())
 	_check(world.is_walkable(main.player.pos), "player spawns on walkable ground")
 	_check(world.get_node_or_null("Terrain") != null, "3D terrain built")
+	var body = main.player._body
+	_check(body.anim != null, "survivor model has animations")
+	for action in ["idle", "run", "punch", "slash", "death"]:
+		_check(body.has_action(action), "survivor can play '%s'" % action)
+	var wolf = load("res://scripts/wolf.gd").new()
+	wolf.world = world
+	wolf.pos = main.player.pos + Vector2(200, 0)
+	main.entities.add_child(wolf)
+	for action in ["run", "attack", "death"]:
+		_check(wolf._body.has_action(action), "wolf can play '%s'" % action)
+	wolf.queue_free()
 	var ground: float = world.height_at(main.player.pos)
 	_check(ground > -0.5 and ground < 6.0, "spawn height looks sane (%.2f m)" % ground)
 

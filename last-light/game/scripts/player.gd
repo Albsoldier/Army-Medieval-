@@ -21,42 +21,49 @@ var facing := Vector2.DOWN
 var hurt_flash := 0.0
 var swing_time := 0.0
 
-var _model: Node3D
-var _cloak: StandardMaterial3D
+const CharacterModel = preload("res://scripts/character_model.gd")
+const SURVIVOR := preload("res://models/survivor.glb")
+
+var dead := false
+var _model: Node3D  # turns to face the walking direction
+var _body: CharacterModel
+var _right_hand: Node3D
+var _left_hand: Node3D
 var _spear: Node3D
 var _torch: Node3D
 var _torch_light: OmniLight3D
 var _moving := false
-var _step := 0.0
 
 
 func _ready() -> void:
 	_model = Node3D.new()
 	add_child(_model)
-	# Model faces +Z; the whole model turns to face the walking direction.
-	var body := Art.part(_model, Art.capsule(0.22, 0.85), Color("35507a"), Vector3(0, 0.45, 0))
-	_cloak = body.material_override
-	Art.part(_model, Art.box(Vector3(0.32, 0.36, 0.16)), Color("6b4a2b"), Vector3(0, 0.6, -0.2))  # pack
-	Art.part(_model, Art.sphere(0.17, 5, 10), Color("e8d3a8"), Vector3(0, 1.0, 0))
-	Art.part(_model, Art.cylinder(0.0, 0.21, 0.28, 8), Color("2b4266"), Vector3(0, 1.2, -0.02))  # hood
-	Art.part(_model, Art.sphere(0.028, 2, 4), Color("1a1a1a"), Vector3(0.06, 1.02, 0.15))
-	Art.part(_model, Art.sphere(0.028, 2, 4), Color("1a1a1a"), Vector3(-0.06, 1.02, 0.15))
+	_body = CharacterModel.new()
+	_model.add_child(_body)
+	_body.build(SURVIVOR, 1.62, false, {
+		"idle": ["Man_Idle"],
+		"walk": ["Man_Walk"],
+		"run": ["Man_Run"],
+		"punch": ["Man_Punch"],
+		"slash": ["Man_SwordSlash"],
+		"death": ["Man_Death"],
+	}, {"Shirt": {"color": Color("3b4f35")}})  # a dark green field jacket
+	_right_hand = _body.bone_follower("Palm.R")
+	_left_hand = _body.bone_follower("Palm.L")
 
-	# Spear, held at the right side and pointing forward.
+	# Spear and torch follow the hands but keep their own size and direction.
 	_spear = Node3D.new()
-	_spear.position = Vector3(-0.27, 0.55, 0.0)
-	_spear.rotation = Vector3(PI / 2 - 0.25, 0, 0)
-	_model.add_child(_spear)
-	Art.part(_spear, Art.cylinder(0.022, 0.022, 1.5, 5), Color("caa472"), Vector3(0, 0.35, 0))
-	Art.part(_spear, Art.cylinder(0.0, 0.05, 0.18, 5), Color("c9ccd1"), Vector3(0, 1.17, 0))
+	_spear.top_level = true
+	add_child(_spear)
+	Art.part(_spear, Art.cylinder(0.022, 0.022, 1.6, 5), Color("caa472"), Vector3(0, 0.3, 0))
+	Art.part(_spear, Art.cylinder(0.0, 0.05, 0.2, 5), Color("c9ccd1"), Vector3(0, 1.2, 0))
 	_spear.visible = false
 
-	# Torch in the left hand, with its own light.
 	_torch = Node3D.new()
-	_torch.position = Vector3(0.28, 0.55, 0.12)
-	_model.add_child(_torch)
-	Art.part(_torch, Art.cylinder(0.03, 0.025, 0.5, 5), Color("6b4a2b"), Vector3(0, 0.15, 0))
-	Art.part(_torch, Art.sphere(0.07, 3, 6), Color(1.0, 0.65, 0.2), Vector3(0, 0.45, 0), Vector3.ZERO, 4.0, true)
+	_torch.top_level = true
+	add_child(_torch)
+	Art.part(_torch, Art.cylinder(0.03, 0.025, 0.55, 5), Color("6b4a2b"), Vector3(0, 0.12, 0))
+	Art.part(_torch, Art.sphere(0.08, 3, 6), Color(1.0, 0.65, 0.2), Vector3(0, 0.44, 0), Vector3.ZERO, 4.0, true)
 	_torch_light = Art.omni(Color(1.0, 0.72, 0.4), TORCH_RADIUS / World.TILE * 1.3, 2.2)
 	_torch_light.position = Vector3(0, 0.6, 0)
 	_torch.add_child(_torch_light)
@@ -64,13 +71,13 @@ func _ready() -> void:
 
 	# A faint glow so you can always see yourself at night.
 	var glow := Art.omni(Color(0.6, 0.7, 1.0), 2.6, 0.35)
-	glow.position = Vector3(0, 1.6, 0)
+	glow.position = Vector3(0, 1.9, 0)
 	add_child(glow)
 	position = world.to_3d(pos)
 
 
 func move(dir: Vector2, delta: float) -> void:
-	_moving = dir != Vector2.ZERO
+	_moving = dir != Vector2.ZERO and not dead
 	if not _moving:
 		return
 	facing = dir.normalized()
@@ -87,21 +94,27 @@ func tick_visuals(delta: float) -> void:
 	hurt_flash = maxf(hurt_flash - delta, 0.0)
 	swing_time = maxf(swing_time - delta, 0.0)
 	position = world.to_3d(pos)
-	_model.rotation.y = lerp_angle(_model.rotation.y, atan2(facing.x, facing.y), minf(delta * 14.0, 1.0))
-	if _moving:
-		_step += delta * 13.0
-		_model.position.y = absf(sin(_step)) * 0.07
-	else:
-		_model.position.y = move_toward(_model.position.y, 0.0, delta)
+	_model.rotation.y = lerp_angle(_model.rotation.y, atan2(facing.x, facing.y), minf(delta * 12.0, 1.0))
+	_body.tick(delta)
+	if not dead:
+		_body.play("run" if _moving else "idle")
 	_moving = false
-	_cloak.albedo_color = Color(0.9, 0.3, 0.3) if hurt_flash > 0.0 else Color("35507a")
+	_body.flash(hurt_flash > 0.0)
 
-	_spear.visible = has_spear
-	_spear.position.z = 0.3 if swing_time > 0.0 else 0.0
-	_model.position.z = 0.12 if swing_time > 0.0 and not has_spear else 0.0
-	_torch.visible = torch_time > 0.0
-	if _torch.visible:
+	var turn := Basis(Vector3.UP, _model.rotation.y)
+	_spear.visible = has_spear and not dead
+	if _spear.visible and _right_hand:
+		# Held low and pointing forward, tipped slightly up.
+		_spear.global_transform = Transform3D(turn * Basis(Vector3.RIGHT, PI / 2 - 0.3), _right_hand.global_position)
+	_torch.visible = torch_time > 0.0 and not dead
+	if _torch.visible and _left_hand:
+		_torch.global_transform = Transform3D(turn, _left_hand.global_position)
 		_torch_light.light_energy = 2.2 + sin(Time.get_ticks_msec() / 90.0) * 0.15
+
+
+func die() -> void:
+	dead = true
+	_body.play_once("death")
 
 
 func count(item: String) -> int:
@@ -126,3 +139,5 @@ func pay(cost: Dictionary) -> void:
 
 func swing() -> void:
 	swing_time = 0.15
+	if not dead:
+		_body.play_once("slash" if has_spear else "punch", 1.6)
