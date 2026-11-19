@@ -1,6 +1,6 @@
 # 🔥 Last Light
 
-A survival game made with Godot, set on a shared island. A new island washes up every day at midnight UTC, and every player gets the same one. You never meet other survivors, but you find what they left: graves with epitaphs, notes, abandoned campfires and stashes of supplies. When you die, your grave stays on the island for everyone who plays that day.
+A low-poly 3D survival game made with Godot, set on a shared island. A new island washes up every day at midnight UTC, and every player gets the same one. You never meet other survivors, but you find what they left: graves with epitaphs, notes, abandoned campfires and stashes of supplies. When you die, your grave stays on the island for everyone who plays that day.
 
 ## How it plays
 
@@ -15,7 +15,7 @@ A survival game made with Godot, set on a shared island. A new island washes up 
   - Press `N` to leave a note and `G` to leave half your supplies as a stash.
 - **Leaderboard.** When you die you see the longest survivors on today's island.
 
-Controls: WASD/arrows to move, `E` (hold) to gather or use, `Space`/click to attack, `F` to eat, `H` to show or hide help.
+Controls: WASD/arrows to move, mouse wheel to zoom, `E` (hold) to gather or use, `Space`/click to attack, `F` to eat, `H` to show or hide help.
 
 Without a server configured, the game runs offline: the island and survival work, but there are no traces and no leaderboard.
 
@@ -25,7 +25,8 @@ Without a server configured, the game runs offline: the island and survival work
 last-light/
   game/                 Godot 4.4 project (GL Compatibility renderer, so it runs on the web)
     scripts/main.gd       game loop, rules, crafting, day/night, death
-    scripts/world.gd      island generated from the daily seed, harvestable props
+    scripts/world.gd      island generated from the daily seed: 3D terrain, water, props
+    scripts/art.gd        helpers for the low-poly models
     scripts/player.gd     stats, inventory, movement
     scripts/campfire.gd   warmth, light, cooking
     scripts/wolf.gd       night predators
@@ -33,6 +34,7 @@ last-light/
     scripts/hud.gd        interface, built in code
     scripts/api.gd        client for the island server
     tools/smoke_test.gd   headless test run in CI
+    tools/screenshot.gd   renders screenshots in CI (see the ci/last-light-screenshots branch)
   server/               Cloudflare Worker + Turso (the "island server")
     src/app.js            API routes and rules
     src/index.js          Worker entry point

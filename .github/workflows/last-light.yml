@@ -81,6 +81,58 @@ jobs:
           name: last-light-web
           path: last-light/build/web
 
+  screenshots:
+    name: Screenshots
+    # Renders the real game (software OpenGL under a virtual display) so changes to
+    # the visuals can be checked. Images go to the ci/last-light-screenshots branch
+    # and to a workflow artifact. Never blocks a merge.
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Godot ${{ env.GODOT_VERSION }}
+        run: |
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          mkdir -p "$HOME/godot" && cd "$HOME/godot"
+          curl -sSfLo godot.zip "$base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip
+          mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot
+          echo "$HOME/godot" >> "$GITHUB_PATH"
+
+      - name: Install a virtual display and software OpenGL
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libgl1-mesa-dri libgl1 > /dev/null
+
+      - name: Import assets
+        run: godot --headless --path last-light/game --import
+
+      - name: Render screenshots
+        env:
+          SHOT_DIR: ${{ github.workspace }}/shots
+        run: |
+          xvfb-run -a -s "-screen 0 1280x720x24" \
+            godot --path last-light/game --rendering-driver opengl3 --resolution 1280x720 \
+            --script res://tools/screenshot.gd 2>&1 | tee shots.log
+          ls -la shots
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: last-light-screenshots
+          path: shots
+
+      - name: Publish to the ci/last-light-screenshots branch
+        run: |
+          cd shots
+          git init -q -b ci/last-light-screenshots
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          echo "Screenshots of ${GITHUB_SHA} (run ${GITHUB_RUN_ID})" > README.md
+          git add -A && git commit -q -m "Screenshots for ${GITHUB_SHA}"
+          git push -f -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci/last-light-screenshots
+
   deploy:
     name: Deploy to Cloudflare
     needs: [server, game]

@@ -1,5 +1,5 @@
 ## Last Light: game loop, rules and the link between the island and the server.
-extends Node2D
+extends Node3D
 
 const World = preload("res://scripts/world.gd")
 const Player = preload("res://scripts/player.gd")
@@ -27,9 +27,11 @@ var world: World
 var player: Player
 var hud: Hud
 var api: Api
-var camera: Camera2D
-var night_tint: CanvasModulate
-var entities: Node2D
+var camera: Camera3D
+var sun: DirectionalLight3D
+var env: Environment
+var entities: Node3D
+var zoom := 1.0
 
 var seed_value := 0
 var island_name := ""
@@ -60,26 +62,21 @@ func _ready() -> void:
 	add_child(world)
 	world.generate(seed_value)
 
-	entities = Node2D.new()
+	entities = Node3D.new()
 	add_child(entities)
 
 	player = Player.new()
-	player.position = world.cell_center(world.spawn_cell)
+	player.world = world
+	player.pos = world.cell_center(world.spawn_cell)
 	add_child(player)
 
-	camera = Camera2D.new()
-	camera.zoom = Vector2(2.5, 2.5)
-	camera.position_smoothing_enabled = true
-	camera.position_smoothing_speed = 8.0
-	camera.limit_left = 0
-	camera.limit_top = 0
-	camera.limit_right = world.world_size_px()
-	camera.limit_bottom = world.world_size_px()
-	player.add_child(camera)
+	camera = Camera3D.new()
+	camera.fov = 50.0
+	camera.far = 160.0
+	add_child(camera)
 	camera.make_current()
-
-	night_tint = CanvasModulate.new()
-	add_child(night_tint)
+	_setup_environment()
+	_update_camera(1.0)
 
 	hud = Hud.new()
 	add_child(hud)
@@ -214,11 +211,13 @@ func _spawn_trace(d: Dictionary) -> void:
 		var fire: Campfire = Campfire.new()
 		fire.fuel = 0.0
 		fire.owner_name = str(d.get("player_name", "someone"))
-		fire.position = pos
+		fire.world = world
+		fire.pos = pos
 		entities.add_child(fire)
 		campfires.append(fire)
 	elif kind == "grave" or kind == "note" or kind == "stash":
 		var t: Trace = Trace.new()
+		t.world = world
 		t.setup(d)
 		entities.add_child(t)
 		traces.append(t)
@@ -231,7 +230,7 @@ func _process(delta: float) -> void:
 	if started and alive and not hud.is_modal():
 		_advance_clock(delta)
 		var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-		player.move(dir, delta, world)
+		player.move(dir, delta)
 		action_cooldown = maxf(action_cooldown - delta, 0.0)
 		attack_cooldown = maxf(attack_cooldown - delta, 0.0)
 		for fire in campfires:
@@ -241,10 +240,17 @@ func _process(delta: float) -> void:
 		_update_hint()
 		if player.health <= 0.0:
 			_die()
+	_update_camera(delta)
 	_refresh_hud()
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	var wheel := event as InputEventMouseButton
+	if wheel and wheel.pressed:
+		if wheel.button_index == MOUSE_BUTTON_WHEEL_UP:
+			zoom = clampf(zoom - 0.1, 0.55, 1.8)
+		elif wheel.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			zoom = clampf(zoom + 0.1, 0.55, 1.8)
 	if not started or not alive or hud.is_modal():
 		return
 	if event.is_action_pressed("interact", true):
@@ -313,20 +319,65 @@ func _advance_clock(delta: float) -> void:
 	_update_lighting()
 
 
+func _setup_environment() -> void:
+	env = Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.fog_enabled = true
+	env.fog_density = 0.018
+	var world_env := WorldEnvironment.new()
+	world_env.environment = env
+	add_child(world_env)
+
+	sun = DirectionalLight3D.new()
+	sun.shadow_enabled = true
+	sun.directional_shadow_max_distance = 40.0
+	add_child(sun)
+	_update_lighting()
+
+
+## Picks a colour for day (n = 0), dusk/dawn (0.5) or night (1).
+static func _sky_blend(day_color: Color, dusk_color: Color, night_color: Color, n: float) -> Color:
+	if n < 0.5:
+		return day_color.lerp(dusk_color, n * 2.0)
+	return dusk_color.lerp(night_color, (n - 0.5) * 2.0)
+
+
 func _update_lighting() -> void:
 	var n := night_amount()
-	var dusk := Color(1.0, 0.72, 0.55)
-	var night := Color(0.09, 0.1, 0.2)
-	if n < 0.5:
-		night_tint.color = Color.WHITE.lerp(dusk, n * 2.0)
-	else:
-		night_tint.color = dusk.lerp(night, (n - 0.5) * 2.0)
+	var t := clock / DAY_LENGTH
+	# The sun rises in the east, crosses the sky and sets as night falls.
+	# At night the same light becomes a dim, bluish moon.
+	var day_frac := clampf(t / 0.66, 0.0, 1.0)
+	var sun_pitch := -(10.0 + sin(day_frac * PI) * 55.0)
+	var sun_yaw := lerpf(-75.0, 75.0, day_frac)
+	var moon := Vector3(-50.0, 30.0, 0.0)
+	var angles := Vector3(sun_pitch, sun_yaw, 0.0).lerp(moon, clampf((n - 0.5) * 2.0, 0.0, 1.0))
+	sun.rotation_degrees = angles
+	sun.light_color = _sky_blend(Color(1.0, 0.96, 0.88), Color(1.0, 0.6, 0.35), Color(0.55, 0.65, 1.0), n)
+	sun.light_energy = lerpf(1.25, 0.1, n)
+
+	var sky := _sky_blend(Color(0.58, 0.77, 0.94), Color(0.93, 0.56, 0.38), Color(0.02, 0.03, 0.07), n)
+	env.background_color = sky
+	env.fog_light_color = sky
+	env.ambient_light_color = _sky_blend(Color(0.62, 0.66, 0.75), Color(0.6, 0.45, 0.42), Color(0.05, 0.06, 0.12), n)
+	env.ambient_light_energy = 1.0
+
+
+func _update_camera(delta: float) -> void:
+	# Third-person camera behind and above the survivor. Mouse wheel zooms.
+	var target := player.position + Vector3(0, 0.7, 0)
+	var desired := target + Vector3(0, 9.0, 7.5) * zoom
+	var weight := 1.0 if delta >= 1.0 else 1.0 - exp(-delta * 6.0)
+	camera.position = camera.position.lerp(desired, weight)
+	camera.look_at(target)
 
 
 # ---------- Survival ----------
 
 func _tick_survival(delta: float) -> void:
-	var near_fire := _near_lit_fire(player.position)
+	var near_fire := _near_lit_fire(player.pos)
 	var has_torch := player.torch_time > 0.0
 	if has_torch:
 		player.torch_time = maxf(player.torch_time - delta, 0.0)
@@ -369,7 +420,7 @@ func _hurt(amount: float, cause: String) -> void:
 
 func _near_lit_fire(pos: Vector2) -> bool:
 	for fire in campfires:
-		if fire.is_lit() and pos.distance_to(fire.position) < fire.radius:
+		if fire.is_lit() and pos.distance_to(fire.pos) < fire.radius:
 			return true
 	return false
 
@@ -381,30 +432,31 @@ func _tick_wolves(delta: float) -> void:
 		if wolf_spawn_timer <= 0.0:
 			wolf_spawn_timer = rng.randf_range(9.0, 16.0)
 			if wolves.size() < mini(1 + day, 6):
-				var pos := world.random_walkable_near(player.position, 300.0, 420.0, rng)
+				var pos := world.random_walkable_near(player.pos, 300.0, 420.0, rng)
 				if pos != Vector2.INF:
 					var wolf: Wolf = Wolf.new()
-					wolf.position = pos
+					wolf.world = world
+					wolf.pos = pos
 					entities.add_child(wolf)
 					wolves.append(wolf)
 					if not howled_tonight:
 						howled_tonight = true
 						hud.toast("A howl rolls across the island…")
 	for wolf in wolves.duplicate():
-		if wolf.tick(delta, world, player.position, campfires, night):
+		if wolf.tick(delta, player.pos, campfires, night):
 			_hurt(Wolf.BITE_DAMAGE, "wolves")
-		if not night and wolf.position.distance_to(player.position) > 450.0:
+		if not night and wolf.pos.distance_to(player.pos) > 450.0:
 			wolves.erase(wolf)
 			wolf.queue_free()
 
 
 # ---------- Actions ----------
 
-func _nearest(list: Array, pos: Vector2, radius: float) -> Node2D:
-	var best: Node2D = null
+func _nearest(list: Array, pos: Vector2, radius: float) -> Node3D:
+	var best: Node3D = null
 	var best_dist := radius
 	for node in list:
-		var dist := pos.distance_to(node.position)
+		var dist := pos.distance_to(node.pos)
 		if dist < best_dist:
 			best_dist = dist
 			best = node
@@ -415,7 +467,7 @@ func _interact() -> void:
 	if action_cooldown > 0.0:
 		return
 	action_cooldown = 0.3
-	var pos := player.position
+	var pos := player.pos
 	var trace := _nearest(traces, pos, 22.0)
 	if trace != null:
 		_use_trace(trace)
@@ -459,8 +511,7 @@ func _use_trace(t: Trace) -> void:
 	match t.kind:
 		"note":
 			var first := not t.was_read
-			t.was_read = true
-			t.queue_redraw()
+			t.mark_read()
 			var body := "\"%s\"" % t.message()
 			if first:
 				player.sanity = minf(player.sanity + 15.0, 100.0)
@@ -471,7 +522,7 @@ func _use_trace(t: Trace) -> void:
 			if t.message() != "":
 				body += "\n\n\"%s\"" % t.message()
 			if not t.was_read:
-				t.was_read = true
+				t.mark_read()
 				player.sanity = minf(player.sanity + 5.0, 100.0)
 				body += "\n\nYou pay your respects. (+5 sanity)"
 			hud.open_dialog("A grave", body, PackedStringArray(["Close"]), Callable())
@@ -520,8 +571,8 @@ func _attack() -> void:
 	var damage := 2 if player.has_spear else 1
 	var reach := 34.0 if player.has_spear else 24.0
 	for wolf in wolves.duplicate():
-		if wolf.position.distance_to(player.position) <= reach:
-			wolf.hurt(damage, player.position)
+		if wolf.pos.distance_to(player.pos) <= reach:
+			wolf.hurt(damage, player.pos)
 			if wolf.hp <= 0:
 				wolves.erase(wolf)
 				wolf.queue_free()
@@ -556,15 +607,16 @@ func _craft(what: String) -> void:
 		return
 	match what:
 		"campfire":
-			if _nearest(campfires, player.position, 40.0) != null:
+			if _nearest(campfires, player.pos, 40.0) != null:
 				hud.toast("There's already a fire here.")
 				return
-			var pos := player.position + player.facing * 14.0
+			var pos := player.pos + player.facing * 14.0
 			if not world.is_walkable(pos):
-				pos = player.position
+				pos = player.pos
 			player.pay(cost)
 			var fire: Campfire = Campfire.new()
-			fire.position = pos
+			fire.world = world
+			fire.pos = pos
 			entities.add_child(fire)
 			campfires.append(fire)
 			hud.toast("You build a campfire.")
@@ -599,7 +651,7 @@ func _write_note() -> void:
 func _on_note_written(choice: int, text: String) -> void:
 	if choice != 0 or text == "":
 		return
-	var pos := player.position
+	var pos := player.pos
 	api.post_trace(seed_value, "note", pos, text, {}, _on_note_posted.bind(text, pos))
 
 
@@ -612,8 +664,7 @@ func _on_note_posted(ok: bool, data: Variant, text: String, pos: Vector2) -> voi
 		"player_name": api.player_name, "player_id": api.player_id,
 	})
 	var t: Trace = traces.back()
-	t.was_read = true
-	t.queue_redraw()
+	t.mark_read()
 	hud.toast("You leave the note. Someone may find it.")
 
 
@@ -638,7 +689,7 @@ func _on_stash_confirm(choice: int, _text: String, items: Dictionary) -> void:
 	if choice != 0 or not player.can_afford(items):
 		return
 	player.pay(items)
-	var pos := player.position
+	var pos := player.pos
 	api.post_trace(seed_value, "stash", pos, "", items, _on_stash_posted.bind(items, pos))
 
 
@@ -665,7 +716,7 @@ func _items_text(items: Dictionary) -> String:
 # ---------- HUD ----------
 
 func _update_hint() -> void:
-	var pos := player.position
+	var pos := player.pos
 	var hint := ""
 	var trace := _nearest(traces, pos, 22.0)
 	var fire := _nearest(campfires, pos, 26.0)
@@ -715,7 +766,7 @@ func _die() -> void:
 func _on_epitaph(_choice: int, text: String) -> void:
 	var days := day - 1
 	if api.can_post() and run_id != "":
-		api.end_run(run_id, days, player.position, text, last_damage, _on_run_ended)
+		api.end_run(run_id, days, player.pos, text, last_damage, _on_run_ended)
 	else:
 		_show_leaderboard(false, {})
 

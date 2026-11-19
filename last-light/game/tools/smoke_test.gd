@@ -28,7 +28,10 @@ func _run_game() -> void:
 	var world = main.world
 	_check(world.land_tile_count() > 3000, "island has enough land (%d tiles)" % world.land_tile_count())
 	_check(world.props.size() > 300, "island has props (%d)" % world.props.size())
-	_check(world.is_walkable(main.player.position), "player spawns on walkable ground")
+	_check(world.is_walkable(main.player.pos), "player spawns on walkable ground")
+	_check(world.get_node_or_null("Terrain") != null, "3D terrain built")
+	var ground: float = world.height_at(main.player.pos)
+	_check(ground > -0.5 and ground < 6.0, "spawn height looks sane (%.2f m)" % ground)
 
 	# Same seed, same island.
 	var copy = load("res://scripts/world.gd").new()
@@ -51,7 +54,7 @@ func _run_game() -> void:
 	main._craft("spear")
 	_check(main.player.has_spear, "spear crafted")
 	main.player.add_item("raw_meat", 2)
-	main.player.position = main.campfires[0].position + Vector2(10, 0)
+	main.player.pos = main.campfires[0].pos + Vector2(10, 0)
 	main._interact()
 	_check(main.player.count("cooked_meat") == 2, "meat cooked at the fire")
 	main._eat()
