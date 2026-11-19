@@ -2,11 +2,11 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createClient } from "@libsql/client";
-import { handle, dateSeed, DAY_SECONDS } from "../src/app.js";
+import { handle, DAY_SECONDS } from "../src/app.js";
 
 const schema = readFileSync(new URL("../schema.sql", import.meta.url), "utf8");
 const NOW = Date.UTC(2026, 10, 19, 12, 0, 0);
-const TODAY = dateSeed(new Date(NOW));
+const TODAY = 1; // the permanent island
 let db;
 
 beforeEach(async () => {
@@ -51,13 +51,32 @@ test("rejects missing or bad tokens", async () => {
   assert.equal((await call("POST", "/api/runs", { body: { seed: TODAY }, token: "f".repeat(64) })).status, 401);
 });
 
-test("only today's island accepts runs and traces", async () => {
+test("only the permanent island accepts runs and traces", async () => {
   const p = await player("Ada");
   assert.equal((await call("POST", "/api/runs", { body: { seed: TODAY }, token: p.token })).status, 201);
-  assert.equal((await call("POST", "/api/runs", { body: { seed: 20200101 }, token: p.token })).status, 403);
-  assert.equal((await call("POST", "/api/runs", { body: { seed: 20261340 }, token: p.token })).status, 400);
-  // Reading an old island is fine.
-  assert.equal((await call("GET", "/api/islands/20200101/traces")).status, 200);
+  // It stays open: a run months later is still accepted.
+  const later = NOW + 200 * 86400000;
+  assert.equal((await call("POST", "/api/runs", { body: { seed: TODAY }, token: p.token, now: later })).status, 201);
+  // Old daily islands are closed to new writes but can still be read.
+  assert.equal((await call("POST", "/api/runs", { body: { seed: 20261119 }, token: p.token })).status, 403);
+  assert.equal((await call("GET", "/api/islands/20261119/traces")).status, 200);
+  for (const bad of ["0", "abc", "123456789", "-1"]) {
+    assert.equal((await call("GET", `/api/islands/${bad}/traces`)).status, 400, bad);
+  }
+});
+
+test("positions across the whole big island are accepted", async () => {
+  const p = await player("Ada");
+  const far = await call("POST", `/api/islands/${TODAY}/traces`, {
+    token: p.token,
+    body: { kind: "note", x: 15000, y: 9000, text: "Far north camp" },
+  });
+  assert.equal(far.status, 201);
+  const off = await call("POST", `/api/islands/${TODAY}/traces`, {
+    token: p.token,
+    body: { kind: "note", x: 16385, y: 1, text: "off the map" },
+  });
+  assert.equal(off.status, 400);
 });
 
 test("notes, camps and stashes show up for other players", async () => {
@@ -83,7 +102,7 @@ test("notes, camps and stashes show up for other players", async () => {
   assert.equal(empty.status, 400);
   const offMap = await call("POST", `/api/islands/${TODAY}/traces`, {
     token: ada.token,
-    body: { kind: "camp", x: 99999, y: 1 },
+    body: { kind: "camp", x: 999999, y: 1 },
   });
   assert.equal(offMap.status, 400);
   const grave = await call("POST", `/api/islands/${TODAY}/traces`, {

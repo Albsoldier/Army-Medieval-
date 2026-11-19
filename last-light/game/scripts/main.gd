@@ -8,6 +8,12 @@ const Wolf = preload("res://scripts/wolf.gd")
 const Trace = preload("res://scripts/trace.gd")
 const Hud = preload("res://scripts/hud.gd")
 const Api = preload("res://scripts/api.gd")
+const SaveGame = preload("res://scripts/save_game.gd")
+
+const ISLAND_ID := 1  # the permanent island, as the server knows it
+const WORLD_SEED := 20261119  # the island's shape never changes
+const SAVE_INTERVAL := 6.0  # seconds between autosaves
+const CLOUD_INTERVAL := 15.0  # seconds between uploads of the save to the server
 
 const DAY_LENGTH := 240.0  # seconds of real time per in-game day
 const INTERACT_RADIUS := 26.0
@@ -49,18 +55,31 @@ var campfires: Array = []
 var wolves: Array = []
 var traces: Array = []
 var rng := RandomNumberGenerator.new()
+var life_start_day := 1  # the day this survivor woke up
+var home := Vector2.INF  # the last campfire you built: where you wake after dying
+var _resumed := false
+var _save_timer := 0.0
+var _read_ids: Dictionary = {}  # notes and graves already read
 var _auth_retried := false
+var _js_save_callback: Variant = null
+var _last_save: Dictionary = {}
+var _cloud_timer := 0.0
+var _cloud_dirty := false
+var _cloud_busy := false
+var _login_name := ""
+var _new_username := ""
 
 
 func _ready() -> void:
 	_setup_input()
 	rng.randomize()
-	seed_value = seed_override() if seed_override() > 0 else today_seed()
-	island_name = make_island_name(seed_value)
+	seed_value = ISLAND_ID
+	var world_seed := seed_override() if seed_override() > 0 else WORLD_SEED
+	island_name = make_island_name(world_seed)
 
 	world = World.new()
 	add_child(world)
-	world.generate(seed_value)
+	world.generate(world_seed)
 
 	entities = Node3D.new()
 	add_child(entities)
@@ -68,7 +87,9 @@ func _ready() -> void:
 	player = Player.new()
 	player.world = world
 	player.pos = world.cell_center(world.spawn_cell)
+	_resumed = _apply_save(SaveGame.read())
 	add_child(player)
+	world.update_view(player.pos, true)
 
 	camera = Camera3D.new()
 	camera.fov = 50.0
@@ -83,26 +104,29 @@ func _ready() -> void:
 	api = Api.new()
 	add_child(api)
 
-	hud.set_island(island_name, seed_value)
+	hud.set_island(island_name, "a permanent island")
+	_hook_page_unload()
 	_update_lighting()
 	_refresh_hud()
 
 	if api.player_name == "":
-		hud.open_dialog("Last Light",
-			"You wake on the cold sand of %s. Others have washed up here before you, and some never left.\n\nWhat should the island remember you as?" % island_name,
-			PackedStringArray(["Begin"]), _on_name_chosen, "Your name", 20, false)
+		_show_welcome()
 	else:
 		_begin_run()
 
 
+func _show_welcome() -> void:
+	var buttons := PackedStringArray(["Begin"])
+	if api.is_online():
+		buttons.append("I have an account")
+	hud.open_dialog("Last Light",
+		"You wake on the cold sand of %s. Others have washed up here before you, and some never left.\n\nWhat should the island remember you as?" % island_name,
+		buttons, _on_name_chosen, "Your name", 20, false)
+
+
 # ---------- Setup ----------
 
-static func today_seed() -> int:
-	var d := Time.get_datetime_dict_from_system(true)
-	return int(d["year"]) * 10000 + int(d["month"]) * 100 + int(d["day"])
-
-
-## Run with `-- --seed=20261119` to explore a specific island.
+## Run with `-- --seed=12345` to explore a different island shape (offline only makes sense).
 static func seed_override() -> int:
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--seed="):
@@ -130,6 +154,7 @@ func _setup_input() -> void:
 	_bind("write_note", [KEY_N])
 	_bind("leave_stash", [KEY_G])
 	_bind("help", [KEY_H])
+	_bind("menu", [KEY_ESCAPE])
 	if InputMap.action_get_events("attack").size() < 2:
 		var click := InputEventMouseButton.new()
 		click.button_index = MOUSE_BUTTON_LEFT
@@ -146,14 +171,20 @@ func _bind(action: String, keys: Array) -> void:
 		InputMap.action_add_event(action, ev)
 
 
-func _on_name_chosen(_choice: int, text: String) -> void:
+func _on_name_chosen(choice: int, text: String) -> void:
+	if choice == 1:
+		_start_login(true)
+		return
 	api.set_player_name(text if text != "" else "Wanderer")
 	_begin_run()
 
 
 func _begin_run() -> void:
 	started = true
-	hud.toast("Day 1 on %s. Gather wood and stone before nightfall." % island_name)
+	if _resumed:
+		hud.toast("Welcome back. Day %d on %s." % [day, island_name])
+	else:
+		hud.toast("Day %d on %s. Gather wood and stone before nightfall." % [day, island_name])
 	var best := api.local_best(seed_value)
 	if best >= 0:
 		hud.toast("Your best on this island: %d day%s." % [best, "" if best == 1 else "s"])
@@ -169,13 +200,17 @@ func _on_registered(ok: bool) -> void:
 		hud.set_connection("Offline: couldn't reach the island server.")
 		return
 	hud.set_connection("Online as %s" % api.player_name)
-	api.start_run(seed_value, _on_run_started)
+	if run_id == "":
+		api.start_run(seed_value, _on_run_started)
+	api.fetch_account(_on_account_checked)
+	api.fetch_save(_on_cloud_checked)
 	api.fetch_traces(seed_value, _on_traces_loaded)
 
 
 func _on_run_started(ok: bool, data: Variant) -> void:
 	if ok:
 		run_id = str(data.get("run_id", ""))
+		save_game()
 	elif int(data.get("status", 0)) == 401 and not _auth_retried:
 		# The server no longer knows our token; sign up again once.
 		_auth_retried = true
@@ -208,6 +243,8 @@ func _spawn_trace(d: Dictionary) -> void:
 	var kind := str(d.get("kind", ""))
 	var pos := Vector2(float(d.get("x", 0)), float(d.get("y", 0)))
 	if kind == "camp":
+		if _nearest(campfires, pos, 20.0) != null:
+			return  # one of your own fires, already loaded from your save
 		var fire: Campfire = Campfire.new()
 		fire.fuel = 0.0
 		fire.owner_name = str(d.get("player_name", "someone"))
@@ -215,10 +252,11 @@ func _spawn_trace(d: Dictionary) -> void:
 		fire.pos = pos
 		entities.add_child(fire)
 		campfires.append(fire)
-	elif kind == "grave" or kind == "note" or kind == "stash":
+	elif kind == "grave" or kind == "note" or kind == "stash" or kind == "bag":
 		var t: Trace = Trace.new()
 		t.world = world
 		t.setup(d)
+		t.was_read = _read_ids.has(t.trace_id())
 		entities.add_child(t)
 		traces.append(t)
 
@@ -226,7 +264,15 @@ func _spawn_trace(d: Dictionary) -> void:
 # ---------- Main loop ----------
 
 func _process(delta: float) -> void:
+	world.update_view(player.pos)
 	player.tick_visuals(delta)
+	if started and alive:
+		_save_timer += delta
+		if _save_timer >= SAVE_INTERVAL:
+			save_game()
+	_cloud_timer += delta
+	if _cloud_dirty and _cloud_timer >= CLOUD_INTERVAL:
+		_upload_save()
 	if started and alive and not hud.is_modal():
 		_advance_clock(delta)
 		var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
@@ -271,6 +317,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_leave_stash()
 	elif event.is_action_pressed("help"):
 		hud.toggle_help()
+	elif event.is_action_pressed("menu"):
+		_open_menu()
 
 
 # ---------- Time of day ----------
@@ -314,6 +362,7 @@ func _advance_clock(delta: float) -> void:
 		world.regrow(day)
 		player.sanity = minf(player.sanity + 10.0, 100.0)
 		hud.toast("Dawn of day %d. You made it through the night." % day)
+		save_game(false, true)
 	if not was_night and is_night():
 		hud.toast("Night falls. Stay close to a fire.")
 	_update_lighting()
@@ -511,6 +560,7 @@ func _use_trace(t: Trace) -> void:
 		"note":
 			var first := not t.was_read
 			t.mark_read()
+			_read_ids[t.trace_id()] = true
 			var body := "\"%s\"" % t.message()
 			if first:
 				player.sanity = minf(player.sanity + 15.0, 100.0)
@@ -522,9 +572,20 @@ func _use_trace(t: Trace) -> void:
 				body += "\n\n\"%s\"" % t.message()
 			if not t.was_read:
 				t.mark_read()
+				_read_ids[t.trace_id()] = true
 				player.sanity = minf(player.sanity + 5.0, 100.0)
 				body += "\n\nYou pay your respects. (+5 sanity)"
 			hud.open_dialog("A grave", body, PackedStringArray(["Close"]), Callable())
+		"bag":
+			var items := t.items()
+			for item in items:
+				if item == "spear":
+					player.has_spear = true
+				elif ITEM_NAMES.has(item):
+					player.add_item(item, clampi(int(items[item]), 0, 999))
+			hud.toast("You recover your belongings: %s." % _items_text(items))
+			_remove_trace(t)
+			save_game()
 		"stash":
 			if t.is_own(api.player_id):
 				hud.toast("Your own stash. Leave it for someone who needs it.")
@@ -619,7 +680,9 @@ func _craft(what: String) -> void:
 			fire.pos = pos
 			entities.add_child(fire)
 			campfires.append(fire)
-			hud.toast("You build a campfire.")
+			hud.toast("You build a campfire. If you fall, you'll wake here.")
+			home = pos
+			save_game()
 			if api.can_post():
 				api.post_trace(seed_value, "camp", pos, "", {}, Callable())
 		"torch":
@@ -723,7 +786,8 @@ func _update_hint() -> void:
 	var cell := world.find_prop_near(pos, INTERACT_RADIUS)
 	if trace != null:
 		var t: Trace = trace
-		hint = {"note": "E: read the note", "grave": "E: read the grave", "stash": "E: open the stash"}.get(t.kind, "")
+		hint = {"note": "E: read the note", "grave": "E: read the grave", "stash": "E: open the stash",
+			"bag": "E: pick up your belongings"}.get(t.kind, "")
 	elif fire != null:
 		var f: Campfire = fire
 		if not f.is_lit():
@@ -757,15 +821,18 @@ func _die() -> void:
 	alive = false
 	player.die()
 	hud.set_hint("")
-	var days := day - 1
+	var days := day - life_start_day
 	api.record_local_best(seed_value, days)
+	# Save straight away: the survivor wakes at their last campfire, and what
+	# they carried waits in a bag where they fell. Reloading now loses nothing.
+	save_game(true, true)
 	hud.open_dialog("You died on day %d" % day,
-		"Taken by %s. You survived %d full day%s.\n\nYour grave will stay on this island for everyone who plays today. Leave an epitaph:" % [last_damage, days, "" if days == 1 else "s"],
+		"Taken by %s. This survivor lived %d full day%s.\n\nYour belongings wait in a bag where you fell, and you'll wake at your last campfire. Your grave stays on the island for everyone to find. Leave an epitaph:" % [last_damage, days, "" if days == 1 else "s"],
 		PackedStringArray(["Rest"]), _on_epitaph, "Here lies…", 100, false)
 
 
 func _on_epitaph(_choice: int, text: String) -> void:
-	var days := day - 1
+	var days := day - life_start_day
 	if api.can_post() and run_id != "":
 		api.end_run(run_id, days, player.pos, text, last_damage, _on_run_ended)
 	else:
@@ -785,12 +852,424 @@ func _show_leaderboard(ok: bool, data: Variant) -> void:
 			lines.append("%d.  %s  —  %d day%s" % [rank, str(e.get("name", "?")), int(e.get("days", 0)), "" if int(e.get("days", 0)) == 1 else "s"])
 			rank += 1
 	else:
-		lines.append("No one else is listed yet." if api.is_online() else "Offline: you were alone on this island.")
+		lines.append("No one else is listed yet." if api.is_online() else "Offline: no leaderboard without the island server.")
 	lines.append("")
-	lines.append("Your best here: %d day%s." % [api.local_best(seed_value), "" if api.local_best(seed_value) == 1 else "s"])
-	lines.append("A new island washes up every day at midnight UTC.")
+	lines.append("Your longest life here: %d day%s." % [api.local_best(seed_value), "" if api.local_best(seed_value) == 1 else "s"])
 	hud.open_dialog("Longest survivors on %s" % island_name, "\n".join(lines), PackedStringArray(["Wake again"]), _restart, "", 0, false)
 
 
 func _restart(_choice: int, _text: String) -> void:
 	get_tree().reload_current_scene()
+
+
+# ---------- Cloud saves and accounts ----------
+
+## True if a save is a real game for this island (not empty or a "start over" marker).
+func _save_fits(save: Variant) -> bool:
+	return typeof(save) == TYPE_DICTIONARY and save.has("player") and not save.get("reset", false) \
+		and int(save.get("version", 0)) == SaveGame.VERSION and int(save.get("world_seed", 0)) == world.seed_value
+
+
+func _upload_save(force: bool = false, done: Callable = Callable()) -> void:
+	if not api.can_post() or _last_save.is_empty() or (_cloud_busy and not force):
+		if done.is_valid():
+			done.call(false)
+		return
+	_cloud_busy = true
+	_cloud_dirty = false
+	_cloud_timer = 0.0
+	api.upload_save(float(_last_save.get("saved_at", 0.0)), _last_save, _on_uploaded.bind(done))
+
+
+func _on_uploaded(ok: bool, data: Variant, done: Callable) -> void:
+	_cloud_busy = false
+	if not ok:
+		if str(data.get("error", "")) == "newer_save_exists":
+			# This survivor was played more recently in another browser.
+			api.fetch_save(_on_cloud_checked)
+		else:
+			_cloud_dirty = true  # try again later
+	if done.is_valid():
+		done.call(ok)
+
+
+## At startup (and on conflicts): if the server's save is newer than this
+## browser's, switch to it. Otherwise upload this browser's progress.
+func _on_cloud_checked(ok: bool, data: Variant) -> void:
+	if not ok:
+		return
+	var cloud: Variant = data.get("save", null)
+	var local_at := float(_last_save.get("saved_at", SaveGame.read().get("saved_at", 0.0)))
+	if _save_fits(cloud) and float(data.get("saved_at", 0.0)) > local_at + 0.5:
+		started = false
+		SaveGame.write(cloud)
+		hud.open_dialog("Loading your game",
+			"Your survivor was played more recently in another browser. Loading that progress from the island server.",
+			PackedStringArray(["Continue"]), _reload_after, "", 0, false)
+	elif started and alive:
+		save_game(false, true)
+
+
+func _on_account_checked(_ok: bool, _data: Variant) -> void:
+	pass  # api.username is now up to date
+
+
+func _open_account() -> void:
+	if not api.is_online():
+		hud.toast("Accounts need a connection to the island server.")
+		return
+	if api.has_account():
+		hud.open_dialog("Account",
+			"Logged in as %s.\n\nYour game is saved on the island server as you play, so you can continue in any browser or on any device by logging in." % api.username,
+			PackedStringArray(["Close", "Log out"]), _on_account_menu_logged_in)
+	else:
+		hud.open_dialog("Account",
+			"Your game is saved in this browser and backed up on the island server.\n\nCreate an account to log in from any browser or device and pick up where you left off.",
+			PackedStringArray(["Create account", "Log in", "Close"]), _on_account_menu)
+
+
+func _on_account_menu(choice: int, _text: String) -> void:
+	if choice == 0:
+		hud.open_dialog("Create account", "Choose a username: 3 to 20 letters, numbers, - or _.",
+			PackedStringArray(["Next", "Cancel"]), _on_new_username, "Username", 20)
+	elif choice == 1:
+		hud.open_dialog("Log in to another account?",
+			"Logging in replaces the game in this browser with that account's game.",
+			PackedStringArray(["Log in", "Cancel"]), _on_confirm_switch_login)
+
+
+func _on_new_username(choice: int, text: String) -> void:
+	if choice != 0 or text == "":
+		return
+	_new_username = text
+	hud.open_dialog("Create account", "Choose a password for %s: at least 8 characters." % text,
+		PackedStringArray(["Create account", "Cancel"]), _on_new_password, "Password", 100, true, true)
+
+
+func _on_new_password(choice: int, text: String) -> void:
+	if choice != 0 or text == "":
+		return
+	if text.length() < 8:
+		hud.open_dialog("Create account", "That password is too short. Use at least 8 characters.",
+			PackedStringArray(["Try again", "Cancel"]), _on_retry_new_password)
+		return
+	hud.open_dialog("Create account", "Creating your account…", PackedStringArray(), Callable(), "", 0, false)
+	api.create_account(_new_username, text, _on_account_created)
+
+
+func _on_retry_new_password(choice: int, _text: String) -> void:
+	if choice == 0:
+		_on_new_username(0, _new_username)
+
+
+func _on_account_created(ok: bool, data: Variant) -> void:
+	if ok:
+		save_game(false, true)
+		hud.open_dialog("Account created",
+			"You're logged in as %s. Your game is saved on the island server.\n\nOn another browser or device, choose \"I have an account\" (or Esc → Account → Log in) and use this username and password." % api.username,
+			PackedStringArray(["Great"]), Callable())
+		return
+	var reason: String = {
+		"username_taken": "That username is taken. Try another.",
+		"bad_username": "Usernames are 3 to 20 letters, numbers, - or _.",
+		"bad_password": "Passwords need 8 to 100 characters.",
+		"already_has_account": "This survivor already has an account.",
+		"network": "Couldn't reach the island server.",
+	}.get(str(data.get("error", "")), "Something went wrong (%s)." % str(data.get("error", "error")))
+	hud.open_dialog("Couldn't create the account", reason, PackedStringArray(["Try again", "Cancel"]), _on_create_retry)
+
+
+func _on_create_retry(choice: int, _text: String) -> void:
+	if choice == 0:
+		_on_account_menu(0, "")
+
+
+func _on_account_menu_logged_in(choice: int, _text: String) -> void:
+	if choice == 1:
+		hud.open_dialog("Log out?",
+			"Your game stays safe on the island server. This browser forgets it until you log in again.",
+			PackedStringArray(["Log out", "Cancel"]), _on_confirm_log_out)
+
+
+func _on_confirm_log_out(choice: int, _text: String) -> void:
+	if choice != 0:
+		return
+	save_game()
+	hud.open_dialog("Logging out", "Saving your game to the island server…", PackedStringArray(), Callable(), "", 0, false)
+	_upload_save(true, _on_logout_uploaded)
+
+
+func _on_logout_uploaded(ok: bool) -> void:
+	if not ok:
+		hud.open_dialog("Couldn't save to the server",
+			"Your latest progress isn't on the island server yet, so logging out now could lose it. Try again in a moment.",
+			PackedStringArray(["OK"]), Callable())
+		return
+	started = false
+	api.log_out()
+	SaveGame.erase()
+	get_tree().reload_current_scene()
+
+
+func _on_confirm_switch_login(choice: int, _text: String) -> void:
+	if choice == 0:
+		_start_login(false)
+
+
+func _start_login(from_welcome: bool) -> void:
+	hud.open_dialog("Log in", "Your username:", PackedStringArray(["Next", "Back"]),
+		_on_login_name.bind(from_welcome), "Username", 20, not from_welcome)
+
+
+func _on_login_name(choice: int, text: String, from_welcome: bool) -> void:
+	if choice != 0 or text == "":
+		if from_welcome:
+			_show_welcome()
+		return
+	_login_name = text
+	hud.open_dialog("Log in", "Password for %s:" % text, PackedStringArray(["Log in", "Back"]),
+		_on_login_password.bind(from_welcome), "Password", 100, not from_welcome, true)
+
+
+func _on_login_password(choice: int, text: String, from_welcome: bool) -> void:
+	if choice != 0 or text == "":
+		if from_welcome:
+			_show_welcome()
+		return
+	hud.open_dialog("Log in", "Checking with the island server…", PackedStringArray(), Callable(), "", 0, false)
+	api.log_in(_login_name, text, _on_logged_in.bind(from_welcome))
+
+
+func _on_logged_in(ok: bool, data: Variant, from_welcome: bool) -> void:
+	if not ok:
+		var reason: String = {
+			"wrong_login": "That username and password don't match.",
+			"too_many_attempts": "Too many wrong tries. Wait 15 minutes and try again.",
+			"network": "Couldn't reach the island server.",
+		}.get(str(data.get("error", "")), "Login failed (%s)." % str(data.get("error", "error")))
+		hud.open_dialog("Couldn't log in", reason, PackedStringArray(["Try again", "Back"]),
+			_on_login_retry.bind(from_welcome), "", 0, false)
+		return
+	hud.open_dialog("Log in", "Welcome back, %s. Fetching your game…" % api.player_name,
+		PackedStringArray(), Callable(), "", 0, false)
+	api.fetch_save(_on_login_save)
+
+
+func _on_login_retry(choice: int, _text: String, from_welcome: bool) -> void:
+	if choice == 0:
+		_start_login(from_welcome)
+	elif from_welcome:
+		_show_welcome()
+
+
+func _on_login_save(ok: bool, data: Variant) -> void:
+	started = false  # don't let an autosave overwrite what we load
+	var cloud: Variant = data.get("save", null) if ok else null
+	if _save_fits(cloud):
+		SaveGame.write(cloud)
+	else:
+		# The account has no game yet: keep this browser's progress, as a new run.
+		var local := SaveGame.read()
+		if not local.is_empty():
+			local["run_id"] = ""
+			SaveGame.write(local)
+	get_tree().reload_current_scene()
+
+
+# ---------- Pause menu ----------
+
+func _open_menu() -> void:
+	var life := day - life_start_day
+	hud.open_dialog("Paused",
+		"%s, day %d.\nThis survivor has lived %d full day%s.\n\nThe game saves by itself every few seconds, at dawn, and when you close or reload the page." % [island_name, day, life, "" if life == 1 else "s"],
+		PackedStringArray(["Resume", "Save now", "Account", "Start over"]), _on_menu)
+
+
+func _on_menu(choice: int, _text: String) -> void:
+	if choice == 1:
+		save_game(false, true)
+		hud.toast("Game saved." if not api.can_post() else "Game saved, here and on the island server.")
+	elif choice == 2:
+		_open_account()
+	elif choice == 3:
+		hud.open_dialog("Start over?",
+			"This deletes your save on this browser: your survivor, your campfires, your bags and every tree you've cut. Graves, notes and stashes on the island server stay.",
+			PackedStringArray(["Delete my save", "Cancel"]), _on_start_over)
+
+
+func _on_start_over(choice: int, _text: String) -> void:
+	if choice != 0:
+		return
+	started = false  # stops any further autosave
+	SaveGame.erase()
+	if api.can_post():
+		# Replace the copy on the server too, or the next visit would bring it back.
+		var blank := {"version": SaveGame.VERSION, "world_seed": world.seed_value, "reset": true,
+			"saved_at": Time.get_unix_time_from_system()}
+		api.upload_save(blank["saved_at"], blank, _reload_after)
+	else:
+		get_tree().reload_current_scene()
+
+
+## Reloads the game. Used both after a dialog button and after a server reply.
+func _reload_after(_a: Variant = null, _b: Variant = null) -> void:
+	get_tree().reload_current_scene()
+
+
+# ---------- Saving ----------
+
+## Writes the save file. With `respawn`, saves the state after death instead:
+## a fresh survivor at the last campfire and a bag with what was carried.
+func save_game(respawn: bool = false, upload: bool = false) -> void:
+	if not started:
+		return
+	_save_timer = 0.0
+	var fires := []
+	for fire in campfires:
+		if fire.owner_name == "":
+			fires.append({"pos": [fire.pos.x, fire.pos.y], "fuel": fire.fuel})
+	var bags := []
+	for t in traces:
+		if t.kind == "bag":
+			bags.append(t.data)
+	var data := {
+		"version": SaveGame.VERSION,
+		"world_seed": world.seed_value,
+		"island": ISLAND_ID,
+		"saved_at": Time.get_unix_time_from_system(),
+		"day": day,
+		"clock": clock,
+		"life_start_day": life_start_day,
+		"run_id": run_id,
+		"home": [home.x, home.y] if home != Vector2.INF else null,
+		"props": world.export_changes(),
+		"fires": fires,
+		"bags": bags,
+		"read": _read_ids.keys(),
+		"player": {
+			"pos": [player.pos.x, player.pos.y],
+			"facing": [player.facing.x, player.facing.y],
+			"health": player.health,
+			"hunger": player.hunger,
+			"warmth": player.warmth,
+			"sanity": player.sanity,
+			"inventory": player.inventory.duplicate(),
+			"spear": player.has_spear,
+			"torch": player.torch_time,
+		},
+	}
+	if respawn:
+		var items := {}
+		for item in player.inventory:
+			if int(player.inventory[item]) > 0:
+				items[item] = int(player.inventory[item])
+		if player.has_spear:
+			items["spear"] = 1
+		if not items.is_empty():
+			bags.append({
+				"id": "bag-%d" % Time.get_ticks_usec(), "kind": "bag",
+				"x": player.pos.x, "y": player.pos.y, "items": items, "player_name": api.player_name,
+			})
+		var wake := world.cell_center(world.spawn_cell)
+		if home != Vector2.INF:
+			for offset in [Vector2(24, 0), Vector2(-24, 0), Vector2(0, 24), Vector2(0, -24)]:
+				if world.is_walkable(home + offset):
+					wake = home + offset
+					break
+		data["player"] = {
+			"pos": [wake.x, wake.y], "facing": [0.0, 1.0], "health": 100.0, "hunger": 80.0,
+			"warmth": 100.0, "sanity": 100.0, "inventory": {}, "spear": false, "torch": 0.0,
+		}
+		data["run_id"] = ""
+		data["life_start_day"] = day
+	SaveGame.write(data)
+	_last_save = data
+	_cloud_dirty = true
+	if upload:
+		_upload_save(true)
+
+
+## Restores a save. Returns false (and changes nothing) if there is none.
+func _apply_save(save: Dictionary) -> bool:
+	if save.is_empty() or int(save.get("version", 0)) != SaveGame.VERSION:
+		return false
+	if int(save.get("world_seed", 0)) != world.seed_value:
+		return false
+	day = maxi(int(save.get("day", 1)), 1)
+	clock = clampf(float(save.get("clock", clock)), 0.0, DAY_LENGTH - 0.01)
+	life_start_day = clampi(int(save.get("life_start_day", day)), 1, day)
+	run_id = str(save.get("run_id", ""))
+	home = _to_vec(save.get("home", null))
+	var changes: Variant = save.get("props", {})
+	if typeof(changes) == TYPE_DICTIONARY:
+		world.import_changes(changes)
+
+	var p: Variant = save.get("player", {})
+	if typeof(p) == TYPE_DICTIONARY:
+		var pos := _to_vec(p.get("pos", null))
+		if pos != Vector2.INF and world.is_walkable(pos):
+			player.pos = pos
+		var facing := _to_vec(p.get("facing", null))
+		if facing != Vector2.INF and facing.length() > 0.1:
+			player.facing = facing.normalized()
+		player.health = clampf(float(p.get("health", 100.0)), 1.0, 100.0)
+		player.hunger = clampf(float(p.get("hunger", 100.0)), 0.0, 100.0)
+		player.warmth = clampf(float(p.get("warmth", 100.0)), 0.0, 100.0)
+		player.sanity = clampf(float(p.get("sanity", 100.0)), 0.0, 100.0)
+		var inv: Variant = p.get("inventory", {})
+		if typeof(inv) == TYPE_DICTIONARY:
+			for item in player.inventory.keys():
+				player.inventory[item] = maxi(int(inv.get(item, 0)), 0)
+		player.has_spear = bool(p.get("spear", false))
+		player.torch_time = maxf(float(p.get("torch", 0.0)), 0.0)
+
+	for id in save.get("read", []):
+		_read_ids[str(id)] = true
+	for f in save.get("fires", []):
+		if typeof(f) != TYPE_DICTIONARY:
+			continue
+		var pos := _to_vec(f.get("pos", null))
+		if pos == Vector2.INF:
+			continue
+		var fire: Campfire = Campfire.new()
+		fire.world = world
+		fire.pos = pos
+		fire.fuel = clampf(float(f.get("fuel", 0.0)), 0.0, Campfire.MAX_FUEL)
+		entities.add_child(fire)
+		campfires.append(fire)
+	for b in save.get("bags", []):
+		if typeof(b) == TYPE_DICTIONARY:
+			_spawn_trace(b)
+	return true
+
+
+static func _to_vec(v: Variant) -> Vector2:
+	if typeof(v) == TYPE_ARRAY and v.size() >= 2:
+		return Vector2(float(v[0]), float(v[1]))
+	return Vector2.INF
+
+
+## On the web, also save when the tab is hidden, closed or reloaded.
+func _hook_page_unload() -> void:
+	if not OS.has_feature("web"):
+		return
+	_js_save_callback = JavaScriptBridge.create_callback(_on_page_hidden)
+	JavaScriptBridge.get_interface("window").addEventListener("pagehide", _js_save_callback)
+	JavaScriptBridge.get_interface("document").addEventListener("visibilitychange", _js_save_callback)
+
+
+func _on_page_hidden(_args: Array) -> void:
+	if started and alive:
+		save_game(false, true)
+
+
+func _exit_tree() -> void:
+	if _js_save_callback != null:
+		JavaScriptBridge.get_interface("window").removeEventListener("pagehide", _js_save_callback)
+		JavaScriptBridge.get_interface("document").removeEventListener("visibilitychange", _js_save_callback)
+		_js_save_callback = null
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and started and alive:
+		save_game()

@@ -40,6 +40,12 @@ func _ready() -> void:
 			Art.part(self, Art.box(Vector3(0.66, 0.1, 0.46)), Color("8f6239"), Vector3(0, 0.41, 0))
 			Art.part(self, Art.box(Vector3(0.66, 0.06, 0.06)), Color("3d2a18"), Vector3(0, 0.22, 0.2))
 			Art.part(self, Art.box(Vector3(0.08, 0.1, 0.03)), Color("d4b25a"), Vector3(0, 0.33, 0.23), Vector3.ZERO, 1.5)
+		"bag":
+			# Your own belongings, left where you fell.
+			var sack := Art.part(self, Art.sphere(0.3, 4, 8), Color("8a6a43"), Vector3(0, 0.22, 0))
+			sack.scale = Vector3(1.0, 0.85, 0.9)
+			Art.part(self, Art.cylinder(0.06, 0.12, 0.16, 6), Color("7a5c38"), Vector3(0, 0.5, 0))
+			Art.part(self, Art.cylinder(0.075, 0.075, 0.04, 6), Color("3d2a18"), Vector3(0, 0.46, 0))
 	# A small glowing marker over things you haven't looked at yet.
 	_marker = Art.part(self, Art.sphere(0.08, 3, 6), Color(1.0, 0.9, 0.45), Vector3(0, 1.3, 0), Vector3.ZERO, 3.0, true)
 	_marker.visible = not was_read
