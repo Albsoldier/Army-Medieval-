@@ -10,7 +10,7 @@ F                    eat
 N                    write a note for others
 G                    leave a stash for others
 Mouse wheel     zoom
-Esc                 pause menu, save
+Esc                 pause menu: save, account
 H                    show / hide this help
 
 [ Crafting ]
@@ -258,7 +258,7 @@ func is_modal() -> bool:
 ## Shows a dialog. `on_choice` is called with (button_index, typed_text);
 ## button_index is -1 when the player closes it with Esc.
 func open_dialog(title: String, body: String, buttons: PackedStringArray, on_choice: Callable,
-		input_hint: String = "", max_length: int = 140, dismissable: bool = true) -> void:
+		input_hint: String = "", max_length: int = 140, dismissable: bool = true, secret: bool = false) -> void:
 	_on_choice = on_choice
 	_dismissable = dismissable
 	_dialog_title.text = title
@@ -268,6 +268,7 @@ func open_dialog(title: String, body: String, buttons: PackedStringArray, on_cho
 	_dialog_input.text = ""
 	_dialog_input.placeholder_text = input_hint
 	_dialog_input.max_length = max_length
+	_dialog_input.secret = secret
 	for child in _dialog_buttons.get_children():
 		_dialog_buttons.remove_child(child)
 		child.queue_free()

@@ -9,6 +9,7 @@ var base_url := ""
 var player_name := ""
 var player_id := ""
 var token := ""
+var username := ""  # set once the player has an account they can log in with
 
 
 func _ready() -> void:
@@ -38,7 +39,18 @@ func set_player_name(n: String) -> void:
 func forget_identity() -> void:
 	player_id = ""
 	token = ""
+	username = ""
 	_save_profile()
+
+
+## Logs out on this browser: forgets the token, account and name.
+func log_out() -> void:
+	player_name = ""
+	forget_identity()
+
+
+func has_account() -> bool:
+	return username != ""
 
 
 # ---------- Local records (work offline too) ----------
@@ -92,6 +104,57 @@ func take_stash(trace_id: String, callback: Callable) -> void:
 	_request(HTTPClient.METHOD_POST, "/api/traces/%s/take" % trace_id.uri_encode(), {}, callback)
 
 
+## Callback receives (ok, data). On success the account is remembered.
+func create_account(new_username: String, password: String, callback: Callable) -> void:
+	_request(HTTPClient.METHOD_POST, "/api/account", {"username": new_username, "password": password},
+		_on_account_created.bind(callback))
+
+
+func _on_account_created(ok: bool, data: Variant, callback: Callable) -> void:
+	if ok:
+		username = str(data.get("username", ""))
+		_save_profile()
+	callback.call(ok, data)
+
+
+## Logs in to an existing account from this browser. Callback receives (ok, data).
+func log_in(login_name: String, password: String, callback: Callable) -> void:
+	_request(HTTPClient.METHOD_POST, "/api/login", {"username": login_name, "password": password},
+		_on_logged_in.bind(callback))
+
+
+func _on_logged_in(ok: bool, data: Variant, callback: Callable) -> void:
+	if ok and data.has("token"):
+		player_id = str(data["id"])
+		token = str(data["token"])
+		player_name = str(data.get("name", player_name))
+		username = str(data.get("username", ""))
+		_save_profile()
+	callback.call(ok, data)
+
+
+## Checks which account (if any) this browser's player has. Callback receives (ok, data).
+func fetch_account(callback: Callable) -> void:
+	_request(HTTPClient.METHOD_GET, "/api/account", null, _on_account_fetched.bind(callback))
+
+
+func _on_account_fetched(ok: bool, data: Variant, callback: Callable) -> void:
+	if ok:
+		var name_value: Variant = data.get("username", null)
+		username = str(name_value) if name_value != null else ""
+		_save_profile()
+	callback.call(ok, data)
+
+
+## The save stored on the server: data = {"saved_at": float, "save": Dictionary or null}.
+func fetch_save(callback: Callable) -> void:
+	_request(HTTPClient.METHOD_GET, "/api/save", null, callback)
+
+
+func upload_save(saved_at: float, save: Dictionary, callback: Callable) -> void:
+	_request(HTTPClient.METHOD_PUT, "/api/save", {"saved_at": saved_at, "save": save}, callback)
+
+
 func fetch_leaderboard(seed_value: int, callback: Callable) -> void:
 	_request(HTTPClient.METHOD_GET, "/api/islands/%d/leaderboard" % seed_value, null, callback)
 
@@ -114,7 +177,7 @@ func _request(method: HTTPClient.Method, path: String, body: Variant, callback: 
 			callback.call_deferred(false, {"error": "offline"})
 		return
 	var http := HTTPRequest.new()
-	http.timeout = 12.0
+	http.timeout = 20.0
 	add_child(http)
 	var headers := PackedStringArray(["Content-Type: application/json"])
 	if token != "":
@@ -141,8 +204,8 @@ func _on_completed(result: int, code: int, _headers: PackedStringArray, body: Pa
 	if not ok and not data.has("error"):
 		data["error"] = "network" if result != HTTPRequest.RESULT_SUCCESS else "http_%d" % code
 	data["status"] = code
-	if code == 401:
-		forget_identity()
+	if code == 401 and str(data.get("error", "")) == "unauthorized":
+		forget_identity()  # the server no longer knows this browser's token
 	if callback.is_valid():
 		callback.call(ok, data)
 
@@ -158,6 +221,7 @@ func _load_profile() -> void:
 	player_name = str(cfg.get_value("player", "name", ""))
 	player_id = str(cfg.get_value("player", "id", ""))
 	token = str(cfg.get_value("player", "token", ""))
+	username = str(cfg.get_value("player", "username", ""))
 
 
 func _save_profile() -> void:
@@ -165,4 +229,5 @@ func _save_profile() -> void:
 	cfg.set_value("player", "name", player_name)
 	cfg.set_value("player", "id", player_id)
 	cfg.set_value("player", "token", token)
+	cfg.set_value("player", "username", username)
 	cfg.save(PROFILE_PATH)

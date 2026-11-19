@@ -13,6 +13,7 @@ const SaveGame = preload("res://scripts/save_game.gd")
 const ISLAND_ID := 1  # the permanent island, as the server knows it
 const WORLD_SEED := 20261119  # the island's shape never changes
 const SAVE_INTERVAL := 6.0  # seconds between autosaves
+const CLOUD_INTERVAL := 15.0  # seconds between uploads of the save to the server
 
 const DAY_LENGTH := 240.0  # seconds of real time per in-game day
 const INTERACT_RADIUS := 26.0
@@ -61,6 +62,12 @@ var _save_timer := 0.0
 var _read_ids: Dictionary = {}  # notes and graves already read
 var _auth_retried := false
 var _js_save_callback: Variant = null
+var _last_save: Dictionary = {}
+var _cloud_timer := 0.0
+var _cloud_dirty := false
+var _cloud_busy := false
+var _login_name := ""
+var _new_username := ""
 
 
 func _ready() -> void:
@@ -103,11 +110,18 @@ func _ready() -> void:
 	_refresh_hud()
 
 	if api.player_name == "":
-		hud.open_dialog("Last Light",
-			"You wake on the cold sand of %s. Others have washed up here before you, and some never left.\n\nWhat should the island remember you as?" % island_name,
-			PackedStringArray(["Begin"]), _on_name_chosen, "Your name", 20, false)
+		_show_welcome()
 	else:
 		_begin_run()
+
+
+func _show_welcome() -> void:
+	var buttons := PackedStringArray(["Begin"])
+	if api.is_online():
+		buttons.append("I have an account")
+	hud.open_dialog("Last Light",
+		"You wake on the cold sand of %s. Others have washed up here before you, and some never left.\n\nWhat should the island remember you as?" % island_name,
+		buttons, _on_name_chosen, "Your name", 20, false)
 
 
 # ---------- Setup ----------
@@ -157,7 +171,10 @@ func _bind(action: String, keys: Array) -> void:
 		InputMap.action_add_event(action, ev)
 
 
-func _on_name_chosen(_choice: int, text: String) -> void:
+func _on_name_chosen(choice: int, text: String) -> void:
+	if choice == 1:
+		_start_login(true)
+		return
 	api.set_player_name(text if text != "" else "Wanderer")
 	_begin_run()
 
@@ -185,6 +202,8 @@ func _on_registered(ok: bool) -> void:
 	hud.set_connection("Online as %s" % api.player_name)
 	if run_id == "":
 		api.start_run(seed_value, _on_run_started)
+	api.fetch_account(_on_account_checked)
+	api.fetch_save(_on_cloud_checked)
 	api.fetch_traces(seed_value, _on_traces_loaded)
 
 
@@ -251,6 +270,9 @@ func _process(delta: float) -> void:
 		_save_timer += delta
 		if _save_timer >= SAVE_INTERVAL:
 			save_game()
+	_cloud_timer += delta
+	if _cloud_dirty and _cloud_timer >= CLOUD_INTERVAL:
+		_upload_save()
 	if started and alive and not hud.is_modal():
 		_advance_clock(delta)
 		var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
@@ -340,7 +362,7 @@ func _advance_clock(delta: float) -> void:
 		world.regrow(day)
 		player.sanity = minf(player.sanity + 10.0, 100.0)
 		hud.toast("Dawn of day %d. You made it through the night." % day)
-		save_game()
+		save_game(false, true)
 	if not was_night and is_night():
 		hud.toast("Night falls. Stay close to a fire.")
 	_update_lighting()
@@ -803,7 +825,7 @@ func _die() -> void:
 	api.record_local_best(seed_value, days)
 	# Save straight away: the survivor wakes at their last campfire, and what
 	# they carried waits in a bag where they fell. Reloading now loses nothing.
-	save_game(true)
+	save_game(true, true)
 	hud.open_dialog("You died on day %d" % day,
 		"Taken by %s. This survivor lived %d full day%s.\n\nYour belongings wait in a bag where you fell, and you'll wake at your last campfire. Your grave stays on the island for everyone to find. Leave an epitaph:" % [last_damage, days, "" if days == 1 else "s"],
 		PackedStringArray(["Rest"]), _on_epitaph, "Here lies…", 100, false)
@@ -840,20 +862,236 @@ func _restart(_choice: int, _text: String) -> void:
 	get_tree().reload_current_scene()
 
 
+# ---------- Cloud saves and accounts ----------
+
+## True if a save is a real game for this island (not empty or a "start over" marker).
+func _save_fits(save: Variant) -> bool:
+	return typeof(save) == TYPE_DICTIONARY and save.has("player") and not save.get("reset", false) \
+		and int(save.get("version", 0)) == SaveGame.VERSION and int(save.get("world_seed", 0)) == world.seed_value
+
+
+func _upload_save(force: bool = false, done: Callable = Callable()) -> void:
+	if not api.can_post() or _last_save.is_empty() or (_cloud_busy and not force):
+		if done.is_valid():
+			done.call(false)
+		return
+	_cloud_busy = true
+	_cloud_dirty = false
+	_cloud_timer = 0.0
+	api.upload_save(float(_last_save.get("saved_at", 0.0)), _last_save, _on_uploaded.bind(done))
+
+
+func _on_uploaded(ok: bool, data: Variant, done: Callable) -> void:
+	_cloud_busy = false
+	if not ok:
+		if str(data.get("error", "")) == "newer_save_exists":
+			# This survivor was played more recently in another browser.
+			api.fetch_save(_on_cloud_checked)
+		else:
+			_cloud_dirty = true  # try again later
+	if done.is_valid():
+		done.call(ok)
+
+
+## At startup (and on conflicts): if the server's save is newer than this
+## browser's, switch to it. Otherwise upload this browser's progress.
+func _on_cloud_checked(ok: bool, data: Variant) -> void:
+	if not ok:
+		return
+	var cloud: Variant = data.get("save", null)
+	var local_at := float(_last_save.get("saved_at", SaveGame.read().get("saved_at", 0.0)))
+	if _save_fits(cloud) and float(data.get("saved_at", 0.0)) > local_at + 0.5:
+		started = false
+		SaveGame.write(cloud)
+		hud.open_dialog("Loading your game",
+			"Your survivor was played more recently in another browser. Loading that progress from the island server.",
+			PackedStringArray(["Continue"]), _reload_after, "", 0, false)
+	elif started and alive:
+		save_game(false, true)
+
+
+func _on_account_checked(_ok: bool, _data: Variant) -> void:
+	pass  # api.username is now up to date
+
+
+func _open_account() -> void:
+	if not api.is_online():
+		hud.toast("Accounts need a connection to the island server.")
+		return
+	if api.has_account():
+		hud.open_dialog("Account",
+			"Logged in as %s.\n\nYour game is saved on the island server as you play, so you can continue in any browser or on any device by logging in." % api.username,
+			PackedStringArray(["Close", "Log out"]), _on_account_menu_logged_in)
+	else:
+		hud.open_dialog("Account",
+			"Your game is saved in this browser and backed up on the island server.\n\nCreate an account to log in from any browser or device and pick up where you left off.",
+			PackedStringArray(["Create account", "Log in", "Close"]), _on_account_menu)
+
+
+func _on_account_menu(choice: int, _text: String) -> void:
+	if choice == 0:
+		hud.open_dialog("Create account", "Choose a username: 3 to 20 letters, numbers, - or _.",
+			PackedStringArray(["Next", "Cancel"]), _on_new_username, "Username", 20)
+	elif choice == 1:
+		hud.open_dialog("Log in to another account?",
+			"Logging in replaces the game in this browser with that account's game.",
+			PackedStringArray(["Log in", "Cancel"]), _on_confirm_switch_login)
+
+
+func _on_new_username(choice: int, text: String) -> void:
+	if choice != 0 or text == "":
+		return
+	_new_username = text
+	hud.open_dialog("Create account", "Choose a password for %s: at least 8 characters." % text,
+		PackedStringArray(["Create account", "Cancel"]), _on_new_password, "Password", 100, true, true)
+
+
+func _on_new_password(choice: int, text: String) -> void:
+	if choice != 0 or text == "":
+		return
+	if text.length() < 8:
+		hud.open_dialog("Create account", "That password is too short. Use at least 8 characters.",
+			PackedStringArray(["Try again", "Cancel"]), _on_retry_new_password)
+		return
+	hud.open_dialog("Create account", "Creating your account…", PackedStringArray(), Callable(), "", 0, false)
+	api.create_account(_new_username, text, _on_account_created)
+
+
+func _on_retry_new_password(choice: int, _text: String) -> void:
+	if choice == 0:
+		_on_new_username(0, _new_username)
+
+
+func _on_account_created(ok: bool, data: Variant) -> void:
+	if ok:
+		save_game(false, true)
+		hud.open_dialog("Account created",
+			"You're logged in as %s. Your game is saved on the island server.\n\nOn another browser or device, choose \"I have an account\" (or Esc → Account → Log in) and use this username and password." % api.username,
+			PackedStringArray(["Great"]), Callable())
+		return
+	var reason := {
+		"username_taken": "That username is taken. Try another.",
+		"bad_username": "Usernames are 3 to 20 letters, numbers, - or _.",
+		"bad_password": "Passwords need 8 to 100 characters.",
+		"already_has_account": "This survivor already has an account.",
+		"network": "Couldn't reach the island server.",
+	}.get(str(data.get("error", "")), "Something went wrong (%s)." % str(data.get("error", "error")))
+	hud.open_dialog("Couldn't create the account", reason, PackedStringArray(["Try again", "Cancel"]), _on_create_retry)
+
+
+func _on_create_retry(choice: int, _text: String) -> void:
+	if choice == 0:
+		_on_account_menu(0, "")
+
+
+func _on_account_menu_logged_in(choice: int, _text: String) -> void:
+	if choice == 1:
+		hud.open_dialog("Log out?",
+			"Your game stays safe on the island server. This browser forgets it until you log in again.",
+			PackedStringArray(["Log out", "Cancel"]), _on_confirm_log_out)
+
+
+func _on_confirm_log_out(choice: int, _text: String) -> void:
+	if choice != 0:
+		return
+	save_game()
+	hud.open_dialog("Logging out", "Saving your game to the island server…", PackedStringArray(), Callable(), "", 0, false)
+	_upload_save(true, _on_logout_uploaded)
+
+
+func _on_logout_uploaded(ok: bool) -> void:
+	if not ok:
+		hud.open_dialog("Couldn't save to the server",
+			"Your latest progress isn't on the island server yet, so logging out now could lose it. Try again in a moment.",
+			PackedStringArray(["OK"]), Callable())
+		return
+	started = false
+	api.log_out()
+	SaveGame.erase()
+	get_tree().reload_current_scene()
+
+
+func _on_confirm_switch_login(choice: int, _text: String) -> void:
+	if choice == 0:
+		_start_login(false)
+
+
+func _start_login(from_welcome: bool) -> void:
+	hud.open_dialog("Log in", "Your username:", PackedStringArray(["Next", "Back"]),
+		_on_login_name.bind(from_welcome), "Username", 20, not from_welcome)
+
+
+func _on_login_name(choice: int, text: String, from_welcome: bool) -> void:
+	if choice != 0 or text == "":
+		if from_welcome:
+			_show_welcome()
+		return
+	_login_name = text
+	hud.open_dialog("Log in", "Password for %s:" % text, PackedStringArray(["Log in", "Back"]),
+		_on_login_password.bind(from_welcome), "Password", 100, not from_welcome, true)
+
+
+func _on_login_password(choice: int, text: String, from_welcome: bool) -> void:
+	if choice != 0 or text == "":
+		if from_welcome:
+			_show_welcome()
+		return
+	hud.open_dialog("Log in", "Checking with the island server…", PackedStringArray(), Callable(), "", 0, false)
+	api.log_in(_login_name, text, _on_logged_in.bind(from_welcome))
+
+
+func _on_logged_in(ok: bool, data: Variant, from_welcome: bool) -> void:
+	if not ok:
+		var reason := {
+			"wrong_login": "That username and password don't match.",
+			"too_many_attempts": "Too many wrong tries. Wait 15 minutes and try again.",
+			"network": "Couldn't reach the island server.",
+		}.get(str(data.get("error", "")), "Login failed (%s)." % str(data.get("error", "error")))
+		hud.open_dialog("Couldn't log in", reason, PackedStringArray(["Try again", "Back"]),
+			_on_login_retry.bind(from_welcome), "", 0, false)
+		return
+	hud.open_dialog("Log in", "Welcome back, %s. Fetching your game…" % api.player_name,
+		PackedStringArray(), Callable(), "", 0, false)
+	api.fetch_save(_on_login_save)
+
+
+func _on_login_retry(choice: int, _text: String, from_welcome: bool) -> void:
+	if choice == 0:
+		_start_login(from_welcome)
+	elif from_welcome:
+		_show_welcome()
+
+
+func _on_login_save(ok: bool, data: Variant) -> void:
+	started = false  # don't let an autosave overwrite what we load
+	var cloud: Variant = data.get("save", null) if ok else null
+	if _save_fits(cloud):
+		SaveGame.write(cloud)
+	else:
+		# The account has no game yet: keep this browser's progress, as a new run.
+		var local := SaveGame.read()
+		if not local.is_empty():
+			local["run_id"] = ""
+			SaveGame.write(local)
+	get_tree().reload_current_scene()
+
+
 # ---------- Pause menu ----------
 
 func _open_menu() -> void:
 	var life := day - life_start_day
 	hud.open_dialog("Paused",
 		"%s, day %d.\nThis survivor has lived %d full day%s.\n\nThe game saves by itself every few seconds, at dawn, and when you close or reload the page." % [island_name, day, life, "" if life == 1 else "s"],
-		PackedStringArray(["Resume", "Save now", "Start over"]), _on_menu)
+		PackedStringArray(["Resume", "Save now", "Account", "Start over"]), _on_menu)
 
 
 func _on_menu(choice: int, _text: String) -> void:
 	if choice == 1:
-		save_game()
-		hud.toast("Game saved.")
+		save_game(false, true)
+		hud.toast("Game saved." if not api.can_post() else "Game saved, here and on the island server.")
 	elif choice == 2:
+		_open_account()
+	elif choice == 3:
 		hud.open_dialog("Start over?",
 			"This deletes your save on this browser: your survivor, your campfires, your bags and every tree you've cut. Graves, notes and stashes on the island server stay.",
 			PackedStringArray(["Delete my save", "Cancel"]), _on_start_over)
@@ -864,6 +1102,17 @@ func _on_start_over(choice: int, _text: String) -> void:
 		return
 	started = false  # stops any further autosave
 	SaveGame.erase()
+	if api.can_post():
+		# Replace the copy on the server too, or the next visit would bring it back.
+		var blank := {"version": SaveGame.VERSION, "world_seed": world.seed_value, "reset": true,
+			"saved_at": Time.get_unix_time_from_system()}
+		api.upload_save(blank["saved_at"], blank, _reload_after)
+	else:
+		get_tree().reload_current_scene()
+
+
+## Reloads the game. Used both after a dialog button and after a server reply.
+func _reload_after(_a: Variant = null, _b: Variant = null) -> void:
 	get_tree().reload_current_scene()
 
 
@@ -871,7 +1120,7 @@ func _on_start_over(choice: int, _text: String) -> void:
 
 ## Writes the save file. With `respawn`, saves the state after death instead:
 ## a fresh survivor at the last campfire and a bag with what was carried.
-func save_game(respawn: bool = false) -> void:
+func save_game(respawn: bool = false, upload: bool = false) -> void:
 	if not started:
 		return
 	_save_timer = 0.0
@@ -934,6 +1183,10 @@ func save_game(respawn: bool = false) -> void:
 		data["run_id"] = ""
 		data["life_start_day"] = day
 	SaveGame.write(data)
+	_last_save = data
+	_cloud_dirty = true
+	if upload:
+		_upload_save(true)
 
 
 ## Restores a save. Returns false (and changes nothing) if there is none.
@@ -1007,7 +1260,7 @@ func _hook_page_unload() -> void:
 
 func _on_page_hidden(_args: Array) -> void:
 	if started and alive:
-		save_game()
+		save_game(false, true)
 
 
 func _exit_tree() -> void:

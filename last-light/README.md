@@ -2,7 +2,7 @@
 
 A low-poly 3D survival game made with Godot, set on one big, permanent island (about a kilometre across) that every player shares. You never meet other survivors, but you find what they left: graves with epitaphs, notes, abandoned campfires and stashes of supplies. When you die, your grave stays on the island for good.
 
-Your progress is saved in your browser: your survivor, inventory, campfires and every tree you've cut. The game saves every few seconds, at dawn and when you close or reload the page, and picks up where you left off.
+Your progress is saved: your survivor, inventory, campfires and every tree you've cut. The game saves in your browser every few seconds and backs up to the island server every 15 seconds (and at dawn, on death, on Save now and when you leave the page). Create an account (Esc → Account) to log in from any browser or device and continue where you left off. Whichever copy is newer wins, so an old tab can't overwrite newer progress.
 
 ## How it plays
 

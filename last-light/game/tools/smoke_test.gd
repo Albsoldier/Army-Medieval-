@@ -114,6 +114,9 @@ func _run_game() -> void:
 	main.save_game()
 	var saved: Dictionary = load("res://scripts/save_game.gd").read()
 	_check(saved.get("props", {}).has("%d,%d" % [tree_cell.x, tree_cell.y]), "save remembers the felled tree")
+	_check(main._save_fits(saved), "the save is a valid game for this island")
+	_check(not main._save_fits({"version": 1, "world_seed": world.seed_value, "reset": true}), "a start-over marker is not a game")
+	_check(not main.api.has_account(), "no account until the player makes one")
 	var copy_main: Node = scene.instantiate()
 	root.add_child(copy_main)
 	await process_frame
