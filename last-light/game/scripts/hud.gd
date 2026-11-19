@@ -9,6 +9,7 @@ Space / click   attack
 F                    eat
 N                    write a note for others
 G                    leave a stash for others
+Mouse wheel     zoom
 H                    show / hide this help
 
 [ Crafting ]
