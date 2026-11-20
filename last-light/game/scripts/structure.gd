@@ -59,6 +59,7 @@ var cell := Vector2i.ZERO
 var pos := Vector2.ZERO  # centre of the tile, in game pixels
 var hp := 100.0
 var items: Dictionary = {}  # for chests
+var built_ms := -1  # Time.get_ticks_msec() when built this session; -1 if loaded from a save
 var radius := 0.0  # light radius (torch posts only), so wolves treat it like a fire
 
 var _flash := 0.0

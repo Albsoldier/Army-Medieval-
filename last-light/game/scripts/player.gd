@@ -22,6 +22,10 @@ var has_axe := false
 var has_pickaxe := false
 var armour := false
 var lantern := false
+## What's in your hand: "hands", "spear", "axe" or "pickaxe" (the hotbar).
+var equipped := "hands"
+var armour_on := true  # armour can be taken off in the inventory
+var lantern_on := true  # and the lantern shuttered
 var torch_time := 0.0
 var facing := Vector2.DOWN
 var hurt_flash := 0.0
@@ -36,6 +40,11 @@ var _body: CharacterModel
 var _right_hand: Node3D
 var _left_hand: Node3D
 var _spear: Node3D
+var _axe: Node3D
+var _pickaxe: Node3D
+var _armour: Node3D
+var _torso: Node3D
+var _neck: Node3D
 var _torch: Node3D
 var _torch_light: OmniLight3D
 var _moving := false
@@ -57,6 +66,8 @@ func _ready() -> void:
 	}, {"Shirt": {"color": Color("3b4f35")}})  # a dark green field jacket
 	_right_hand = _body.bone_follower("Palm.R")
 	_left_hand = _body.bone_follower("Palm.L")
+	_torso = _body.bone_follower("Torso")
+	_neck = _body.bone_follower("Neck")
 
 	# Spear and torch follow the hands but keep their own size and direction.
 	_spear = Node3D.new()
@@ -65,6 +76,32 @@ func _ready() -> void:
 	Art.part(_spear, Art.cylinder(0.022, 0.022, 1.6, 5), Color("caa472"), Vector3(0, 0.3, 0))
 	Art.part(_spear, Art.cylinder(0.0, 0.05, 0.2, 5), Color("c9ccd1"), Vector3(0, 1.2, 0))
 	_spear.visible = false
+
+	# The axe: a short haft with an iron head on one side.
+	_axe = Node3D.new()
+	_axe.top_level = true
+	add_child(_axe)
+	Art.part(_axe, Art.cylinder(0.03, 0.03, 0.85, 6), Color("a07548"), Vector3(0, 0.3, 0))
+	Art.part(_axe, Art.box(Vector3(0.06, 0.22, 0.28)), Color("c4c8ce"), Vector3(0, 0.62, 0.13))
+	_axe.visible = false
+
+	# The pickaxe: a haft with a curved iron head across the top.
+	_pickaxe = Node3D.new()
+	_pickaxe.top_level = true
+	add_child(_pickaxe)
+	Art.part(_pickaxe, Art.cylinder(0.03, 0.03, 0.85, 6), Color("8f6640"), Vector3(0, 0.3, 0))
+	Art.part(_pickaxe, Art.box(Vector3(0.07, 0.08, 0.62)), Color("b9bdc3"), Vector3(0, 0.7, 0))
+	_pickaxe.visible = false
+
+	# Worn iron armour: a breastplate and shoulder guards that follow the chest.
+	_armour = Node3D.new()
+	_armour.top_level = true
+	add_child(_armour)
+	Art.part(_armour, Art.box(Vector3(0.3, 0.26, 0.08)), Color("7d8186"), Vector3(0, 0, 0.1))
+	Art.part(_armour, Art.box(Vector3(0.3, 0.26, 0.06)), Color("6a6e73"), Vector3(0, 0, -0.1))
+	Art.part(_armour, Art.box(Vector3(0.12, 0.05, 0.2)), Color("8c9095"), Vector3(0.19, 0.14, 0))
+	Art.part(_armour, Art.box(Vector3(0.12, 0.05, 0.2)), Color("8c9095"), Vector3(-0.19, 0.14, 0))
+	_armour.visible = false
 
 	_torch = Node3D.new()
 	_torch.top_level = true
@@ -120,11 +157,21 @@ func tick_visuals(delta: float) -> void:
 	_body.flash(hurt_flash > 0.0)
 
 	var turn := Basis(Vector3.UP, _model.rotation.y)
-	_lantern.visible = lantern and not dead
-	_spear.visible = has_spear and not dead
-	if _spear.visible and _right_hand:
-		# Held low and pointing forward, tipped slightly up.
-		_spear.global_transform = Transform3D(turn * Basis(Vector3.RIGHT, PI / 2 - 0.3), _right_hand.global_position)
+	_lantern.visible = lantern and lantern_on and not dead
+	_armour.visible = armour and armour_on and not dead
+	_spear.visible = equipped == "spear" and has_spear and not dead
+	_axe.visible = equipped == "axe" and has_axe and not dead
+	_pickaxe.visible = equipped == "pickaxe" and has_pickaxe and not dead
+	if _armour.visible and _torso and _neck:
+		_armour.global_transform = Transform3D(turn, _torso.global_position.lerp(_neck.global_position, 0.45))
+	if _right_hand:
+		if _spear.visible:
+			# Held low and pointing forward, tipped slightly up.
+			_spear.global_transform = Transform3D(turn * Basis(Vector3.RIGHT, PI / 2 - 0.3), _right_hand.global_position)
+		for tool in [_axe, _pickaxe]:
+			if tool.visible:
+				# Held by the end of the haft, head up and a little forward.
+				tool.global_transform = Transform3D(turn * Basis(Vector3.RIGHT, 0.5), _right_hand.global_position - turn * Vector3(0, 0.08, 0))
 	_torch.visible = torch_time > 0.0 and not dead
 	if _torch.visible and _left_hand:
 		_torch.global_transform = Transform3D(turn, _left_hand.global_position)
@@ -159,4 +206,45 @@ func pay(cost: Dictionary) -> void:
 func swing() -> void:
 	swing_time = 0.15
 	if not dead:
-		_body.play_once("slash" if has_spear else "punch", 1.6)
+		_body.play_once("punch" if equipped == "hands" else "slash", 1.6)
+
+
+## Puts a tool in your hand ("hands" puts it away). Returns false if you don't have it.
+func equip(tool: String) -> bool:
+	if not owns(tool):
+		return false
+	equipped = tool
+	return true
+
+
+func owns(tool: String) -> bool:
+	match tool:
+		"hands": return true
+		"spear": return has_spear
+		"axe": return has_axe
+		"pickaxe": return has_pickaxe
+	return false
+
+
+func holding(tool: String) -> bool:
+	return equipped == tool and owns(tool)
+
+
+## Damage a swing does with what's in your hand.
+func attack_damage() -> int:
+	match equipped:
+		"spear": return (3 if iron_spear else 2) if has_spear else 1
+		"axe": return 2 if has_axe else 1
+	return 1
+
+
+func attack_reach() -> float:
+	return 34.0 if holding("spear") else 24.0
+
+
+func wearing_armour() -> bool:
+	return armour and armour_on
+
+
+func lantern_lit() -> bool:
+	return lantern and lantern_on
