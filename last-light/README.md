@@ -6,7 +6,7 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
 
 ## How it plays
 
-- **Survive.** Keep **health, hunger, warmth and sanity** above zero. One in-game day lasts 4 minutes, and about a third of it is night.
+- **Survive.** Keep **health, hunger, warmth and sanity** above zero. One in-game day lasts 16 minutes: about 9½ minutes of daylight, then dusk, a 4-minute night and dawn.
 - **Gather.** Chop trees for wood, break rocks for stone and pick berries. Bushes grow back after two days.
 - **Craft.** `1` campfire (5 wood, 3 stone), `2` torch (2 wood), `3` spear (3 wood, 2 stone).
 - **Nights are dangerous.** It gets cold and dark, and wolves come out. Wolves won't go near firelight. Kill them for meat and cook it at a fire.

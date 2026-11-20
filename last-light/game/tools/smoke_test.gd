@@ -294,7 +294,9 @@ func _run_game() -> void:
 	_check(world.prop_type(tree_cell) == "tree", "trees grow back")
 
 	# Simulate three in-game days by stepping the loop.
-	var steps := int(240.0 * 3 / 0.25)
+	var day_length: float = load("res://scripts/main.gd").DAY_LENGTH
+	_check(day_length >= 900.0, "a day lasts about 16 minutes (%d s)" % int(day_length))
+	var steps := int(day_length * 3 / 0.25)
 	for i in steps:
 		if not main.alive:
 			break

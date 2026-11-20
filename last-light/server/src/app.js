@@ -1,7 +1,7 @@
 // Last Light island server: request handling, independent of where the database lives.
 // src/index.js wires this to Turso inside a Cloudflare Worker; the tests use a local database.
 
-export const DAY_SECONDS = 240; // must match DAY_LENGTH in game/scripts/main.gd
+export const DAY_SECONDS = 960; // must match DAY_LENGTH in game/scripts/main.gd
 export const WORLD_PX = 1024 * 16; // island size in pixels (World.SIZE * World.TILE)
 // Islands that accept new runs and traces. The game uses one permanent island.
 export const OPEN_ISLANDS = new Set([1]);

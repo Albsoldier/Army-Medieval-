@@ -5,12 +5,12 @@ extends Node3D
 const World = preload("res://scripts/world.gd")
 const Art = preload("res://scripts/art.gd")
 
-const MAX_FUEL := 300.0
+const MAX_FUEL := 900.0
 
 var world: World
 var pos := Vector2.ZERO
 var radius := 110.0  # warmth and safety radius, in game pixels
-var fuel := 180.0
+var fuel := 360.0
 var owner_name := ""  # set for camps built by other players
 var _t := 0.0
 var _flame: Node3D

@@ -4,6 +4,8 @@
 ## Images are written to $SHOT_DIR (default: user://shots).
 extends SceneTree
 
+var DAY: float = load("res://scripts/main.gd").DAY_LENGTH
+
 var _dir := ""
 
 
@@ -31,7 +33,7 @@ func _run() -> void:
 	main.hud.toggle_help()
 
 	# Midday: walk a little so the camera settles, then look around.
-	main.clock = 240.0 * 0.25
+	main.clock = DAY * 0.25
 	await _frames(40)
 	await _shot("2-day")
 	main.zoom = 0.55
@@ -44,13 +46,13 @@ func _run() -> void:
 	main.player.add_item("stone", 10)
 	main._craft("spear")
 	main._craft("campfire")
-	main.clock = 240.0 * 0.62
+	main.clock = DAY * 0.62
 	await _frames(20)
 	await _shot("3-dusk")
 
 	# Night, with a torch, a wolf nearby and a few traces from "other players".
 	main._craft("torch")
-	main.clock = 240.0 * 0.8
+	main.clock = DAY * 0.8
 	var p: Vector2 = main.player.pos
 	main._spawn_trace({"id": "a", "kind": "grave", "x": p.x + 40, "y": p.y - 10, "player_name": "Ada", "days": 3, "text": "Build the fire first."})
 	main._spawn_trace({"id": "b", "kind": "note", "x": p.x - 36, "y": p.y + 20, "player_name": "Bo", "text": "Berries to the east."})
@@ -73,7 +75,7 @@ func _run() -> void:
 	await _shot("5-night-close")
 
 	# Daylight close-up of the wolf, for checking its size and look.
-	main.clock = 240.0 * 0.3
+	main.clock = DAY * 0.3
 	main._update_lighting()
 	await _frames(20)
 	await _shot("6-wolf-day")
@@ -104,13 +106,13 @@ func _run() -> void:
 	main._try_build("workbench", c + Vector2i(-1, 3))
 	main._try_build("smokehouse", c + Vector2i(1, 3))
 	main._recruit(20)
-	main.clock = 240.0 * 0.3
+	main.clock = DAY * 0.3
 	main.zoom = 1.6
 	for i in 90:
 		main._tick_army(0.1)
 	await _frames(40)
 	await _shot("7-base-day")
-	main.clock = 240.0 * 0.8
+	main.clock = DAY * 0.8
 	main.zoom = 1.3
 	await _frames(30)
 	await _shot("8-base-night")
@@ -127,7 +129,7 @@ func _run() -> void:
 			main.player.facing = (w.cell_center(poi["cell"]) - spot).normalized()
 			w.update_view(spot, true)
 			main._update_pois(0.0, true)
-			main.clock = 240.0 * (0.8 if kind == "lighthouse" else 0.3)
+			main.clock = DAY * (0.8 if kind == "lighthouse" else 0.3)
 			main.zoom = 1.7
 			await _frames(40)
 			await _shot("9-lighthouse-night" if kind == "lighthouse" else "10-shipwreck-day")
@@ -138,7 +140,7 @@ func _run() -> void:
 	main.hud.toggle_map()
 
 	# A wide, turned view of the landscape.
-	main.clock = 240.0 * 0.22
+	main.clock = DAY * 0.22
 	main.zoom = 3.0
 	main.cam_yaw = 0.7
 	await _frames(45)
@@ -147,6 +149,64 @@ func _run() -> void:
 	main.cam_yaw = -0.4
 	await _frames(45)
 	await _shot("13-landscape-close")
+
+	# Clean shots for a portfolio: no on-screen panels, framed like a strategy game.
+	main.hud.visible = false
+	var base_cell: Vector2i = c
+	var outside: Vector2 = w.cell_center(base_cell + Vector2i(0, 9))
+	if not w.is_walkable(outside):
+		outside = w.random_walkable_near(w.cell_center(base_cell + Vector2i(0, 9)), 4.0, 40.0, main.rng)
+	main.player.pos = outside
+	main.player.facing = Vector2.UP
+	w.update_view(outside, true)
+	main._update_pois(0.0, true)
+	for i in 120:
+		main._tick_army(0.1)
+	main.clock = DAY * 0.6  # low golden sun, just before dusk
+	main.zoom = 1.45
+	main.cam_yaw = 0.45
+	await _frames(45)
+	await _shot("p1-legion-golden-hour")
+	main.clock = DAY * 0.82
+	main.zoom = 2.1
+	main.cam_yaw = -0.35
+	await _frames(45)
+	await _shot("p2-fort-at-night")
+
+	var meadow: Vector2 = w.random_walkable_near(w.cell_center(base_cell + Vector2i(18, -14)), 0.0, 60.0, main.rng)
+	if meadow != Vector2.INF:
+		main.player.pos = meadow
+		main.player.facing = Vector2(0.6, 0.8).normalized()
+		w.update_view(meadow, true)
+		for i in 120:
+			main._tick_army(0.1)
+		main.army_mode = "guard"
+		for s in main.soldiers:
+			s.mode = "guard"
+			s.guard_point = w.cell_center(base_cell)
+		main.clock = DAY * 0.32
+		main.zoom = 0.8
+		main.cam_yaw = -0.7
+		await _frames(45)
+		await _shot("p3-meadow")
+
+	for poi in w.pois:
+		if poi["type"] != "lighthouse":
+			continue
+		var spot: Vector2 = w.random_walkable_near(w.cell_center(poi["cell"]), 90.0, 130.0, main.rng)
+		if spot == Vector2.INF:
+			continue
+		main.player.pos = spot
+		main.player.facing = (w.cell_center(poi["cell"]) - spot).normalized()
+		w.update_view(spot, true)
+		main._update_pois(0.0, true)
+		main.clock = DAY * 0.64
+		main.zoom = 1.9
+		main.cam_yaw = atan2(-main.player.facing.x, -main.player.facing.y)
+		await _frames(45)
+		await _shot("p4-lighthouse-dusk")
+		break
+	main.hud.visible = true
 
 	print("Screenshots written to ", _dir)
 	quit(0)
