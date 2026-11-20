@@ -91,7 +91,14 @@ func _run_game() -> void:
 	main._craft("torch")
 	_check(main.player.torch_time > 0.0, "torch crafted")
 	main._craft("spear")
-	_check(main.player.has_spear, "spear crafted")
+	_check(main.player.has_spear and main.player.equipped == "spear", "spear crafted and taken in hand")
+	_check(main.player.attack_damage() == 2 and main.player.attack_reach() > 30.0, "a spear hits harder and further")
+	main._on_hotbar_slot(1)
+	_check(main.player.equipped == "hands" and main.player.attack_damage() == 1, "pressing 2 again puts the spear away")
+	main._on_hotbar_slot(2)
+	_check(main.player.equipped == "hands", "you can't equip an axe you don't have")
+	main._on_hotbar_slot(1)
+	_check(main.player.equipped == "spear", "pressing 2 takes the spear back in hand")
 	main.player.add_item("raw_meat", 2)
 	main.player.pos = main.campfires[0].pos + Vector2(10, 0)
 	main._interact()
@@ -234,7 +241,7 @@ func _run_game() -> void:
 	var bench: Array = load("res://scripts/structure.gd").RECIPES["workbench"]
 	var forge: Array = load("res://scripts/structure.gd").RECIPES["forge"]
 	var smoke: Array = load("res://scripts/structure.gd").RECIPES["smokehouse"]
-	_check(main._make(bench[0]) and main.player.has_axe, "the workbench makes an axe")
+	_check(main._make(bench[0]) and main.player.has_axe and main.player.equipped == "axe", "the workbench makes an axe, straight into your hand")
 	_check(not main._make(bench[0]), "you can't make a second axe")
 	_check(main._make(bench[1]) and main.player.has_pickaxe, "the workbench makes a pickaxe")
 	main.player.add_item("ore", 2)
@@ -258,9 +265,53 @@ func _run_game() -> void:
 					axe_tree = c2
 	main.player.pos = world.cell_center(axe_tree) + Vector2(0, 14)
 	main.action_cooldown = 0.0
+	main._on_hotbar_slot(0)
+	var wood_hands: int = main.player.count("wood")
+	main._interact()
+	_check(main.player.count("wood") == wood_hands + 1, "with the axe put away, a hit gives 1 wood")
+	main._on_hotbar_slot(2)
+	_check(main.player.equipped == "axe" and main.player.attack_damage() == 2, "key 3 takes the axe in hand")
+	main.action_cooldown = 0.0
 	var wood_axe: int = main.player.count("wood")
 	main._interact()
-	_check(main.player.count("wood") == wood_axe + 2, "with an axe, each hit gives 2 wood")
+	_check(main.player.count("wood") == wood_axe + 2, "with an axe in hand, each hit gives 2 wood")
+
+	# Inventory screen.
+	main.player.add_item("berries", 2)
+	main._open_inventory()
+	var actions: PackedStringArray = main.hud.inventory_actions()
+	_check(main.hud.is_inventory_open() and main.hud.is_modal(), "the inventory opens and pauses the game")
+	_check("equip:spear" in actions and "equip:hands" in actions and "eat:berries" in actions and "armour" in actions,
+		"the inventory offers equip, eat and armour buttons (%s)" % ", ".join(actions))
+	var berries_before: int = main.player.count("berries")
+	main._on_inventory_action("eat:berries")
+	_check(main.player.count("berries") == berries_before - 1, "eating from the inventory")
+	main._on_inventory_action("equip:pickaxe")
+	_check(main.player.equipped == "pickaxe", "equipping from the inventory")
+	main._on_inventory_action("armour")
+	_check(not main.player.wearing_armour(), "armour can be taken off")
+	main._on_inventory_action("armour")
+	_check(main.player.wearing_armour(), "and put back on")
+	main.hud.close_inventory()
+	_check(not main.hud.is_modal(), "the inventory closes")
+	main._on_hotbar_slot(2)
+
+	# Taking buildings down: a mistake is refunded in full, an old building by half.
+	var spot: Array = _free_cells(world, world.cell_of(main.player.pos), 1, [axe_tree])
+	main.player.add_item("wood", 8)
+	var wood_pre: int = main.player.count("wood")
+	_check(main._try_build("wood_wall", spot[0]), "built a wall to take down")
+	main.player.pos = world.cell_center(spot[0]) + Vector2(16, 0)
+	main._ask_demolish()
+	_check(main.hud.is_modal(), "X next to a building asks before taking it down")
+	main.hud._choose(0)
+	_check(not main.buildings.has(spot[0]) and main.player.count("wood") == wood_pre,
+		"taking it down within a minute gives everything back (%d of %d wood)" % [main.player.count("wood"), wood_pre])
+	main._try_build("wood_wall", spot[0])
+	main.buildings[spot[0]].built_ms = -1  # as if built long ago
+	var wood_mid: int = main.player.count("wood")
+	main._demolish(spot[0])
+	_check(main.player.count("wood") == wood_mid + 2, "an older building gives back half")
 	main.player.pos = home_pos
 	main.save_game()
 	var saved: Dictionary = load("res://scripts/save_game.gd").read()
@@ -275,6 +326,7 @@ func _run_game() -> void:
 	_check(copy_main.player.pos.distance_to(main.player.pos) < 1.0, "resumed at the same spot")
 	_check(copy_main.player.count("wood") == main.player.count("wood"), "resumed with the same wood")
 	_check(copy_main.player.has_spear, "resumed with the spear")
+	_check(copy_main.player.equipped == main.player.equipped, "resumed holding the same tool (%s)" % copy_main.player.equipped)
 	_check(copy_main.world.prop_type(tree_cell) == "stump", "felled tree is still a stump after reload")
 	_check(copy_main.campfires.size() == 1, "campfire is still there after reload")
 	_check(copy_main.buildings.size() == main.buildings.size(), "buildings are still there after reload (%d)" % copy_main.buildings.size())

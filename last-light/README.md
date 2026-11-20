@@ -8,7 +8,9 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
 
 - **Survive.** Keep **health, hunger, warmth and sanity** above zero. One in-game day lasts 16 minutes: about 9½ minutes of daylight, then dusk, a 4-minute night and dawn.
 - **Gather.** Chop trees for wood, break rocks for stone and pick berries. Bushes grow back after two days.
-- **Craft.** `1` campfire (5 wood, 3 stone), `2` torch (2 wood), `3` spear (3 wood, 2 stone).
+- **Craft.** `C` campfire (5 wood, 3 stone), `R` torch (2 wood); the spear (3 wood, 2 stone) and everything else from the inventory.
+- **Inventory (I or Tab).** Pauses the game and shows your supplies, weapons and tools, and what you can craft. Click to eat, heal, equip, take armour off or shutter the lantern.
+- **Hotbar.** `1` hands, `2` spear, `3` axe, `4` pickaxe (or click a slot); press the same key again to put it away. What's in your hand matters: hands hit for 1, a spear for 2 (iron 3) with longer reach, an axe for 2. The axe only doubles wood, and the pickaxe only doubles stone and mines iron, while in your hand. New tools go straight into your hand.
 - **Nights are dangerous.** It gets cold and dark, and wolves come out. Wolves won't go near firelight. Kill them for meat and cook it at a fire.
 - **Other survivors' traces.**
   - Reading a **note** or a **grave** restores sanity.
@@ -19,7 +21,7 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
 - **The island recovers.** Felled trees, broken rocks and picked bushes grow back after a few days.
 - **Leaderboard.** When you die you see the longest lives on the island.
 - **Pause menu (Esc):** save now, or start over with a fresh save.
-- **Build a base (B).** Aim with the mouse and click (or E) to build, X to demolish for half the materials back:
+- **Build a base (B).** Aim with the mouse and click (or E) to build. To take something down, press X next to it (you're asked first) or aim at it in build mode and press X: you get everything back if you built it less than a minute ago, otherwise half. Things stored in a chest come back too. You can build:
 
   | Key | Structure | Cost | What it does |
   |---|---|---|---|
@@ -38,7 +40,7 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
 - **Sound and music.** Chopping, mining, footsteps, crackling fires, wolf howls, birds by day, crickets and wind at night, and a calm day theme that fades into a darker night theme. Turn sound or music off in Esc → Settings. Every sound is synthesized by `tools/make_sounds.py`, so there are no recordings or licences involved.
 - **Raise an army.** At a barracks, recruit soldiers for 3 wood, 2 stone and 5 berries each: up to 10 per barracks and 100 in all. Soldiers fight wolves (you get the meat), and wolves fight back. Press T to switch between *follow me* (rows behind you) and *guard here* (rings around the spot).
 
-Controls: WASD/arrows to move, mouse wheel to zoom, `E` (hold) to gather or use, `Space`/click to attack, `F` to eat, `H` to show or hide help.
+Controls: WASD/arrows to move, mouse wheel to zoom, `E` (hold) to gather or use, `Space`/click to attack, `1`–`4` hotbar, `I`/`Tab` inventory, `F` to eat, `X` to take down a building, `H` to show or hide help.
 
 Without a server configured, the game runs offline: the island and survival work, but there are no traces and no leaderboard.
 

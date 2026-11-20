@@ -23,6 +23,7 @@ const DISCOVER_RADIUS := 110.0  # game pixels
 
 const RECRUIT_COST := {"wood": 3, "stone": 2, "berries": 5}
 const BUILD_RANGE := 8  # tiles from the player
+const UNDO_SECONDS := 60.0  # take a building down this soon after building it: full refund
 const MAX_TORCH_POSTS := 24  # lights are expensive in the browser renderer
 
 const ISLAND_ID := 1  # the permanent island, as the server knows it
@@ -143,6 +144,7 @@ func _ready() -> void:
 
 	hud.set_island(island_name, "a permanent island")
 	hud.setup_maps(world, _map_markers)
+	hud.setup_hotbar(_on_hotbar_slot)
 	_update_pois(0.0, true)
 	_hook_page_unload()
 	_update_lighting()
@@ -187,9 +189,13 @@ func _setup_input() -> void:
 	_bind("interact", [KEY_E])
 	_bind("attack", [KEY_SPACE])
 	_bind("eat", [KEY_F])
-	_bind("craft_campfire", [KEY_1])
-	_bind("craft_torch", [KEY_2])
-	_bind("craft_spear", [KEY_3])
+	_bind("slot_1", [KEY_1])
+	_bind("slot_2", [KEY_2])
+	_bind("slot_3", [KEY_3])
+	_bind("slot_4", [KEY_4])
+	_bind("craft_campfire", [KEY_C])
+	_bind("craft_torch", [KEY_R])
+	_bind("inventory", [KEY_I, KEY_TAB])
 	_bind("write_note", [KEY_N])
 	_bind("leave_stash", [KEY_G])
 	_bind("help", [KEY_H])
@@ -371,8 +377,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		_craft("campfire")
 	elif event.is_action_pressed("craft_torch"):
 		_craft("torch")
-	elif event.is_action_pressed("craft_spear"):
-		_craft("spear")
+	elif event.is_action_pressed("inventory"):
+		_open_inventory()
+	elif event.is_action_pressed("demolish"):
+		_ask_demolish()
+	elif _slot_pressed(event) >= 0:
+		_on_hotbar_slot(_slot_pressed(event))
 	elif event.is_action_pressed("write_note"):
 		_write_note()
 	elif event.is_action_pressed("leave_stash"):
@@ -529,7 +539,7 @@ func _tick_survival(delta: float) -> void:
 			loss *= 0.4
 		player.warmth = clampf(player.warmth - loss * NIGHT_PACE * delta, 0.0, 100.0)
 
-	if near_fire or has_torch or player.lantern or n < 0.5 or _nearest(_torch_posts(), player.pos, Structure.TORCH_RADIUS) != null:
+	if near_fire or has_torch or player.lantern_lit() or n < 0.5 or _nearest(_torch_posts(), player.pos, Structure.TORCH_RADIUS) != null:
 		player.sanity = minf(player.sanity + 0.05 * NIGHT_PACE * delta, 100.0)
 	else:
 		player.sanity = maxf(player.sanity - 0.35 * NIGHT_PACE * delta, 0.0)
@@ -605,7 +615,7 @@ func _tick_wolves(delta: float) -> void:
 			audio.play("wolf_bite", wolf.position, -2.0)
 			if victim == null:
 				# Iron armour halves the bite.
-				_hurt(Wolf.BITE_DAMAGE * (0.5 if player.armour else 1.0), "wolves")
+				_hurt(Wolf.BITE_DAMAGE * (0.5 if player.wearing_armour() else 1.0), "wolves")
 			elif victim.hurt(Wolf.BITE_DAMAGE):
 				_on_soldier_fallen(victim)
 		# A wolf pressed against your walls gnaws through them.
@@ -671,15 +681,18 @@ func _interact() -> void:
 	var cell := world.find_prop_near(pos, INTERACT_RADIUS)
 	if cell != World.NO_CELL:
 		var kind := world.prop_type(cell)
-		if kind == "iron_rock" and not player.has_pickaxe:
-			hud.toast("Iron ore needs a pickaxe. Make one at a workbench.")
+		if kind == "iron_rock" and not player.holding("pickaxe"):
+			if player.has_pickaxe:
+				hud.toast("Take your pickaxe in hand (4) to mine iron ore.")
+			else:
+				hud.toast("Iron ore needs a pickaxe. Make one at a workbench.")
 			return
 		player.swing()
 		audio.play({"tree": "chop", "bush": "pick"}.get(kind, "mine"), world.to_3d(world.cell_center(cell)))
 		var gained := world.harvest(cell, day)
 		for item in gained:
 			var amount := int(gained[item])
-			if (item == "wood" and player.has_axe) or (item == "stone" and player.has_pickaxe):
+			if (item == "wood" and player.holding("axe")) or (item == "stone" and player.holding("pickaxe")):
 				amount *= 2
 			player.add_item(item, amount)
 			hud.toast("+%d %s" % [amount, ITEM_NAMES[item]])
@@ -781,8 +794,8 @@ func _attack() -> void:
 	attack_cooldown = 0.45
 	player.swing()
 	audio.play("swing", player.position, -6.0)
-	var damage := 3 if player.iron_spear else (2 if player.has_spear else 1)
-	var reach := 34.0 if player.has_spear else 24.0
+	var damage := player.attack_damage()
+	var reach := player.attack_reach()
 	for wolf in wolves.duplicate():
 		if wolf.pos.distance_to(player.pos) <= reach:
 			wolf.hurt(damage, player.pos)
@@ -792,30 +805,35 @@ func _attack() -> void:
 
 
 func _eat() -> void:
-	if player.count("smoked_meat") + player.count("cooked_meat") + player.count("berries") + player.count("raw_meat") > 0:
-		audio.play("eat")
-	if player.count("smoked_meat") > 0:
-		player.add_item("smoked_meat", -1)
-		player.hunger = minf(player.hunger + 45.0, 100.0)
-		player.sanity = minf(player.sanity + 5.0, 100.0)
-		hud.toast("You eat smoked meat. Rich and satisfying.")
-	elif player.count("cooked_meat") > 0:
-		player.add_item("cooked_meat", -1)
-		player.hunger = minf(player.hunger + 35.0, 100.0)
-		player.sanity = minf(player.sanity + 3.0, 100.0)
-		hud.toast("You eat cooked meat. Warm and filling.")
-	elif player.count("berries") > 0:
-		player.add_item("berries", -1)
-		player.hunger = minf(player.hunger + 8.0, 100.0)
-		hud.toast("You eat a handful of berries.")
-	elif player.count("raw_meat") > 0:
-		player.add_item("raw_meat", -1)
-		player.hunger = minf(player.hunger + 12.0, 100.0)
-		player.sanity = maxf(player.sanity - 8.0, 0.0)
-		_hurt(3.0, "bad meat")
-		hud.toast("You choke down raw meat. Your stomach turns.")
-	else:
-		hud.toast("You have nothing to eat. Look for berry bushes.")
+	for item in ["smoked_meat", "cooked_meat", "berries", "raw_meat"]:
+		if player.count(item) > 0:
+			_eat_item(item)
+			return
+	hud.toast("You have nothing to eat. Look for berry bushes.")
+
+
+func _eat_item(item: String) -> void:
+	if player.count(item) <= 0:
+		return
+	audio.play("eat")
+	player.add_item(item, -1)
+	match item:
+		"smoked_meat":
+			player.hunger = minf(player.hunger + 45.0, 100.0)
+			player.sanity = minf(player.sanity + 5.0, 100.0)
+			hud.toast("You eat smoked meat. Rich and satisfying.")
+		"cooked_meat":
+			player.hunger = minf(player.hunger + 35.0, 100.0)
+			player.sanity = minf(player.sanity + 3.0, 100.0)
+			hud.toast("You eat cooked meat. Warm and filling.")
+		"berries":
+			player.hunger = minf(player.hunger + 8.0, 100.0)
+			hud.toast("You eat a handful of berries.")
+		"raw_meat":
+			player.hunger = minf(player.hunger + 12.0, 100.0)
+			player.sanity = maxf(player.sanity - 8.0, 0.0)
+			_hurt(3.0, "bad meat")
+			hud.toast("You choke down raw meat. Your stomach turns.")
 
 
 func _craft(what: String) -> void:
@@ -853,8 +871,9 @@ func _craft(what: String) -> void:
 				return
 			player.pay(cost)
 			player.has_spear = true
+			player.equip("spear")
 			audio.play("craft")
-			hud.toast("You carve a spear. Wolves beware.")
+			hud.toast("You carve a spear and take it in hand (2). Wolves beware.")
 
 
 func _write_note() -> void:
@@ -968,9 +987,9 @@ func _update_hint() -> void:
 		hint = _building_hint(building)
 	elif cell != World.NO_CELL:
 		hint = {"tree": "E: chop tree", "rock": "E: break rock", "bush": "E: pick berries",
-			"iron_rock": "E: mine iron ore" if player.has_pickaxe else "Iron ore: you need a pickaxe"}.get(world.prop_type(cell), "")
+			"iron_rock": "E: mine iron ore" if player.holding("pickaxe") else ("Iron ore: take your pickaxe in hand (4)" if player.has_pickaxe else "Iron ore: you need a pickaxe")}.get(world.prop_type(cell), "")
 	elif is_night() and not _near_lit_fire(pos) and player.torch_time <= 0.0:
-		hint = "It's dark and cold. Build a campfire (1) or light a torch (2)."
+		hint = "It's dark and cold. Build a campfire (C) or light a torch (I)."
 	hud.set_hint(hint)
 
 
@@ -996,6 +1015,8 @@ func _refresh_hud() -> void:
 	if not soldiers.is_empty() or _count("barracks") > 0:
 		inv += "\nArmy %d / %d  ·  %s (T)" % [soldiers.size(), _army_capacity(),
 			"following" if army_mode == "follow" else "guarding"]
+	hud.update_hotbar(_hotbar_slots(), HOTBAR.find(player.equipped if player.owns(player.equipped) else "hands"))
+	hud.set_hotbar_visible(started)
 	hud.update_stats([player.health, player.hunger, player.warmth, player.sanity], day, time_label(), inv)
 
 
@@ -1085,6 +1106,14 @@ func _make(r: Dictionary) -> bool:
 		player.set(TOOLS[id], true)
 		if id == "iron_spear":
 			player.has_spear = true
+		# A new weapon or tool goes straight into your hand.
+		var slot: String = {"iron_spear": "spear", "spear": "spear", "axe": "axe", "pickaxe": "pickaxe"}.get(id, "")
+		if slot != "":
+			player.equip(slot)
+		elif id == "armour":
+			player.armour_on = true
+		elif id == "lantern":
+			player.lantern_on = true
 	else:
 		player.add_item(id, 1)
 	audio.play("craft")
@@ -1259,7 +1288,7 @@ func _set_build_mode(on: bool) -> void:
 		_ghost = null
 		_ghost_key = ""
 	if on:
-		hud.toast("Build mode: aim with the mouse, click or E to build, X to demolish, B to finish.")
+		hud.toast("Build mode: aim with the mouse, click or E to build, X to take down, B to finish.")
 
 
 ## Handles keys and clicks in build mode. Returns true if the event was used.
@@ -1320,7 +1349,8 @@ func _try_build(kind: String, cell: Vector2i) -> bool:
 		hud.toast(problem)
 		return false
 	player.pay(Structure.info(kind)["cost"])
-	_add_structure(kind, cell)
+	var built := _add_structure(kind, cell)
+	built.built_ms = Time.get_ticks_msec()
 	audio.play("build", world.to_3d(world.cell_center(cell)))
 	if kind == "tent":
 		home = world.cell_center(cell)
@@ -1334,13 +1364,17 @@ func _demolish(cell: Vector2i) -> void:
 		hud.toast("There's nothing you built there.")
 		return
 	var b: Structure = buildings[cell]
-	var cost: Dictionary = Structure.info(b.kind)["cost"]
-	for item in cost:
-		player.add_item(item, int(cost[item]) / 2)
+	var refund := _refund(b)
+	for item in refund:
+		player.add_item(item, int(refund[item]))
 	for item in b.items:
 		player.add_item(item, int(b.items[item]))
-	hud.toast("You take down the %s and get some materials back." % b.display_name().to_lower())
+	var back := "" if refund.is_empty() else " You get back %s." % _items_text(refund)
+	hud.toast("You take down the %s.%s" % [b.display_name().to_lower(), back])
+	audio.play("build", world.to_3d(world.cell_center(cell)), -4.0, 0.2)
 	_remove_structure(cell)
+	if b.kind == "tent" and home == world.cell_center(cell):
+		home = Vector2.INF if campfires.is_empty() else campfires[-1].pos
 	_save_timer = SAVE_INTERVAL - 1.0
 
 
@@ -1370,7 +1404,154 @@ func _update_build_preview() -> void:
 	var info: Dictionary = Structure.info(kind)
 	hud.set_hint("%s\n%s: %s. %s  %s" % [
 		"  ".join(names), info["name"], _items_text(info["cost"]), info["about"],
-		problem if problem != "" else "Click or E to build · X demolish · B done"])
+		_build_action_text(cell, problem)])
+
+
+func _build_action_text(cell: Vector2i, problem: String) -> String:
+	if buildings.has(cell):
+		var b: Structure = buildings[cell]
+		var refund := _refund(b)
+		return "X: take down this %s (get back %s) · B done" % [b.display_name().to_lower(),
+			_items_text(refund) if not refund.is_empty() else "nothing"]
+	return problem if problem != "" else "Click or E to build · X take down · B done"
+
+
+## What you get back for taking down a building: everything if you built it
+## in the last minute (a mistake), otherwise half.
+func _refund(b: Structure) -> Dictionary:
+	var cost: Dictionary = Structure.info(b.kind)["cost"]
+	var full := b.built_ms >= 0 and Time.get_ticks_msec() - b.built_ms <= int(UNDO_SECONDS * 1000.0)
+	var out := {}
+	for item in cost:
+		var n: int = int(cost[item]) if full else int(cost[item]) / 2
+		if n > 0:
+			out[item] = n
+	return out
+
+
+## X outside build mode: take down the building next to you, after asking.
+func _ask_demolish() -> void:
+	var near := _nearest(buildings.values(), player.pos, 30.0)
+	if near == null:
+		hud.toast("Stand next to one of your buildings and press X to take it down.")
+		return
+	var b := near as Structure
+	var refund := _refund(b)
+	var stored := "" if b.items.is_empty() else "\n\nEverything stored inside comes back to you too."
+	hud.open_dialog("Take down the %s?" % b.display_name().to_lower(),
+		"You get back %s.%s" % [_items_text(refund) if not refund.is_empty() else "nothing", stored],
+		PackedStringArray(["Take it down", "Keep it"]), _on_demolish_choice.bind(b))
+
+
+func _on_demolish_choice(choice: int, _text: String, b: Structure) -> void:
+	if choice == 0 and is_instance_valid(b) and buildings.get(b.cell) == b:
+		_demolish(b.cell)
+
+
+# ---------- Hotbar and inventory ----------
+
+const HOTBAR := ["hands", "spear", "axe", "pickaxe"]
+
+
+func _slot_pressed(event: InputEvent) -> int:
+	for i in HOTBAR.size():
+		if event.is_action_pressed("slot_%d" % (i + 1)):
+			return i
+	return -1
+
+
+## Picks a hotbar slot. Picking the slot already in hand puts it away.
+func _on_hotbar_slot(i: int) -> void:
+	var tool: String = HOTBAR[i]
+	if not player.owns(tool):
+		hud.toast("You don't have a %s yet. %s" % [tool, {
+			"spear": "Craft one in the inventory (I).",
+			"axe": "Make one at a workbench.", "pickaxe": "Make one at a workbench."}.get(tool, "")])
+		return
+	_equip(tool if player.equipped != tool else "hands")
+
+
+func _equip(tool: String) -> void:
+	if not player.equip(tool):
+		return
+	audio.play("ui", Vector3.INF, -8.0)
+	if hud.is_inventory_open():
+		_open_inventory()
+
+
+func _hotbar_slots() -> Array:
+	return [
+		{"label": "Hands", "owned": true},
+		{"label": "Iron spear" if player.iron_spear else "Spear", "owned": player.has_spear},
+		{"label": "Axe", "owned": player.has_axe},
+		{"label": "Pickaxe", "owned": player.has_pickaxe},
+	]
+
+
+func _open_inventory() -> void:
+	var supplies := []
+	for item in ["wood", "stone", "berries", "raw_meat", "cooked_meat", "smoked_meat", "ore", "iron", "hide", "salve"]:
+		var n := player.count(item)
+		var row := {"name": str(ITEM_NAMES[item]).capitalize(), "detail": "× %d" % n, "dim": n == 0}
+		if item in ["berries", "raw_meat", "cooked_meat", "smoked_meat"]:
+			row.merge({"button": "Eat", "action": "eat:" + item, "enabled": n > 0})
+		elif item == "salve":
+			row.merge({"button": "Use", "action": "salve", "enabled": n > 0 and player.health < 100.0})
+		supplies.append(row)
+
+	var gear := []
+	for i in HOTBAR.size():
+		var tool: String = HOTBAR[i]
+		if tool == "hands" or not player.owns(tool):
+			continue
+		var held := player.equipped == tool
+		gear.append({"name": "Iron spear" if tool == "spear" and player.iron_spear else tool.capitalize(),
+			"detail": "in hand" if held else "key %d" % (i + 1),
+			"button": "Put away" if held else "Equip", "action": "equip:" + ("hands" if held else tool)})
+	if player.armour:
+		gear.append({"name": "Iron armour", "detail": "worn" if player.armour_on else "packed",
+			"button": "Take off" if player.armour_on else "Wear", "action": "armour"})
+	if player.lantern:
+		gear.append({"name": "Lantern", "detail": "lit" if player.lantern_on else "shuttered",
+			"button": "Shutter" if player.lantern_on else "Light", "action": "lantern"})
+	if player.torch_time > 0.0:
+		gear.append({"name": "Torch", "detail": "%d s left" % int(player.torch_time)})
+
+	var crafting := []
+	for what in ["campfire", "torch", "spear"]:
+		var cost: Dictionary = RECIPES[what]
+		var done := (what == "spear" and player.has_spear) or (what == "torch" and player.torch_time > 0.0)
+		crafting.append({"name": what.capitalize() + {"campfire": "  (C)", "torch": "  (R)", "spear": ""}[what],
+			"detail": _items_text(cost), "button": "Craft", "action": "craft:" + what,
+			"enabled": player.can_afford(cost) and not done, "dim": done})
+
+	hud.show_inventory([
+		[{"title": "Supplies", "rows": supplies}],
+		[{"title": "Weapons and tools", "rows": gear}, {"title": "Crafting", "rows": crafting}],
+	], _on_inventory_action)
+
+
+func _on_inventory_action(action: String) -> void:
+	var parts := action.split(":")
+	match parts[0]:
+		"eat":
+			_eat_item(parts[1])
+		"salve":
+			_use_salve()
+		"equip":
+			_equip(parts[1])
+		"armour":
+			player.armour_on = not player.armour_on
+			hud.toast("You put on your armour." if player.armour_on else "You take off your armour.")
+		"lantern":
+			player.lantern_on = not player.lantern_on
+			hud.toast("You light the lantern." if player.lantern_on else "You shutter the lantern.")
+		"craft":
+			if parts[1] == "campfire":
+				hud.close_inventory()  # see where it goes
+			_craft(parts[1])
+	if hud.is_inventory_open():
+		_open_inventory()
 
 
 func _building_hint(b: Structure) -> String:
@@ -1916,6 +2097,9 @@ func save_game(respawn: bool = false, upload: bool = false) -> void:
 			"inventory": player.inventory.duplicate(),
 			"spear": player.has_spear,
 			"tools": _tools_owned(),
+			"equipped": player.equipped,
+			"armour_on": player.armour_on,
+			"lantern_on": player.lantern_on,
 			"torch": player.torch_time,
 		},
 	}
@@ -1985,6 +2169,10 @@ func _apply_save(save: Dictionary) -> bool:
 		for tool in p.get("tools", []):
 			if TOOLS.has(str(tool)):
 				player.set(TOOLS[str(tool)], true)
+		player.equipped = "hands"
+		player.equip(str(p.get("equipped", "hands")))
+		player.armour_on = bool(p.get("armour_on", true))
+		player.lantern_on = bool(p.get("lantern_on", true))
 		player.torch_time = maxf(float(p.get("torch", 0.0)), 0.0)
 
 	var map_hex: Variant = save.get("map", "")

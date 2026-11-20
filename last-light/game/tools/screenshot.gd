@@ -112,6 +112,28 @@ func _run() -> void:
 		main._tick_army(0.1)
 	await _frames(40)
 	await _shot("7-base-day")
+	# Tools: the axe in hand, the hotbar and the inventory screen.
+	main.player.has_axe = true
+	main.player.has_pickaxe = true
+	main.player.armour = true
+	main.player.lantern = true
+	main.player.add_item("cooked_meat", 3)
+	main._on_hotbar_slot(2)
+	main.zoom = 0.6
+	await _frames(30)
+	await _shot("7b-axe-in-hand")
+	main._on_hotbar_slot(3)
+	await _frames(10)
+	await _shot("7c-pickaxe-in-hand")
+	main._open_inventory()
+	await _frames(10)
+	await _shot("7d-inventory")
+	main.hud.close_inventory()
+	main.player.pos = w.cell_center(c + Vector2i(-1, 3)) + Vector2(0, -16)
+	main._ask_demolish()
+	await _frames(10)
+	await _shot("7e-take-down")
+	main.hud._choose(1)
 	main.clock = DAY * 0.8
 	main.zoom = 1.3
 	await _frames(30)

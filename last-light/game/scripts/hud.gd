@@ -6,19 +6,20 @@ const HELP_TEXT := """[ Controls ]
 WASD / arrows   move
 E (hold)          chop, mine, pick, use, read
 Space / click   attack
+1 – 4              hands, spear, axe, pickaxe
+                      (press again to put away)
+I / Tab            inventory and crafting
 F                    eat         Q   healing salve
+C                    campfire   R   torch
 M                    island map
 N / G              leave a note / a stash
 Mouse wheel     zoom
 B                    build (1–0 to choose)
+X                    take down a building
 T                    army: follow me / guard here
 Esc                 pause: save, account, sound
 H                    show / hide this help
 
-[ Crafting ]
-1  Campfire    5 wood, 3 stone
-2  Torch         2 wood
-3  Spear         3 wood, 2 stone
 Build a workbench, forge and smokehouse
 for tools, iron gear and smoked meat.
 
@@ -68,6 +69,13 @@ var _dialog_input: LineEdit
 var _dialog_buttons: HBoxContainer
 var _on_choice := Callable()
 var _dismissable := true
+var _hotbar: HBoxContainer
+var _hotbar_buttons: Array = []
+var _on_hotbar := Callable()
+var _inv_center: CenterContainer
+var _inv_columns: HBoxContainer
+var _inv_footer: Label
+var _on_inv_action := Callable()
 
 
 func _ready() -> void:
@@ -86,6 +94,8 @@ func _ready() -> void:
 	_build_hint_and_toasts()
 	_build_help()
 	_build_maps()
+	_build_hotbar()
+	_build_inventory()
 	_build_dialog()
 
 
@@ -123,8 +133,9 @@ func _build_hint_and_toasts() -> void:
 	_hint_label.anchor_right = 1.0
 	_hint_label.anchor_top = 1.0
 	_hint_label.anchor_bottom = 1.0
-	_hint_label.offset_top = -64
-	_hint_label.offset_bottom = -36
+	_hint_label.offset_top = -112
+	_hint_label.offset_bottom = -84
+	_hint_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_hint_label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
 	_hint_label.add_theme_constant_override("outline_size", 5)
 	_root.add_child(_hint_label)
@@ -136,8 +147,8 @@ func _build_hint_and_toasts() -> void:
 	_toasts.anchor_bottom = 1.0
 	_toasts.offset_left = 14
 	_toasts.offset_right = 640
-	_toasts.offset_top = -300
-	_toasts.offset_bottom = -80
+	_toasts.offset_top = -360
+	_toasts.offset_bottom = -140
 	_root.add_child(_toasts)
 
 
@@ -260,7 +271,196 @@ func flash() -> void:
 
 
 func is_modal() -> bool:
-	return _dialog_center.visible or _map_center.visible
+	return _dialog_center.visible or _map_center.visible or _inv_center.visible
+
+
+# ---------- Hotbar ----------
+
+const HOTBAR_SLOTS := ["Hands", "Spear", "Axe", "Pickaxe"]
+
+
+func _build_hotbar() -> void:
+	_hotbar = HBoxContainer.new()
+	_hotbar.add_theme_constant_override("separation", 6)
+	_hotbar.alignment = BoxContainer.ALIGNMENT_CENTER
+	_hotbar.anchor_left = 0.5
+	_hotbar.anchor_right = 0.5
+	_hotbar.anchor_top = 1.0
+	_hotbar.anchor_bottom = 1.0
+	_hotbar.offset_left = -190
+	_hotbar.offset_right = 190
+	_hotbar.offset_top = -72
+	_hotbar.offset_bottom = -14
+	_hotbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(_hotbar)
+	for i in HOTBAR_SLOTS.size():
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(88, 54)
+		b.focus_mode = Control.FOCUS_NONE  # number keys and Space must not "press" it
+		b.toggle_mode = true
+		b.add_theme_font_size_override("font_size", 13)
+		for state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+			b.add_theme_stylebox_override(state, _slot_style(state))
+		b.add_theme_color_override("font_disabled_color", Color(0.6, 0.58, 0.55, 0.55))
+		b.add_theme_color_override("font_pressed_color", Color(1.0, 0.9, 0.65))
+		b.add_theme_color_override("font_hover_pressed_color", Color(1.0, 0.9, 0.65))
+		b.pressed.connect(_on_slot_pressed.bind(i))
+		_hotbar.add_child(b)
+		_hotbar_buttons.append(b)
+
+
+func _slot_style(state: String) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.set_corner_radius_all(5)
+	sb.set_content_margin_all(4)
+	sb.set_border_width_all(2)
+	match state:
+		"pressed", "hover_pressed":
+			sb.bg_color = Color(0.25, 0.17, 0.08, 0.9)
+			sb.border_color = Color(1.0, 0.75, 0.35)
+		"hover":
+			sb.bg_color = Color(0.14, 0.11, 0.08, 0.88)
+			sb.border_color = Color(0.85, 0.6, 0.3, 0.8)
+		"disabled":
+			sb.bg_color = Color(0.05, 0.05, 0.05, 0.55)
+			sb.border_color = Color(0.4, 0.4, 0.4, 0.3)
+		_:
+			sb.bg_color = Color(0.07, 0.06, 0.05, 0.82)
+			sb.border_color = Color(0.85, 0.6, 0.3, 0.45)
+	return sb
+
+
+## `on_select` is called with the slot index (0 hands, 1 spear, 2 axe, 3 pickaxe).
+func setup_hotbar(on_select: Callable) -> void:
+	_on_hotbar = on_select
+
+
+## `slots`: one {"label": String, "owned": bool} per slot; `active` is the slot in hand.
+func update_hotbar(slots: Array, active: int) -> void:
+	for i in _hotbar_buttons.size():
+		var b: Button = _hotbar_buttons[i]
+		var slot: Dictionary = slots[i]
+		var text := "%d\n%s" % [i + 1, slot["label"]]
+		if b.text != text:
+			b.text = text
+		b.disabled = not bool(slot["owned"])
+		b.set_pressed_no_signal(i == active)
+		b.tooltip_text = "" if slot["owned"] else "You don't have one yet."
+
+
+func hotbar_slot_label(i: int) -> String:
+	return (_hotbar_buttons[i] as Button).text
+
+
+func _on_slot_pressed(i: int) -> void:
+	if _on_hotbar.is_valid():
+		_on_hotbar.call(i)
+
+
+func set_hotbar_visible(shown: bool) -> void:
+	_hotbar.visible = shown
+
+
+# ---------- Inventory ----------
+
+func _build_inventory() -> void:
+	_inv_center = CenterContainer.new()
+	_inv_center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_inv_center.mouse_filter = Control.MOUSE_FILTER_STOP
+	_inv_center.visible = false
+	_root.add_child(_inv_center)
+	var panel := PanelContainer.new()
+	var sb := _panel_style()
+	sb.bg_color = Color(0.07, 0.06, 0.05, 0.94)
+	sb.set_content_margin_all(18)
+	panel.add_theme_stylebox_override("panel", sb)
+	_inv_center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	panel.add_child(box)
+	var title := _label(22, Color(1.0, 0.85, 0.6))
+	title.text = "Inventory"
+	box.add_child(title)
+	_inv_columns = HBoxContainer.new()
+	_inv_columns.add_theme_constant_override("separation", 28)
+	box.add_child(_inv_columns)
+	_inv_footer = _label(12, Color(0.75, 0.72, 0.66))
+	_inv_footer.text = "Click to use, equip or craft.   1–4 hotbar   ·   I, Tab or Esc to close"
+	box.add_child(_inv_footer)
+
+
+## Shows (or refreshes) the inventory. `columns` is an Array of columns; each column
+## is an Array of sections {"title": String, "rows": [{"name", "detail", "button", "action", "enabled", "dim"}]}.
+## `on_action` is called with a row's "action" when its button is pressed.
+func show_inventory(columns: Array, on_action: Callable) -> void:
+	_on_inv_action = on_action
+	for child in _inv_columns.get_children():
+		_inv_columns.remove_child(child)
+		child.queue_free()
+	for column in columns:
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 6)
+		col.custom_minimum_size = Vector2(330, 0)
+		_inv_columns.add_child(col)
+		for section in column:
+			var head := _label(15, Color(1.0, 0.78, 0.45))
+			head.text = section["title"]
+			col.add_child(head)
+			var grid := GridContainer.new()
+			grid.columns = 3
+			grid.add_theme_constant_override("h_separation", 12)
+			grid.add_theme_constant_override("v_separation", 4)
+			col.add_child(grid)
+			for row in section["rows"]:
+				var dim: bool = row.get("dim", false)
+				var name_label := _label(14, Color(0.95, 0.92, 0.85, 0.45 if dim else 1.0))
+				name_label.text = row["name"]
+				name_label.custom_minimum_size = Vector2(120, 0)
+				grid.add_child(name_label)
+				var detail := _label(13, Color(0.8, 0.78, 0.72, 0.45 if dim else 0.95))
+				detail.text = row.get("detail", "")
+				detail.custom_minimum_size = Vector2(110, 0)
+				grid.add_child(detail)
+				var label: String = row.get("button", "")
+				if label == "":
+					grid.add_child(Control.new())
+					continue
+				var b := Button.new()
+				b.text = label
+				b.focus_mode = Control.FOCUS_NONE
+				b.custom_minimum_size = Vector2(84, 26)
+				b.add_theme_font_size_override("font_size", 13)
+				b.disabled = not row.get("enabled", true)
+				b.set_meta("action", str(row.get("action", "")))
+				b.pressed.connect(_on_inv_pressed.bind(str(row.get("action", ""))))
+				grid.add_child(b)
+			if section["rows"].is_empty():
+				var none := _label(13, Color(0.7, 0.68, 0.62))
+				none.text = "Nothing yet."
+				col.add_child(none)
+	_inv_center.visible = true
+
+
+func close_inventory() -> void:
+	_inv_center.visible = false
+
+
+func is_inventory_open() -> bool:
+	return _inv_center.visible
+
+
+## The buttons currently in the inventory, by action (for tests).
+func inventory_actions() -> PackedStringArray:
+	var out := PackedStringArray()
+	for b in _inv_columns.find_children("*", "Button", true, false):
+		if not (b as Button).disabled:
+			out.append(str((b as Button).get_meta("action", "")))
+	return out
+
+
+func _on_inv_pressed(action: String) -> void:
+	if _on_inv_action.is_valid():
+		_on_inv_action.call(action)
 
 
 func _build_maps() -> void:
@@ -370,6 +570,16 @@ func _choose(index: int) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if _inv_center.visible and not _dialog_center.visible:
+		var inv_key := event as InputEventKey
+		if inv_key and inv_key.pressed and not inv_key.echo:
+			if inv_key.keycode == KEY_ESCAPE or inv_key.physical_keycode in [KEY_I, KEY_TAB]:
+				_inv_center.visible = false
+				get_viewport().set_input_as_handled()
+			elif inv_key.physical_keycode >= KEY_1 and inv_key.physical_keycode <= KEY_4:
+				_on_slot_pressed(inv_key.physical_keycode - KEY_1)
+				get_viewport().set_input_as_handled()
+		return
 	if _map_center.visible and not _dialog_center.visible:
 		var map_key := event as InputEventKey
 		if map_key and map_key.pressed and not map_key.echo and (map_key.keycode == KEY_ESCAPE or map_key.physical_keycode == KEY_M):
