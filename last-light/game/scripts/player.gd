@@ -212,6 +212,8 @@ func pay(cost: Dictionary) -> void:
 ## tool and torch are drawn in front of the camera by place_view_model().
 func set_first_person(on: bool) -> void:
 	first_person = on
+	if not on:
+		_torch_light.position = Vector3(0, 0.6, 0)
 	var mode := GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY if on else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	for mi in _model.find_children("*", "MeshInstance3D", true, false):
 		(mi as MeshInstance3D).cast_shadow = mode
@@ -235,17 +237,20 @@ func place_view_model(cam: Camera3D, delta: float) -> void:
 	var sway := Vector3(sin(_bob * 0.5) * 0.012, absf(sin(_bob * 0.5)) * 0.012, 0)
 	# A swing chops down and forward.
 	var chop := sin(_fp_swing * PI) * 1.0
-	var hand := o + b * (Vector3(0.3, -0.36, -0.55) + sway + Vector3(-0.08 * chop, -0.06 * chop, -0.1 * chop))
+	var hand := o + b * (Vector3(0.34, -0.52, -0.75) + sway + Vector3(-0.08 * chop, -0.04 * chop, -0.12 * chop))
 	_armour.visible = false
 	if _spear.visible:
 		# Held low and pointing ahead; a swing is a thrust.
-		var thrust := o + b * (Vector3(0.24, -0.3, -0.35 - 0.35 * chop) + sway)
+		var thrust := o + b * (Vector3(0.26, -0.4, -0.35 - 0.35 * chop) + sway)
 		_spear.global_transform = Transform3D(b * Basis(Vector3.RIGHT, -PI / 2 + 0.12) * Basis(Vector3.FORWARD, 0.08), thrust)
 	for tool in [_axe, _pickaxe]:
 		if tool.visible:
-			tool.global_transform = Transform3D(b * Basis(Vector3.RIGHT, -0.35 - chop) * Basis(Vector3.FORWARD, 0.25), hand)
+			# Head forward and up, not in your face; a swing tips it further forward.
+			tool.global_transform = Transform3D(b * Basis(Vector3.RIGHT, -0.9 - 0.8 * chop) * Basis(Vector3.FORWARD, 0.3), hand)
 	if _torch.visible:
-		_torch.global_transform = Transform3D(b * Basis(Vector3.RIGHT, -0.2), o + b * (Vector3(-0.32, -0.42, -0.6) + sway))
+		_torch.global_transform = Transform3D(b * Basis(Vector3.RIGHT, -0.35) * Basis(Vector3.FORWARD, -0.2), o + b * (Vector3(-0.42, -0.6, -0.8) + sway))
+		# Light the way ahead rather than the hands, which would glare white.
+		_torch_light.global_position = o + b * Vector3(0, 0.4, -1.6)
 
 
 func swing() -> void:
