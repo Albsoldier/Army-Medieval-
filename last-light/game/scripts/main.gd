@@ -1420,7 +1420,7 @@ func _build_action_text(cell: Vector2i, problem: String) -> String:
 ## in the last minute (a mistake), otherwise half.
 func _refund(b: Structure) -> Dictionary:
 	var cost: Dictionary = Structure.info(b.kind)["cost"]
-	var full := b.built_ms >= 0 and Time.get_ticks_msec() - b.built_ms <= int(UNDO_SECONDS * 1000.0)
+	var full: bool = b.built_ms >= 0 and Time.get_ticks_msec() - b.built_ms <= int(UNDO_SECONDS * 1000.0)
 	var out := {}
 	for item in cost:
 		var n: int = int(cost[item]) if full else int(cost[item]) / 2
@@ -1491,7 +1491,7 @@ func _hotbar_slots() -> Array:
 func _open_inventory() -> void:
 	var supplies := []
 	for item in ["wood", "stone", "berries", "raw_meat", "cooked_meat", "smoked_meat", "ore", "iron", "hide", "salve"]:
-		var n := player.count(item)
+		var n: int = player.count(item)
 		var row := {"name": str(ITEM_NAMES[item]).capitalize(), "detail": "× %d" % n, "dim": n == 0}
 		if item in ["berries", "raw_meat", "cooked_meat", "smoked_meat"]:
 			row.merge({"button": "Eat", "action": "eat:" + item, "enabled": n > 0})
@@ -1504,7 +1504,7 @@ func _open_inventory() -> void:
 		var tool: String = HOTBAR[i]
 		if tool == "hands" or not player.owns(tool):
 			continue
-		var held := player.equipped == tool
+		var held: bool = player.equipped == tool
 		gear.append({"name": "Iron spear" if tool == "spear" and player.iron_spear else tool.capitalize(),
 			"detail": "in hand" if held else "key %d" % (i + 1),
 			"button": "Put away" if held else "Equip", "action": "equip:" + ("hands" if held else tool)})
@@ -1520,7 +1520,7 @@ func _open_inventory() -> void:
 	var crafting := []
 	for what in ["campfire", "torch", "spear"]:
 		var cost: Dictionary = RECIPES[what]
-		var done := (what == "spear" and player.has_spear) or (what == "torch" and player.torch_time > 0.0)
+		var done: bool = (what == "spear" and player.has_spear) or (what == "torch" and player.torch_time > 0.0)
 		crafting.append({"name": what.capitalize() + {"campfire": "  (C)", "torch": "  (R)", "spear": ""}[what],
 			"detail": _items_text(cost), "button": "Craft", "action": "craft:" + what,
 			"enabled": player.can_afford(cost) and not done, "dim": done})
@@ -1636,7 +1636,7 @@ func _on_chest_choice(choice: int, _text: String, b: Structure) -> void:
 
 func _chest_store(b: Structure) -> void:
 	for item in player.inventory:
-		var n := player.count(item)
+		var n: int = player.count(item)
 		if n > 0:
 			b.items[item] = int(b.items.get(item, 0)) + n
 			player.inventory[item] = 0
