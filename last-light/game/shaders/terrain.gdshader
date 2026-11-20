@@ -4,14 +4,14 @@
 shader_type spatial;
 render_mode cull_disabled;
 
-uniform vec3 grass_a : source_color = vec3(0.33, 0.42, 0.20);
-uniform vec3 grass_b : source_color = vec3(0.47, 0.53, 0.26);
-uniform vec3 dry_grass : source_color = vec3(0.60, 0.56, 0.33);
+uniform vec3 grass_a : source_color = vec3(0.30, 0.37, 0.19);
+uniform vec3 grass_b : source_color = vec3(0.40, 0.44, 0.23);
+uniform vec3 dry_grass : source_color = vec3(0.53, 0.49, 0.31);
 uniform vec3 dirt : source_color = vec3(0.42, 0.34, 0.24);
 uniform vec3 forest_a : source_color = vec3(0.22, 0.27, 0.14);
 uniform vec3 forest_b : source_color = vec3(0.33, 0.29, 0.18);
-uniform vec3 sand_a : source_color = vec3(0.74, 0.66, 0.48);
-uniform vec3 sand_b : source_color = vec3(0.62, 0.55, 0.40);
+uniform vec3 sand_a : source_color = vec3(0.66, 0.59, 0.45);
+uniform vec3 sand_b : source_color = vec3(0.56, 0.50, 0.38);
 uniform vec3 rock_a : source_color = vec3(0.45, 0.43, 0.40);
 uniform vec3 rock_b : source_color = vec3(0.58, 0.56, 0.51);
 

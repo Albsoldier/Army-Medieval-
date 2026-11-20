@@ -2,8 +2,8 @@
 shader_type spatial;
 render_mode cull_disabled, blend_mix, depth_draw_opaque;
 
-uniform vec3 deep : source_color = vec3(0.06, 0.20, 0.27);
-uniform vec3 shallow : source_color = vec3(0.17, 0.37, 0.40);
+uniform vec3 deep : source_color = vec3(0.04, 0.14, 0.21);
+uniform vec3 shallow : source_color = vec3(0.11, 0.28, 0.33);
 uniform vec3 sky_tint : source_color = vec3(0.55, 0.68, 0.78);
 
 varying vec3 world_pos;
@@ -23,7 +23,7 @@ void fragment() {
 	NORMAL = normalize((VIEW_MATRIX * vec4(normalize(n), 0.0)).xyz);
 	float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 4.0);
 	ALBEDO = mix(mix(shallow, deep, 0.6), sky_tint, fresnel * 0.6);
-	ALPHA = mix(0.68, 0.94, fresnel);
+	ALPHA = mix(0.76, 0.95, fresnel);
 	ROUGHNESS = 0.06;
 	SPECULAR = 0.7;
 }

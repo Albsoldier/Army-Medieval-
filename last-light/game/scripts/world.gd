@@ -675,11 +675,11 @@ func _prop_parts() -> Dictionary:
 		# A broad-leaved tree with a rounded, lumpy crown.
 		"tree_oak": [
 			_part(_cylinder(0.16, 0.3, 2.8, 8), Color("5a4430"), Vector3(0, 1.4, 0)),
-			_part(_sphere(1.45, 6, 10), Color("3f5f2c"), Vector3(0, 3.5, 0), Vector3(1.0, 0.85, 1.0), 0.05),
-			_part(_sphere(1.1, 6, 10), Color("4a6b32"), Vector3(0.95, 3.15, 0.35), Vector3(1.0, 0.85, 1.0), 0.06),
-			_part(_sphere(1.05, 6, 10), Color("37552a"), Vector3(-0.85, 3.25, -0.4), Vector3(1.0, 0.85, 1.0), 0.06),
-			_part(_sphere(0.95, 6, 10), Color("557a38"), Vector3(0.2, 4.2, -0.45), Vector3(1.0, 0.85, 1.0), 0.07),
-			_part(_sphere(0.85, 6, 10), Color("456a30"), Vector3(-0.35, 3.95, 0.75), Vector3(1.0, 0.85, 1.0), 0.07),
+			_part(_sphere(1.45, 6, 10), Color("34482a"), Vector3(0, 3.5, 0), Vector3(1.0, 0.85, 1.0), 0.05),
+			_part(_sphere(1.1, 6, 10), Color("3e552e"), Vector3(0.95, 3.15, 0.35), Vector3(1.0, 0.85, 1.0), 0.06),
+			_part(_sphere(1.05, 6, 10), Color("2f4226"), Vector3(-0.85, 3.25, -0.4), Vector3(1.0, 0.85, 1.0), 0.06),
+			_part(_sphere(0.95, 6, 10), Color("4a6133"), Vector3(0.2, 4.2, -0.45), Vector3(1.0, 0.85, 1.0), 0.07),
+			_part(_sphere(0.85, 6, 10), Color("3b522c"), Vector3(-0.35, 3.95, 0.75), Vector3(1.0, 0.85, 1.0), 0.07),
 		],
 		"stump": [
 			_part(_cylinder(0.22, 0.3, 0.42, 9), bark, Vector3(0, 0.2, 0)),
@@ -860,7 +860,7 @@ func _refresh_grass() -> void:
 				continue
 			if structures.has(cell) or _poi_cells.has(cell):
 				continue
-			var clumps := 2 if t == GRASS else 1
+			var clumps := 3 if t == GRASS else 1
 			for c in clumps:
 				var jx := _hash01(cell.x, cell.y, 20 + c)
 				var jz := _hash01(cell.x, cell.y, 30 + c)
@@ -869,7 +869,7 @@ func _refresh_grass() -> void:
 				var s := 0.7 + _hash01(cell.x, cell.y, 40 + c) * 0.7
 				xforms.append(Transform3D(Basis(Vector3.UP, jx * TAU) * Basis.from_scale(Vector3(s, s, s)), Vector3(p.x, y - 0.02, p.y)))
 				var g := _hash01(cell.x, cell.y, 50 + c)
-				var tint := Color("5d7a32").lerp(Color("8a8c45"), g * 0.8) if t == GRASS else Color("3f5426")
+				var tint := Color("50652c").lerp(Color("7a7a42"), g * 0.8) if t == GRASS else Color("3b4c25")
 				tints.append(tint)
 	var mm := _grass.multimesh
 	mm.instance_count = xforms.size()

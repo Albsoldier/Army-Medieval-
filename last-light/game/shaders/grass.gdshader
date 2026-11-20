@@ -11,7 +11,10 @@ void vertex() {
 }
 
 void fragment() {
-	ALBEDO = COLOR.rgb * mix(0.55, 1.1, UV.y);
+	// Light every blade as if it faced the sky, whichever side we see,
+	// so the backs of blades don't turn black.
+	NORMAL = normalize((VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+	ALBEDO = COLOR.rgb * mix(0.7, 1.12, UV.y);
 	ROUGHNESS = 0.95;
 	SPECULAR = 0.1;
 }

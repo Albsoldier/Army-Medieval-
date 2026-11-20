@@ -437,7 +437,7 @@ func _setup_environment() -> void:
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.05
+	env.tonemap_exposure = 0.92
 	# Haze only far away (depth fog), so distant hills fade into the sky
 	# without washing out what's near the camera.
 	env.fog_enabled = true
@@ -477,7 +477,7 @@ func _update_lighting() -> void:
 	var angles := Vector3(sun_pitch, sun_yaw, 0.0).lerp(moon, clampf((n - 0.5) * 2.0, 0.0, 1.0))
 	sun.rotation_degrees = angles
 	sun.light_color = _sky_blend(Color(1.0, 0.94, 0.82), Color(1.0, 0.68, 0.45), Color(0.55, 0.65, 1.0), n)
-	sun.light_energy = lerpf(1.15, 0.1, n)
+	sun.light_energy = lerpf(1.0, 0.1, n)
 
 	var top := _sky_blend(Color(0.32, 0.52, 0.78), Color(0.35, 0.33, 0.52), Color(0.01, 0.02, 0.05), n)
 	var horizon := _sky_blend(Color(0.74, 0.8, 0.84), Color(0.95, 0.62, 0.42), Color(0.04, 0.05, 0.1), n)
@@ -488,7 +488,7 @@ func _update_lighting() -> void:
 	sky_mat.sun_curve = 0.12
 	env.fog_light_color = horizon
 	env.ambient_light_color = _sky_blend(Color(0.58, 0.64, 0.74), Color(0.55, 0.47, 0.5), Color(0.05, 0.06, 0.12), n)
-	env.ambient_light_energy = lerpf(0.5, 1.0, n)
+	env.ambient_light_energy = lerpf(0.45, 1.0, n)
 
 
 func _update_camera(delta: float) -> void:
