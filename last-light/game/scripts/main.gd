@@ -59,6 +59,11 @@ var env: Environment
 var entities: Node3D
 var zoom := 1.0
 var cam_yaw := 0.0  # radians; hold the right mouse button and drag to turn the camera
+var first_person := false  # V switches between the strategy camera and first person
+var fp_pitch := -0.15  # first person: looking up (+) or down (-), in radians
+const SETTINGS_PATH := "user://settings.cfg"
+const EYE_HEIGHT := 1.55  # metres
+const MOUSE_LOOK := 0.0028  # radians per pixel of mouse movement
 var sky_mat: ProceduralSkyMaterial
 
 var seed_value := 0
@@ -135,6 +140,9 @@ func _ready() -> void:
 	add_child(camera)
 	camera.make_current()
 	_setup_environment()
+	var cfg := ConfigFile.new()
+	if cfg.load(SETTINGS_PATH) == OK and bool(cfg.get_value("view", "first_person", false)):
+		set_first_person(true, false)
 	_update_camera(1.0)
 
 	hud = Hud.new()
@@ -145,6 +153,7 @@ func _ready() -> void:
 	hud.set_island(island_name, "a permanent island")
 	hud.setup_maps(world, _map_markers)
 	hud.setup_hotbar(_on_hotbar_slot)
+	hud.set_crosshair(first_person)
 	_update_pois(0.0, true)
 	_hook_page_unload()
 	_update_lighting()
@@ -196,6 +205,7 @@ func _setup_input() -> void:
 	_bind("craft_campfire", [KEY_C])
 	_bind("craft_torch", [KEY_R])
 	_bind("inventory", [KEY_I, KEY_TAB])
+	_bind("view", [KEY_V])
 	_bind("write_note", [KEY_N])
 	_bind("leave_stash", [KEY_G])
 	_bind("help", [KEY_H])
@@ -324,6 +334,8 @@ func _process(delta: float) -> void:
 		# Up on the keyboard always means away from the camera, however it's turned.
 		var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down").rotated(-cam_yaw)
 		player.move(dir, delta)
+		if first_person:
+			player.facing = _look_2d()  # you face where you look, even when stepping sideways
 		if dir != Vector2.ZERO:
 			_step_timer -= delta
 			if _step_timer <= 0.0:
@@ -341,16 +353,28 @@ func _process(delta: float) -> void:
 		if player.health <= 0.0:
 			_die()
 	_update_camera(delta)
+	player.place_view_model(camera, delta)
+	_update_mouse_mode()
 	_refresh_hud()
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	var drag := event as InputEventMouseMotion
+	if drag and first_person and (Input.mouse_mode == Input.MOUSE_MODE_CAPTURED or drag.button_mask & MOUSE_BUTTON_MASK_RIGHT):
+		cam_yaw = wrapf(cam_yaw - drag.relative.x * MOUSE_LOOK, -PI, PI)
+		fp_pitch = clampf(fp_pitch - drag.relative.y * MOUSE_LOOK, -1.35, 1.25)
+		return
 	if drag and drag.button_mask & MOUSE_BUTTON_MASK_RIGHT:
 		cam_yaw = wrapf(cam_yaw - drag.relative.x * 0.006, -PI, PI)
 		return
 	var wheel := event as InputEventMouseButton
-	if wheel and wheel.pressed:
+	# First person: a click first grabs the mouse (browsers only allow that on a click).
+	if wheel and wheel.pressed and wheel.button_index == MOUSE_BUTTON_LEFT and first_person \
+			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED and started and alive and not hud.is_modal():
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		get_viewport().set_input_as_handled()
+		return
+	if wheel and wheel.pressed and not first_person:
 		if wheel.button_index == MOUSE_BUTTON_WHEEL_UP:
 			zoom = clampf(zoom - 0.12, 0.55, 3.2)
 		elif wheel.button_index == MOUSE_BUTTON_WHEEL_DOWN:
@@ -377,6 +401,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_craft("campfire")
 	elif event.is_action_pressed("craft_torch"):
 		_craft("torch")
+	elif event.is_action_pressed("view"):
+		set_first_person(not first_person)
 	elif event.is_action_pressed("inventory"):
 		_open_inventory()
 	elif event.is_action_pressed("demolish"):
@@ -505,6 +531,12 @@ func _update_lighting() -> void:
 
 
 func _update_camera(delta: float) -> void:
+	if first_person:
+		var look := _look_2d()
+		var forward := Vector3(look.x * cos(fp_pitch), sin(fp_pitch), look.y * cos(fp_pitch))
+		camera.position = player.position + Vector3(0, EYE_HEIGHT + player.head_bob(), 0) + Vector3(look.x, 0, look.y) * 0.12
+		camera.look_at(camera.position + forward)
+		return
 	# A strategy-game camera: it looks down more steeply the further out you zoom.
 	# Mouse wheel zooms, right-drag turns it.
 	var target := player.position + Vector3(0, 0.9, 0)
@@ -516,6 +548,48 @@ func _update_camera(delta: float) -> void:
 	var weight := 1.0 if delta >= 1.0 else 1.0 - exp(-delta * 6.0)
 	camera.position = camera.position.lerp(desired, weight)
 	camera.look_at(target)
+
+
+## The direction the camera looks, flat on the ground (game coordinates).
+func _look_2d() -> Vector2:
+	return Vector2(-sin(cam_yaw), -cos(cam_yaw))
+
+
+## Switches between the strategy camera and first person.
+func set_first_person(on: bool, remember: bool = true) -> void:
+	first_person = on
+	player.set_first_person(on)
+	if on:
+		# Look the way you were facing, level with the horizon.
+		var f := player.facing if player.facing.length() > 0.1 else Vector2.DOWN
+		cam_yaw = atan2(-f.x, -f.y)
+		fp_pitch = -0.15
+		camera.fov = 72.0
+	else:
+		camera.fov = 50.0
+		_update_camera(1.0)  # jump back behind the player
+	if hud:
+		hud.set_crosshair(on)
+	_update_mouse_mode(on)
+	if remember:
+		var cfg := ConfigFile.new()
+		cfg.load(SETTINGS_PATH)
+		cfg.set_value("view", "first_person", on)
+		cfg.save(SETTINGS_PATH)
+		if hud:
+			hud.toast("First person: move the mouse to look, V to go back." if on else "Strategy view: right-drag to turn, wheel to zoom.")
+
+
+## First person grabs the mouse for looking around, and lets go while a menu,
+## the map or the inventory is open.
+func _update_mouse_mode(grab: bool = false) -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	var want := first_person and started and alive and hud != null and not hud.is_modal()
+	if not want and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif want and grab and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 # ---------- Survival ----------
@@ -1318,7 +1392,8 @@ func _build_input(event: InputEvent) -> bool:
 ## The tile under the mouse, if it's close enough; otherwise the tile in front of you.
 func _build_target() -> Vector2i:
 	var here := world.cell_of(player.pos)
-	var mouse := get_viewport().get_mouse_position()
+	# In first person you aim with the middle of the screen.
+	var mouse := get_viewport().get_visible_rect().size / 2.0 if first_person else get_viewport().get_mouse_position()
 	var origin := camera.project_ray_origin(mouse)
 	var dir := camera.project_ray_normal(mouse)
 	if absf(dir.y) > 0.001:

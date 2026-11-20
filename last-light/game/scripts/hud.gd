@@ -13,7 +13,7 @@ F                    eat         Q   healing salve
 C                    campfire   R   torch
 M                    island map
 N / G              leave a note / a stash
-Mouse wheel     zoom
+Mouse wheel     zoom       V   first person
 B                    build (1–0 to choose)
 X                    take down a building
 T                    army: follow me / guard here
@@ -70,6 +70,7 @@ var _dialog_buttons: HBoxContainer
 var _on_choice := Callable()
 var _dismissable := true
 var _hotbar: HBoxContainer
+var _crosshair: Control
 var _hotbar_buttons: Array = []
 var _on_hotbar := Callable()
 var _inv_center: CenterContainer
@@ -95,6 +96,7 @@ func _ready() -> void:
 	_build_help()
 	_build_maps()
 	_build_hotbar()
+	_build_crosshair()
 	_build_inventory()
 	_build_dialog()
 
@@ -272,6 +274,31 @@ func flash() -> void:
 
 func is_modal() -> bool:
 	return _dialog_center.visible or _map_center.visible or _inv_center.visible
+
+
+# ---------- Crosshair (first person) ----------
+
+class Crosshair extends Control:
+	func _draw() -> void:
+		var c := size / 2.0
+		draw_circle(c, 3.2, Color(0, 0, 0, 0.55))
+		draw_circle(c, 2.0, Color(1, 0.95, 0.85, 0.9))
+
+
+func _build_crosshair() -> void:
+	_crosshair = Crosshair.new()
+	_crosshair.set_anchors_preset(Control.PRESET_CENTER)
+	_crosshair.offset_left = -8
+	_crosshair.offset_right = 8
+	_crosshair.offset_top = -8
+	_crosshair.offset_bottom = 8
+	_crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_crosshair.visible = false
+	_root.add_child(_crosshair)
+
+
+func set_crosshair(on: bool) -> void:
+	_crosshair.visible = on
 
 
 # ---------- Hotbar ----------

@@ -99,6 +99,22 @@ func _run_game() -> void:
 	_check(main.player.equipped == "hands", "you can't equip an axe you don't have")
 	main._on_hotbar_slot(1)
 	_check(main.player.equipped == "spear", "pressing 2 takes the spear back in hand")
+
+	# First person and back.
+	main.set_first_person(true, false)
+	main._update_camera(0.016)
+	var eye: Vector3 = main.player.position + Vector3(0, main.EYE_HEIGHT, 0)
+	_check(main.camera.global_position.distance_to(eye) < 0.4, "first person: the camera is at eye height")
+	_check(main._look_2d().dot(main.player.facing.normalized()) > 0.99, "first person: you look the way you were facing")
+	var cam_forward: Vector3 = -main.camera.global_transform.basis.z
+	_check(Vector2(cam_forward.x, cam_forward.z).normalized().dot(main._look_2d()) > 0.99, "first person: the camera points where you look")
+	main.cam_yaw += 1.0
+	main._update_camera(0.016)
+	var turned: Vector3 = -main.camera.global_transform.basis.z
+	_check(Vector2(turned.x, turned.z).normalized().dot(main._look_2d()) > 0.99, "first person: turning turns the view")
+	main.set_first_person(false, false)
+	main._update_camera(1.0)
+	_check(main.camera.global_position.distance_to(eye) > 4.0, "V again: back to the strategy camera")
 	main.player.add_item("raw_meat", 2)
 	main.player.pos = main.campfires[0].pos + Vector2(10, 0)
 	main._interact()

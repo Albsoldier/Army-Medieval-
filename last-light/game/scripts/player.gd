@@ -27,6 +27,7 @@ var equipped := "hands"
 var armour_on := true  # armour can be taken off in the inventory
 var lantern_on := true  # and the lantern shuttered
 var torch_time := 0.0
+var first_person := false  # set with set_first_person()
 var facing := Vector2.DOWN
 var hurt_flash := 0.0
 var swing_time := 0.0
@@ -44,10 +45,13 @@ var _axe: Node3D
 var _pickaxe: Node3D
 var _armour: Node3D
 var _torso: Node3D
+var _fp_swing := 0.0  # first-person swing animation, counts down from 1
+var _bob := 0.0
 var _neck: Node3D
 var _torch: Node3D
 var _torch_light: OmniLight3D
 var _moving := false
+var _moving_last := false
 var _lantern: Node3D
 
 
@@ -153,6 +157,7 @@ func tick_visuals(delta: float) -> void:
 	_body.tick(delta)
 	if not dead:
 		_body.play("run" if _moving else "idle")
+	_moving_last = _moving
 	_moving = false
 	_body.flash(hurt_flash > 0.0)
 
@@ -203,8 +208,49 @@ func pay(cost: Dictionary) -> void:
 		inventory[item] = count(item) - int(cost[item])
 
 
+## In first person the body is hidden (it still casts a shadow) and the held
+## tool and torch are drawn in front of the camera by place_view_model().
+func set_first_person(on: bool) -> void:
+	first_person = on
+	var mode := GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY if on else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	for mi in _model.find_children("*", "MeshInstance3D", true, false):
+		(mi as MeshInstance3D).cast_shadow = mode
+
+
+## How far the view bobs up and down while walking, in metres.
+func head_bob() -> float:
+	return sin(_bob) * 0.035
+
+
+## First person: puts the held tool at the lower right of the view and the torch
+## at the lower left. Called after the camera has moved this frame.
+func place_view_model(cam: Camera3D, delta: float) -> void:
+	if not first_person or dead:
+		return
+	_fp_swing = maxf(_fp_swing - delta * 3.5, 0.0)
+	if _moving_last:
+		_bob += delta * 9.0
+	var b := cam.global_transform.basis
+	var o := cam.global_transform.origin
+	var sway := Vector3(sin(_bob * 0.5) * 0.012, absf(sin(_bob * 0.5)) * 0.012, 0)
+	# A swing chops down and forward.
+	var chop := sin(_fp_swing * PI) * 1.0
+	var hand := o + b * (Vector3(0.3, -0.36, -0.55) + sway + Vector3(-0.08 * chop, -0.06 * chop, -0.1 * chop))
+	_armour.visible = false
+	if _spear.visible:
+		# Held low and pointing ahead; a swing is a thrust.
+		var thrust := o + b * (Vector3(0.24, -0.3, -0.35 - 0.35 * chop) + sway)
+		_spear.global_transform = Transform3D(b * Basis(Vector3.RIGHT, -PI / 2 + 0.12) * Basis(Vector3.FORWARD, 0.08), thrust)
+	for tool in [_axe, _pickaxe]:
+		if tool.visible:
+			tool.global_transform = Transform3D(b * Basis(Vector3.RIGHT, -0.35 - chop) * Basis(Vector3.FORWARD, 0.25), hand)
+	if _torch.visible:
+		_torch.global_transform = Transform3D(b * Basis(Vector3.RIGHT, -0.2), o + b * (Vector3(-0.32, -0.42, -0.6) + sway))
+
+
 func swing() -> void:
 	swing_time = 0.15
+	_fp_swing = 1.0
 	if not dead:
 		_body.play_once("punch" if equipped == "hands" else "slash", 1.6)
 
