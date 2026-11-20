@@ -163,6 +163,24 @@ func _run_game() -> void:
 	for i in 80:
 		main._tick_army(0.1)
 	_check(not main.wolves.has(pup) and main.player.count("raw_meat") > army_meat_before, "soldiers kill wolves for you")
+	# Far from the army, soldiers catch up but never land in the water.
+	var far_spot: Vector2 = main.player.pos
+	for poi in world.pois:
+		if poi["type"] == "shipwreck":
+			far_spot = world.random_walkable_near(world.cell_center(poi["cell"]), 60.0, 100.0, main.rng)
+			break
+	var back_home: Vector2 = main.player.pos
+	main.player.pos = far_spot
+	for i in 5:
+		main._tick_army(0.1)
+	var dry := 0
+	for soldier in main.soldiers:
+		if world.is_walkable(soldier.pos):
+			dry += 1
+	_check(dry == main.soldiers.size(), "soldiers catch up on dry land (%d of %d)" % [dry, main.soldiers.size()])
+	main.player.pos = back_home
+	for i in 5:
+		main._tick_army(0.1)
 	# Sound: playing effects must not break anything (headless has no audio device).
 	_check(main.audio != null, "the sound system is running")
 	for sound in ["chop", "mine", "wolf_howl", "discover"]:

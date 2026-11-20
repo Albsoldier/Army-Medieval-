@@ -24,7 +24,7 @@ enum { DEEP, WATER, SAND, GRASS, FOREST, ROCK }
 const TERRAIN_COLORS := [
 	Color("1d3b5c"),  # deep water (seabed)
 	Color("3d6f7a"),  # shallow water (seabed)
-	Color("d9c48a"),  # sand
+	Color("c7ae74"),  # sand (a little darker, so beaches don't wash out at midday)
 	Color("6f9e48"),  # grass
 	Color("4c7a36"),  # forest floor
 	Color("8a8577"),  # rock
