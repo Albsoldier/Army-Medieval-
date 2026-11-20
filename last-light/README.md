@@ -32,6 +32,10 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
   | 7 | Barracks | 20 wood, 10 stone | Houses 10 soldiers |
 
   Press E at a damaged wall to repair it.
+- **Explore.** 26 places are spread over the island: lighthouses (their beams sweep the sea at night), shipwrecks, ruins, caves, shrines and abandoned camps. Each has a story and loot you can take once; shrines restore your sanity once a day. One abandoned camp is always close to the start.
+- **Map (M).** A minimap in the corner and a full island map fill in as you explore, showing your buildings, campfires, graves and the places you've found. What you've explored is saved.
+- **Crafting stations.** Build a *workbench* (axe: 2 wood per hit; pickaxe: 2 stone per hit and mines iron ore; healing salve, used with Q), a *forge* (smelt iron ore into iron; iron spear, iron armour that halves wolf bites, a lantern that never runs out) and a *smokehouse* (smokes all your raw meat; smoked meat fills 45 hunger). Wolves drop hides for armour, and iron ore is in the rust-veined rocks on the mountains.
+- **Sound and music.** Chopping, mining, footsteps, crackling fires, wolf howls, birds by day, crickets and wind at night, and a calm day theme that fades into a darker night theme. Turn sound or music off in Esc → Settings. Every sound is synthesized by `tools/make_sounds.py`, so there are no recordings or licences involved.
 - **Raise an army.** At a barracks, recruit soldiers for 3 wood, 2 stone and 5 berries each: up to 10 per barracks and 100 in all. Soldiers fight wolves (you get the meat), and wolves fight back. Press T to switch between *follow me* (rows behind you) and *guard here* (rings around the spot).
 
 Controls: WASD/arrows to move, mouse wheel to zoom, `E` (hold) to gather or use, `Space`/click to attack, `F` to eat, `H` to show or hide help.
@@ -48,6 +52,10 @@ last-light/
     scripts/save_game.gd  the save file (stored in the browser)
     scripts/structure.gd  walls, gates, torch posts, chests, tents and barracks
     scripts/soldier.gd    your soldiers: following, guarding and fighting
+    scripts/poi.gd        places to discover: models, stories and loot
+    scripts/minimap.gd    the minimap and the island map
+    scripts/audio.gd      sound effects, ambience and music
+    sounds/               the synthesized sounds (OGG)
     scripts/art.gd        helpers for the low-poly models
     scripts/character_model.gd  loads, sizes and animates the rigged characters
     models/               survivor and wolf models (CC0, by Quaternius: see models/CREDITS.md)
@@ -59,6 +67,7 @@ last-light/
     scripts/api.gd        client for the island server
     tools/smoke_test.gd   headless test run in CI
     tools/screenshot.gd   renders screenshots in CI (see the ci/last-light-screenshots branch)
+  tools/make_sounds.py  synthesizes every sound and music track (numpy + ffmpeg)
   server/               Cloudflare Worker + Turso (the "island server")
     src/app.js            API routes and rules
     src/index.js          Worker entry point

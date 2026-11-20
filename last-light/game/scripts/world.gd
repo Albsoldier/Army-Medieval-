@@ -31,9 +31,9 @@ const TERRAIN_COLORS := [
 ]
 
 ## Prop types that are drawn. "rubble" is what's left of a broken rock.
-const PROP_TYPES := ["tree", "stump", "rock", "rubble", "bush", "bush_empty"]
+const PROP_TYPES := ["tree", "stump", "rock", "iron_rock", "rubble", "bush", "bush_empty"]
 ## Saved prop changes may also be "cleared": the ground under a building.
-const CHANGE_TYPES := ["tree", "stump", "rock", "rubble", "bush", "bush_empty", "cleared"]
+const CHANGE_TYPES := ["tree", "stump", "rock", "iron_rock", "rubble", "bush", "bush_empty", "cleared"]
 ## Props you can build over (they are cleared for good).
 const BUILD_OVER := ["", "stump", "rubble", "bush_empty", "cleared"]
 ## Days before something you used grows back.
@@ -46,6 +46,20 @@ var prop_changes: Dictionary = {}
 ## Vector2i cell -> structure type, for everything the player built. The 3D
 ## nodes and their hit points live in main.gd.
 var structures: Dictionary = {}
+## Places to discover: Array of {"id", "type", "cell", "name", "seed"}. Fixed by the seed.
+var pois: Array = []
+## The explored map: one pixel per MAP_SCALE tiles, dark until explored.
+var map_image: Image
+var map_texture: ImageTexture
+var explored: Dictionary = {}  # Vector2i chunk -> true
+
+const MAP_SCALE := 4  # tiles per map pixel
+const UNEXPLORED := Color(0.07, 0.09, 0.12)
+const POI_COUNTS := {"lighthouse": 2, "shipwreck": 4, "ruins": 6, "cave": 4, "shrine": 4, "camp": 6}
+var _poi_cells: Dictionary = {}  # cells kept clear around places to discover
+var _poi_centers: Dictionary = {}  # Vector2i cell -> poi id (these tiles can't be walked through)
+var _map_dirty := false
+var _map_timer := 0.0
 
 var _noise: FastNoiseLite
 var _continent: FastNoiseLite
@@ -95,6 +109,11 @@ func generate(p_seed: int) -> void:
 	_terrain_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 
 	_find_spawn()
+	_place_pois()
+	map_image = Image.create(SIZE / MAP_SCALE, SIZE / MAP_SCALE, false, Image.FORMAT_RGBA8)
+	map_image.fill(UNEXPLORED)
+	map_texture = ImageTexture.create_from_image(map_image)
+	explored.clear()
 	_build_water()
 	_build_prop_layers()
 
@@ -137,6 +156,19 @@ func update_view(pos: Vector2, immediate: bool = false) -> void:
 		_props_dirty = false
 		_refresh_props()
 
+	# Reveal the map around the player.
+	for dz in range(-VIEW, VIEW + 1):
+		for dx in range(-VIEW, VIEW + 1):
+			var ck := center + Vector2i(dx, dz)
+			if _chunk_in_bounds(ck) and not explored.has(ck):
+				explored[ck] = true
+				_paint_chunk(ck, true)
+	_map_timer += get_process_delta_time()
+	if _map_dirty and (_map_timer > 0.5 or immediate):
+		_map_dirty = false
+		_map_timer = 0.0
+		map_texture.update(map_image)
+
 
 func _nearer_to_view(a: Vector2i, b: Vector2i) -> bool:
 	return (a - _view_chunk).length_squared() < (b - _view_chunk).length_squared()
@@ -173,12 +205,14 @@ func is_walkable(pos: Vector2, wolf: bool = false) -> bool:
 		return false
 	if structures.has(cell):
 		return structures[cell] == "gate" and not wolf
+	if _poi_centers.has(cell):
+		return false
 	var kind := prop_type(cell)
-	return kind != "tree" and kind != "rock"
+	return kind != "tree" and kind != "rock" and kind != "iron_rock"
 
 
 func can_build(cell: Vector2i) -> bool:
-	return is_land(cell) and not structures.has(cell) and prop_type(cell) in BUILD_OVER
+	return is_land(cell) and not structures.has(cell) and not _poi_cells.has(cell) and prop_type(cell) in BUILD_OVER
 
 
 func add_structure(cell: Vector2i, kind: String) -> void:
@@ -246,7 +280,7 @@ func find_prop_near(pos: Vector2, radius: float) -> Vector2i:
 		for dx in range(-2, 3):
 			var cell := base + Vector2i(dx, dy)
 			var kind := prop_type(cell)
-			if kind != "tree" and kind != "rock" and kind != "bush":
+			if kind != "tree" and kind != "rock" and kind != "iron_rock" and kind != "bush":
 				continue
 			var dist := pos.distance_to(cell_center(cell))
 			if dist < best_dist:
@@ -269,6 +303,11 @@ func harvest(cell: Vector2i, day: int) -> Dictionary:
 				prop["type"] = "stump"
 		"rock":
 			gained = {"stone": 1}
+			prop["hp"] = int(prop["hp"]) - 1
+			if int(prop["hp"]) <= 0:
+				prop["type"] = "rubble"
+		"iron_rock":
+			gained = {"ore": 1}
 			prop["hp"] = int(prop["hp"]) - 1
 			if int(prop["hp"]) <= 0:
 				prop["type"] = "rubble"
@@ -433,7 +472,7 @@ func _chunk_props(ck: Vector2i) -> Dictionary:
 	for lz in CHUNK:
 		for lx in CHUNK:
 			var cell := Vector2i(ck.x * CHUNK + lx, ck.y * CHUNK + lz)
-			if cell.distance_to(spawn_cell) < 3.0:
+			if cell.distance_to(spawn_cell) < 3.0 or _poi_cells.has(cell):
 				continue
 			var roll := _hash01(cell.x, cell.y, 7)
 			var kind := ""
@@ -450,8 +489,12 @@ func _chunk_props(ck: Vector2i) -> Dictionary:
 						kind = "bush"
 					elif roll < 0.065:
 						kind = "rock"
+					elif roll < 0.067:
+						kind = "iron_rock"
 				ROCK:
-					if roll < 0.2:
+					if roll < 0.035:
+						kind = "iron_rock"
+					elif roll < 0.2:
 						kind = "rock"
 				SAND:
 					if roll < 0.012:
@@ -566,6 +609,12 @@ func _prop_parts() -> Dictionary:
 			_part(_sphere(0.55, 3, 6), Color("77746c"), Vector3(0, 0.15, 0), Vector3(1.0, 0.75, 0.9)),
 			_part(_sphere(0.3, 3, 5), Color("8d8a80"), Vector3(0.35, 0.1, 0.25), Vector3(1.0, 0.8, 1.0)),
 		],
+		"iron_rock": [
+			_part(_sphere(0.55, 3, 6), Color("6e625a"), Vector3(0, 0.15, 0), Vector3(1.0, 0.8, 0.9)),
+			_part(_sphere(0.16, 2, 5), Color("b0582a"), Vector3(0.3, 0.42, 0.2)),
+			_part(_sphere(0.13, 2, 5), Color("c4652e"), Vector3(-0.28, 0.38, -0.1)),
+			_part(_sphere(0.11, 2, 5), Color("a14d24"), Vector3(0.05, 0.52, -0.3)),
+		],
 		"rubble": [
 			_part(_sphere(0.14, 2, 5), Color("77746c"), Vector3(0.15, 0.04, 0.05)),
 			_part(_sphere(0.1, 2, 5), Color("8d8a80"), Vector3(-0.15, 0.03, -0.1)),
@@ -677,3 +726,125 @@ func _cylinder(top: float, bottom: float, height: float, segments: int) -> Cylin
 	m.radial_segments = segments
 	m.rings = 1
 	return m
+
+
+# ---------- Map ----------
+
+## Paints one chunk onto the map. `loaded` uses the chunk's generated data;
+## otherwise (restoring a save) it samples the noise directly, which is cheaper.
+func _paint_chunk(ck: Vector2i, loaded: bool) -> void:
+	var per := CHUNK / MAP_SCALE
+	var types: PackedByteArray = _chunk_data(ck)["t"] if loaded else PackedByteArray()
+	for py in per:
+		for px in per:
+			var lx := px * MAP_SCALE + MAP_SCALE / 2
+			var lz := py * MAP_SCALE + MAP_SCALE / 2
+			var t: int
+			if loaded:
+				t = types[lz * CHUNK + lx]
+			else:
+				t = int(_sample(ck.x * CHUNK + lx, ck.y * CHUNK + lz)[0])
+			var color: Color = TERRAIN_COLORS[t]
+			if t == DEEP or t == WATER:
+				color = color.lightened(0.12)
+			map_image.set_pixel(ck.x * per + px, ck.y * per + py, color)
+	_map_dirty = true
+
+
+## Explored chunks as a compact hex string (one bit per chunk), for the save file.
+func export_explored() -> String:
+	var per_side := SIZE / CHUNK
+	var bytes := PackedByteArray()
+	bytes.resize(per_side * per_side / 8)
+	for ck in explored:
+		var i: int = ck.y * per_side + ck.x
+		bytes[i / 8] |= 1 << (i % 8)
+	return bytes.hex_encode()
+
+
+func import_explored(hex: String) -> void:
+	var per_side := SIZE / CHUNK
+	var bytes := hex.hex_decode()
+	if bytes.size() != per_side * per_side / 8:
+		return
+	for i in per_side * per_side:
+		if bytes[i / 8] & (1 << (i % 8)):
+			var ck := Vector2i(i % per_side, i / per_side)
+			if not explored.has(ck):
+				explored[ck] = true
+				_paint_chunk(ck, _data.has(ck))
+	map_texture.update(map_image)
+
+
+# ---------- Places to discover ----------
+
+const POI_NAMES := {
+	"lighthouse": ["Gull Point Lighthouse", "The Last Lighthouse", "Cormorant Light"],
+	"shipwreck": ["Wreck of the Margarethe", "Wreck of the Grey Heron", "Wreck of the Kestrel", "Wreck of the Salt Maiden", "Wreck of the Undine"],
+	"ruins": ["The Old Watchtower", "Fallen Chapel", "Keeper's Hall", "The Broken Granary", "Mossgate Ruins", "The Signal Post", "Stone Barrows"],
+	"cave": ["Wolf's Mouth", "Echo Cave", "The Hollow Deep", "Lantern Cave", "Drip Cavern"],
+	"shrine": ["Shrine of the Tide", "Moss Shrine", "Shrine of Embers", "The Quiet Stones", "Shrine of the Lost"],
+	"camp": ["Mara's Camp", "The Surveyors' Camp", "Tomas's Hideout", "A Fisher's Shelter", "The Last Watch", "Ivo's Camp", "The Deserters' Fire"],
+}
+
+
+func _place_pois() -> void:
+	pois.clear()
+	_poi_cells.clear()
+	_poi_centers.clear()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value * 977 + 3
+	var half := SIZE / 2
+	var placed: Array = []
+	for kind in ["lighthouse", "shipwreck", "cave", "ruins", "shrine", "camp"]:
+		var names: Array = POI_NAMES[kind].duplicate()
+		var want: int = POI_COUNTS[kind]
+		var tries := 0
+		var made := 0
+		while made < want and tries < 3000:
+			tries += 1
+			var r := sqrt(rng.randf()) * half * 0.9
+			var a := rng.randf() * TAU
+			var cell := Vector2i(half + int(cos(a) * r), half + int(sin(a) * r))
+			# The first abandoned camp sits near the start, so new players find one early.
+			if kind == "camp" and made == 0 and tries < 400:
+				cell = spawn_cell + Vector2i(int(cos(a) * rng.randf_range(14, 24)), int(sin(a) * rng.randf_range(14, 24)))
+			elif cell.distance_to(spawn_cell) < 30.0:
+				continue
+			if not _poi_site_ok(kind, cell):
+				continue
+			var too_close := false
+			for other in placed:
+				if cell.distance_to(other) < 45.0:
+					too_close = true
+					break
+			if too_close:
+				continue
+			placed.append(cell)
+			var poi_name: String = names[made % names.size()]
+			pois.append({"id": "%s-%d" % [kind, made], "type": kind, "cell": cell, "name": poi_name,
+				"seed": rng.randi()})
+			var radius := 3 if kind == "lighthouse" or kind == "shipwreck" or kind == "cave" else 2
+			for dz in range(-radius, radius + 1):
+				for dx in range(-radius, radius + 1):
+					_poi_cells[cell + Vector2i(dx, dz)] = true
+			_poi_centers[cell] = pois[-1]["id"]
+			made += 1
+
+
+func _poi_site_ok(kind: String, cell: Vector2i) -> bool:
+	var t := int(_sample(cell.x, cell.y)[0])
+	var near_water := false
+	for o in [Vector2i(3, 0), Vector2i(-3, 0), Vector2i(0, 3), Vector2i(0, -3)]:
+		var tn := int(_sample(cell.x + o.x, cell.y + o.y)[0])
+		if tn == WATER or tn == DEEP:
+			near_water = true
+	match kind:
+		"lighthouse":
+			return (t == SAND or t == GRASS or t == ROCK) and near_water
+		"shipwreck":
+			return t == SAND and near_water
+		"cave":
+			return t == ROCK and not near_water
+		_:
+			return (t == GRASS or t == FOREST) and not near_water

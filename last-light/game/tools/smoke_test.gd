@@ -163,6 +163,85 @@ func _run_game() -> void:
 	for i in 80:
 		main._tick_army(0.1)
 	_check(not main.wolves.has(pup) and main.player.count("raw_meat") > army_meat_before, "soldiers kill wolves for you")
+	# Sound: playing effects must not break anything (headless has no audio device).
+	_check(main.audio != null, "the sound system is running")
+	for sound in ["chop", "mine", "wolf_howl", "discover"]:
+		main.audio.play(sound, main.player.position)
+
+	# Places to discover.
+	_check(world.pois.size() >= 20, "places to discover are spread over the island (%d)" % world.pois.size())
+	var first_camp: Dictionary = {}
+	var shrine_data: Dictionary = {}
+	for poi in world.pois:
+		if poi["type"] == "camp" and first_camp.is_empty():
+			first_camp = poi
+		if poi["type"] == "shrine" and shrine_data.is_empty():
+			shrine_data = poi
+	_check(not first_camp.is_empty() and Vector2(first_camp["cell"]).distance_to(Vector2(world.spawn_cell)) < 40.0,
+		"an abandoned camp waits near the start")
+	var home_pos: Vector2 = main.player.pos
+	main.player.pos = world.random_walkable_near(world.cell_center(first_camp["cell"]), 20.0, 40.0, main.rng)
+	main._update_pois(0.0, true)
+	_check(main.poi_found.has(first_camp["id"]), "walking up to a place discovers it")
+	var camp_node = main.poi_nodes.get(first_camp["id"])
+	_check(camp_node != null, "the place is built when you're near")
+	var wood_before_loot: int = main.player.count("wood")
+	main._on_poi_loot(0, "", camp_node)
+	_check(main.poi_looted.has(first_camp["id"]) and main.player.count("wood") > wood_before_loot, "searching a place gives its loot")
+	var loot_again: int = main.player.count("wood")
+	main._on_poi_loot(0, "", camp_node)
+	_check(main.player.count("wood") == loot_again, "a place can only be looted once")
+	main.player.pos = world.random_walkable_near(world.cell_center(shrine_data["cell"]), 20.0, 40.0, main.rng)
+	main._update_pois(0.0, true)
+	main.player.sanity = 20.0
+	main._use_poi(main.poi_nodes[shrine_data["id"]])
+	main.hud._choose(-1)
+	_check(main.player.sanity == 100.0, "resting at a shrine restores sanity")
+	main.player.sanity = 20.0
+	main._use_poi(main.poi_nodes[shrine_data["id"]])
+	_check(main.player.sanity == 20.0, "a shrine works once a day")
+	main.player.pos = home_pos
+
+	# The explored map.
+	_check(world.explored.size() >= 25, "the map reveals what you've explored (%d chunks)" % world.explored.size())
+	var map_hex: String = world.export_explored()
+	_check(map_hex.length() == 256, "the explored map fits in the save (%d characters)" % map_hex.length())
+	_check(main._map_markers()["items"].size() > 0, "the map shows your buildings and places")
+
+	# Crafting stations.
+	var station_cells := _free_cells(world, world.cell_of(main.player.pos), 9, [tree_cell] + cells)
+	_check(main._try_build("workbench", station_cells[6]), "built a workbench")
+	_check(main._try_build("forge", station_cells[7]), "built a forge")
+	_check(main._try_build("smokehouse", station_cells[8]), "built a smokehouse")
+	var bench: Array = load("res://scripts/structure.gd").RECIPES["workbench"]
+	var forge: Array = load("res://scripts/structure.gd").RECIPES["forge"]
+	var smoke: Array = load("res://scripts/structure.gd").RECIPES["smokehouse"]
+	_check(main._make(bench[0]) and main.player.has_axe, "the workbench makes an axe")
+	_check(not main._make(bench[0]), "you can't make a second axe")
+	_check(main._make(bench[1]) and main.player.has_pickaxe, "the workbench makes a pickaxe")
+	main.player.add_item("ore", 2)
+	var iron_before: int = main.player.count("iron")
+	_check(main._make(forge[0]) and main.player.count("iron") == iron_before + 1 and main.player.count("ore") == 0, "the forge smelts iron ore into iron")
+	main.player.add_item("iron", 10)
+	main.player.add_item("hide", 3)
+	_check(main._make(forge[2]) and main.player.armour, "the forge makes iron armour")
+	_check(main._make(forge[3]) and main.player.lantern, "the forge makes a lantern")
+	main.player.add_item("raw_meat", 4)
+	var smoked_before: int = main.player.count("smoked_meat")
+	_check(main._make(smoke[0]) and main.player.count("smoked_meat") == smoked_before + 4, "the smokehouse smokes all raw meat")
+	var axe_tree := Vector2i(-1, -1)
+	for r in range(1, 40):
+		for dz in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				var c2: Vector2i = world.spawn_cell + Vector2i(dx, dz)
+				if axe_tree == Vector2i(-1, -1) and world.prop_type(c2) == "tree" and c2 != tree_cell and _alone(world, c2):
+					axe_tree = c2
+	main.player.pos = world.cell_center(axe_tree) + Vector2(0, 14)
+	main.action_cooldown = 0.0
+	var wood_axe: int = main.player.count("wood")
+	main._interact()
+	_check(main.player.count("wood") == wood_axe + 2, "with an axe, each hit gives 2 wood")
+	main.player.pos = home_pos
 	main.save_game()
 	var saved: Dictionary = load("res://scripts/save_game.gd").read()
 	_check(saved.get("props", {}).has("%d,%d" % [tree_cell.x, tree_cell.y]), "save remembers the felled tree")
@@ -181,6 +260,9 @@ func _run_game() -> void:
 	_check(copy_main.buildings.size() == main.buildings.size(), "buildings are still there after reload (%d)" % copy_main.buildings.size())
 	_check(copy_main.soldiers.size() == main.soldiers.size(), "the army is still there after reload (%d)" % copy_main.soldiers.size())
 	_check(not copy_main.world.is_walkable(world.cell_center(cells[0])), "walls still block after reload")
+	_check(copy_main.player.has_axe and copy_main.player.armour and copy_main.player.lantern, "tools are still yours after reload")
+	_check(copy_main.poi_looted.has(first_camp["id"]) and copy_main.poi_found.has(shrine_data["id"]), "found and looted places are remembered")
+	_check(copy_main.world.explored.size() >= world.explored.size(), "the explored map is restored")
 	copy_main.queue_free()
 	await process_frame
 
@@ -250,3 +332,12 @@ func _free_line(world, start: Vector2i) -> Array:
 			if ok:
 				return line
 	return []
+
+
+## True if no other prop is within two tiles of `cell`.
+func _alone(world, cell: Vector2i) -> bool:
+	for dz in range(-2, 3):
+		for dx in range(-2, 3):
+			if (dx != 0 or dz != 0) and world.prop_type(cell + Vector2i(dx, dz)) != "":
+				return false
+	return true

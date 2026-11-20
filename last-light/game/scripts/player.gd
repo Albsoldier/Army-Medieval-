@@ -14,8 +14,14 @@ var health := 100.0
 var hunger := 100.0
 var warmth := 100.0
 var sanity := 100.0
-var inventory := {"wood": 0, "stone": 0, "berries": 0, "raw_meat": 0, "cooked_meat": 0}
+var inventory := {"wood": 0, "stone": 0, "berries": 0, "raw_meat": 0, "cooked_meat": 0,
+	"smoked_meat": 0, "ore": 0, "iron": 0, "hide": 0, "salve": 0}
 var has_spear := false
+var iron_spear := false
+var has_axe := false
+var has_pickaxe := false
+var armour := false
+var lantern := false
 var torch_time := 0.0
 var facing := Vector2.DOWN
 var hurt_flash := 0.0
@@ -33,6 +39,7 @@ var _spear: Node3D
 var _torch: Node3D
 var _torch_light: OmniLight3D
 var _moving := false
+var _lantern: Node3D
 
 
 func _ready() -> void:
@@ -69,6 +76,17 @@ func _ready() -> void:
 	_torch.add_child(_torch_light)
 	_torch.visible = false
 
+	# The lantern hangs at the hip and lights the way for good.
+	_lantern = Node3D.new()
+	_lantern.position = Vector3(-0.2, 0.75, 0.15)
+	_model.add_child(_lantern)
+	Art.part(_lantern, Art.box(Vector3(0.12, 0.16, 0.12)), Color(1.0, 0.8, 0.4), Vector3.ZERO, Vector3.ZERO, 3.0, true)
+	Art.part(_lantern, Art.cylinder(0.08, 0.08, 0.03, 6), Color("2e2e30"), Vector3(0, 0.1, 0))
+	var lantern_light := Art.omni(Color(1.0, 0.82, 0.55), TORCH_RADIUS / World.TILE * 1.1, 1.6)
+	lantern_light.position = Vector3(0, 0.6, 0)
+	_lantern.add_child(lantern_light)
+	_lantern.visible = false
+
 	# A faint glow so you can always see yourself at night.
 	var glow := Art.omni(Color(0.6, 0.7, 1.0), 2.6, 0.35)
 	glow.position = Vector3(0, 1.9, 0)
@@ -102,6 +120,7 @@ func tick_visuals(delta: float) -> void:
 	_body.flash(hurt_flash > 0.0)
 
 	var turn := Basis(Vector3.UP, _model.rotation.y)
+	_lantern.visible = lantern and not dead
 	_spear.visible = has_spear and not dead
 	if _spear.visible and _right_hand:
 		# Held low and pointing forward, tipped slightly up.
