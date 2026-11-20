@@ -148,6 +148,64 @@ func _run() -> void:
 	await _frames(45)
 	await _shot("13-landscape-close")
 
+	# Clean shots for a portfolio: no on-screen panels, framed like a strategy game.
+	main.hud.visible = false
+	var base_cell: Vector2i = c
+	var outside: Vector2 = w.cell_center(base_cell + Vector2i(0, 9))
+	if not w.is_walkable(outside):
+		outside = w.random_walkable_near(w.cell_center(base_cell + Vector2i(0, 9)), 4.0, 40.0, main.rng)
+	main.player.pos = outside
+	main.player.facing = Vector2.UP
+	w.update_view(outside, true)
+	main._update_pois(0.0, true)
+	for i in 120:
+		main._tick_army(0.1)
+	main.clock = 240.0 * 0.6  # low golden sun, just before dusk
+	main.zoom = 1.45
+	main.cam_yaw = 0.45
+	await _frames(45)
+	await _shot("p1-legion-golden-hour")
+	main.clock = 240.0 * 0.82
+	main.zoom = 2.1
+	main.cam_yaw = -0.35
+	await _frames(45)
+	await _shot("p2-fort-at-night")
+
+	var meadow: Vector2 = w.random_walkable_near(w.cell_center(base_cell + Vector2i(18, -14)), 0.0, 60.0, main.rng)
+	if meadow != Vector2.INF:
+		main.player.pos = meadow
+		main.player.facing = Vector2(0.6, 0.8).normalized()
+		w.update_view(meadow, true)
+		for i in 120:
+			main._tick_army(0.1)
+		main.army_mode = "guard"
+		for s in main.soldiers:
+			s.mode = "guard"
+			s.guard_point = w.cell_center(base_cell)
+		main.clock = 240.0 * 0.32
+		main.zoom = 0.8
+		main.cam_yaw = -0.7
+		await _frames(45)
+		await _shot("p3-meadow")
+
+	for poi in w.pois:
+		if poi["type"] != "lighthouse":
+			continue
+		var spot: Vector2 = w.random_walkable_near(w.cell_center(poi["cell"]), 90.0, 130.0, main.rng)
+		if spot == Vector2.INF:
+			continue
+		main.player.pos = spot
+		main.player.facing = (w.cell_center(poi["cell"]) - spot).normalized()
+		w.update_view(spot, true)
+		main._update_pois(0.0, true)
+		main.clock = 240.0 * 0.64
+		main.zoom = 1.9
+		main.cam_yaw = atan2(-main.player.facing.x, -main.player.facing.y)
+		await _frames(45)
+		await _shot("p4-lighthouse-dusk")
+		break
+	main.hud.visible = true
+
 	print("Screenshots written to ", _dir)
 	quit(0)
 
