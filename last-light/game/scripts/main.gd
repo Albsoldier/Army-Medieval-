@@ -54,6 +54,8 @@ var sun: DirectionalLight3D
 var env: Environment
 var entities: Node3D
 var zoom := 1.0
+var cam_yaw := 0.0  # radians; hold the right mouse button and drag to turn the camera
+var sky_mat: ProceduralSkyMaterial
 
 var seed_value := 0
 var island_name := ""
@@ -125,7 +127,7 @@ func _ready() -> void:
 
 	camera = Camera3D.new()
 	camera.fov = 50.0
-	camera.far = 160.0
+	camera.far = 260.0
 	add_child(camera)
 	camera.make_current()
 	_setup_environment()
@@ -310,7 +312,8 @@ func _process(delta: float) -> void:
 		_upload_save()
 	if started and alive and not hud.is_modal():
 		_advance_clock(delta)
-		var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+		# Up on the keyboard always means away from the camera, however it's turned.
+		var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down").rotated(-cam_yaw)
 		player.move(dir, delta)
 		if dir != Vector2.ZERO:
 			_step_timer -= delta
@@ -333,12 +336,16 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	var drag := event as InputEventMouseMotion
+	if drag and drag.button_mask & MOUSE_BUTTON_MASK_RIGHT:
+		cam_yaw = wrapf(cam_yaw - drag.relative.x * 0.006, -PI, PI)
+		return
 	var wheel := event as InputEventMouseButton
 	if wheel and wheel.pressed:
 		if wheel.button_index == MOUSE_BUTTON_WHEEL_UP:
-			zoom = clampf(zoom - 0.1, 0.55, 2.5)
+			zoom = clampf(zoom - 0.12, 0.55, 3.2)
 		elif wheel.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			zoom = clampf(zoom + 0.1, 0.55, 2.5)
+			zoom = clampf(zoom + 0.12, 0.55, 3.2)
 	if not started or not alive or hud.is_modal():
 		return
 	if build_mode and _build_input(event):
@@ -422,18 +429,31 @@ func _advance_clock(delta: float) -> void:
 
 func _setup_environment() -> void:
 	env = Environment.new()
-	env.background_mode = Environment.BG_COLOR
+	sky_mat = ProceduralSkyMaterial.new()
+	sky_mat.sun_angle_max = 20.0
+	var sky := Sky.new()
+	sky.sky_material = sky_mat
+	env.background_mode = Environment.BG_SKY
+	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	# No fog: in the Compatibility renderer even light fog washed out the whole scene.
-	env.fog_enabled = false
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_exposure = 1.05
+	# Haze only far away (depth fog), so distant hills fade into the sky
+	# without washing out what's near the camera.
+	env.fog_enabled = true
+	env.fog_mode = Environment.FOG_MODE_DEPTH
+	env.fog_depth_begin = 32.0
+	env.fog_depth_end = 120.0
+	env.fog_density = 1.0
+	env.fog_sky_affect = 0.0
 	var world_env := WorldEnvironment.new()
 	world_env.environment = env
 	add_child(world_env)
 
 	sun = DirectionalLight3D.new()
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 40.0
+	sun.directional_shadow_max_distance = 70.0
+	sun.shadow_blur = 1.5
 	add_child(sun)
 	_update_lighting()
 
@@ -451,24 +471,35 @@ func _update_lighting() -> void:
 	# The sun rises in the east, crosses the sky and sets as night falls.
 	# At night the same light becomes a dim, bluish moon.
 	var day_frac := clampf(t / 0.66, 0.0, 1.0)
-	var sun_pitch := -(10.0 + sin(day_frac * PI) * 55.0)
+	var sun_pitch := -(12.0 + sin(day_frac * PI) * 48.0)
 	var sun_yaw := lerpf(-75.0, 75.0, day_frac)
 	var moon := Vector3(-50.0, 30.0, 0.0)
 	var angles := Vector3(sun_pitch, sun_yaw, 0.0).lerp(moon, clampf((n - 0.5) * 2.0, 0.0, 1.0))
 	sun.rotation_degrees = angles
-	sun.light_color = _sky_blend(Color(1.0, 0.96, 0.88), Color(1.0, 0.72, 0.5), Color(0.55, 0.65, 1.0), n)
-	sun.light_energy = lerpf(1.0, 0.1, n)
+	sun.light_color = _sky_blend(Color(1.0, 0.94, 0.82), Color(1.0, 0.68, 0.45), Color(0.55, 0.65, 1.0), n)
+	sun.light_energy = lerpf(1.15, 0.1, n)
 
-	var sky := _sky_blend(Color(0.58, 0.77, 0.94), Color(0.93, 0.56, 0.38), Color(0.02, 0.03, 0.07), n)
-	env.background_color = sky
-	env.ambient_light_color = _sky_blend(Color(0.62, 0.68, 0.8), Color(0.55, 0.47, 0.5), Color(0.05, 0.06, 0.12), n)
-	env.ambient_light_energy = lerpf(0.55, 1.0, n)
+	var top := _sky_blend(Color(0.32, 0.52, 0.78), Color(0.35, 0.33, 0.52), Color(0.01, 0.02, 0.05), n)
+	var horizon := _sky_blend(Color(0.74, 0.8, 0.84), Color(0.95, 0.62, 0.42), Color(0.04, 0.05, 0.1), n)
+	sky_mat.sky_top_color = top
+	sky_mat.sky_horizon_color = horizon
+	sky_mat.ground_horizon_color = horizon
+	sky_mat.ground_bottom_color = horizon.darkened(0.4)
+	sky_mat.sun_curve = 0.12
+	env.fog_light_color = horizon
+	env.ambient_light_color = _sky_blend(Color(0.58, 0.64, 0.74), Color(0.55, 0.47, 0.5), Color(0.05, 0.06, 0.12), n)
+	env.ambient_light_energy = lerpf(0.5, 1.0, n)
 
 
 func _update_camera(delta: float) -> void:
-	# Third-person camera behind and above the survivor. Mouse wheel zooms.
-	var target := player.position + Vector3(0, 0.7, 0)
-	var desired := target + Vector3(0, 9.0, 7.5) * zoom
+	# A strategy-game camera: it looks down more steeply the further out you zoom.
+	# Mouse wheel zooms, right-drag turns it.
+	var target := player.position + Vector3(0, 0.9, 0)
+	var t := clampf((zoom - 0.55) / (3.2 - 0.55), 0.0, 1.0)
+	var pitch := deg_to_rad(lerpf(30.0, 58.0, t))
+	var dist := lerpf(7.0, 34.0, t)
+	var offset := Vector3(sin(cam_yaw) * cos(pitch), sin(pitch), cos(cam_yaw) * cos(pitch)) * dist
+	var desired := target + offset
 	var weight := 1.0 if delta >= 1.0 else 1.0 - exp(-delta * 6.0)
 	camera.position = camera.position.lerp(desired, weight)
 	camera.look_at(target)

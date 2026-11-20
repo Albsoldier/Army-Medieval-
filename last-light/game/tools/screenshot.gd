@@ -137,6 +137,17 @@ func _run() -> void:
 	await _shot("11-island-map")
 	main.hud.toggle_map()
 
+	# A wide, turned view of the landscape.
+	main.clock = 240.0 * 0.22
+	main.zoom = 3.0
+	main.cam_yaw = 0.7
+	await _frames(45)
+	await _shot("12-landscape-wide")
+	main.zoom = 1.0
+	main.cam_yaw = -0.4
+	await _frames(45)
+	await _shot("13-landscape-close")
+
 	print("Screenshots written to ", _dir)
 	quit(0)
 

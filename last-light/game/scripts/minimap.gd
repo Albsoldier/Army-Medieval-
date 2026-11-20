@@ -31,6 +31,7 @@ var _font: Font
 func _ready() -> void:
 	_font = get_theme_default_font()
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR  # smooth coastlines, not squares
 
 
 func _process(_delta: float) -> void:
@@ -111,8 +112,8 @@ func _draw() -> void:
 
 	# North marker and frame.
 	draw_string_outline(_font, Vector2(size.x / 2 - 4, 14), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, 4, Color(0, 0, 0, 0.8))
-	draw_string(_font, Vector2(size.x / 2 - 4, 14), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 0.9, 0.7))
-	draw_rect(rect, Color(0.85, 0.6, 0.3, 0.6), false, 1.5)
+	draw_string(_font, Vector2(size.x / 2 - 4, 14), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 0.92, 0.75))
+	draw_rect(rect, Color(0.36, 0.27, 0.17, 0.9), false, 2.0)
 
 
 func _draw_house(p: Vector2, c: Color) -> void:

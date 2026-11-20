@@ -279,19 +279,27 @@ func _build_maps() -> void:
 	_map_center.visible = false
 	_root.add_child(_map_center)
 	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", _panel_style())
+	var parchment := StyleBoxFlat.new()  # the island map is drawn on old parchment
+	parchment.bg_color = Color(0.86, 0.79, 0.63)
+	parchment.border_color = Color(0.36, 0.27, 0.17)
+	parchment.set_border_width_all(3)
+	parchment.set_corner_radius_all(4)
+	parchment.set_content_margin_all(16)
+	parchment.shadow_color = Color(0, 0, 0, 0.5)
+	parchment.shadow_size = 12
+	panel.add_theme_stylebox_override("panel", parchment)
 	_map_center.add_child(panel)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
 	panel.add_child(box)
-	var title := _label(20, Color(1.0, 0.85, 0.6))
-	title.text = "Island map"
+	var title := _label(22, Color(0.27, 0.19, 0.11))
+	title.text = "Lantern Skerry"
 	box.add_child(title)
 	_big_map = Minimap.new()
 	_big_map.full = true
 	_big_map.custom_minimum_size = Vector2(560, 560)
 	box.add_child(_big_map)
-	var legend := _label(12, Color(0.85, 0.85, 0.8))
+	var legend := _label(12, Color(0.3, 0.22, 0.13))
 	legend.text = "◆ places you've found   ■ your buildings   ● campfires   ✝ graves   ▲ you      M or Esc to close"
 	box.add_child(legend)
 
