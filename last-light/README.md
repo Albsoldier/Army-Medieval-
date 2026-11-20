@@ -10,6 +10,7 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
 - **Gather.** Chop trees for wood, break rocks for stone and pick berries. Bushes grow back after two days.
 - **Craft.** `C` campfire (5 wood, 3 stone), `R` torch (2 wood); the spear (3 wood, 2 stone) and everything else from the inventory.
 - **Inventory (I or Tab).** Pauses the game and shows your supplies, weapons and tools, and what you can craft. Click to eat, heal, equip, take armour off or shutter the lantern.
+- **First person (V).** Switch between the strategy camera and a first-person view at any time; the game remembers which you prefer. In first person the mouse looks around (click the game once to grab the mouse), you aim building with the crosshair, and you see the tool or torch in your hands.
 - **Hotbar.** `1` hands, `2` spear, `3` axe, `4` pickaxe (or click a slot); press the same key again to put it away. What's in your hand matters: hands hit for 1, a spear for 2 (iron 3) with longer reach, an axe for 2. The axe only doubles wood, and the pickaxe only doubles stone and mines iron, while in your hand. New tools go straight into your hand.
 - **Nights are dangerous.** It gets cold and dark, and wolves come out. Wolves won't go near firelight. Kill them for meat and cook it at a fire.
 - **Other survivors' traces.**
@@ -40,7 +41,7 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
 - **Sound and music.** Chopping, mining, footsteps, crackling fires, wolf howls, birds by day, crickets and wind at night, and a calm day theme that fades into a darker night theme. Turn sound or music off in Esc → Settings. Every sound is synthesized by `tools/make_sounds.py`, so there are no recordings or licences involved.
 - **Raise an army.** At a barracks, recruit soldiers for 3 wood, 2 stone and 5 berries each: up to 10 per barracks and 100 in all. Soldiers fight wolves (you get the meat), and wolves fight back. Press T to switch between *follow me* (rows behind you) and *guard here* (rings around the spot).
 
-Controls: WASD/arrows to move, mouse wheel to zoom, `E` (hold) to gather or use, `Space`/click to attack, `1`–`4` hotbar, `I`/`Tab` inventory, `F` to eat, `X` to take down a building, `H` to show or hide help.
+Controls: WASD/arrows to move, mouse wheel to zoom, `E` (hold) to gather or use, `Space`/click to attack, `1`–`4` hotbar, `I`/`Tab` inventory, `V` first person, `F` to eat, `X` to take down a building, `H` to show or hide help.
 
 Without a server configured, the game runs offline: the island and survival work, but there are no traces and no leaderboard.
 

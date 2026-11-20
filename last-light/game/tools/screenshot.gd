@@ -135,6 +135,21 @@ func _run() -> void:
 	await _frames(10)
 	await _shot("7e-take-down")
 	main.hud._choose(1)
+	# First person: the base by day with the axe in hand, then at night with a torch.
+	main.player.pos = w.cell_center(c + Vector2i(0, 2))
+	main._on_hotbar_slot(2)
+	main.set_first_person(true, false)
+	main.cam_yaw = 0.0  # looking north, at the legion and the stone wall
+	main.fp_pitch = -0.08
+	await _frames(30)
+	await _shot("7f-first-person-day")
+	main._on_hotbar_slot(1)
+	main.player.torch_time = 120.0
+	main.clock = DAY * 0.8
+	await _frames(30)
+	await _shot("7g-first-person-night")
+	main.clock = DAY * 0.3
+	main.set_first_person(false, false)
 	main.clock = DAY * 0.8
 	main.zoom = 1.3
 	await _frames(30)
