@@ -227,8 +227,10 @@ func _run_game() -> void:
 	_check(main._make(forge[2]) and main.player.armour, "the forge makes iron armour")
 	_check(main._make(forge[3]) and main.player.lantern, "the forge makes a lantern")
 	main.player.add_item("raw_meat", 4)
+	var raw_before: int = main.player.count("raw_meat")
 	var smoked_before: int = main.player.count("smoked_meat")
-	_check(main._make(smoke[0]) and main.player.count("smoked_meat") == smoked_before + 4, "the smokehouse smokes all raw meat")
+	_check(main._make(smoke[0]) and main.player.count("smoked_meat") == smoked_before + raw_before
+		and main.player.count("raw_meat") == 0, "the smokehouse smokes all raw meat (%d)" % raw_before)
 	var axe_tree := Vector2i(-1, -1)
 	for r in range(1, 40):
 		for dz in range(-r, r + 1):
