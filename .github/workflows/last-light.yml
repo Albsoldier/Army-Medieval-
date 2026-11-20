@@ -122,7 +122,7 @@ jobs:
         env:
           SHOT_DIR: ${{ github.workspace }}/shots
         run: |
-          timeout 420 xvfb-run -a -s "-screen 0 1280x720x24" \
+          timeout 720 xvfb-run -a -s "-screen 0 1280x720x24" \
             godot --path last-light/game --rendering-driver opengl3 --resolution 1280x720 \
             --script res://tools/screenshot.gd 2>&1 | tee shots.log
           ls -la shots

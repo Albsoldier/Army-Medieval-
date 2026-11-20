@@ -14,7 +14,10 @@ extends Node3D
 const TILE := 16
 const SIZE := 1024  # tiles per side: about a kilometre
 const CHUNK := 32
-const VIEW := 2  # chunks drawn around the player in each direction
+const VIEW := 3  # terrain chunks drawn around the player in each direction
+const PROP_VIEW := 2  # trees, rocks and bushes are drawn a little closer in
+const GRASS_RADIUS := 34  # tiles of grass around the player
+const CHUNKS := SIZE / CHUNK
 const BUILDS_PER_FRAME := 2
 const NO_CELL := Vector2i(-1, -1)
 const WATER_LEVEL := 0.0
@@ -54,7 +57,18 @@ var map_texture: ImageTexture
 var explored: Dictionary = {}  # Vector2i chunk -> true
 
 const MAP_SCALE := 4  # tiles per map pixel
-const UNEXPLORED := Color(0.07, 0.09, 0.12)
+const UNEXPLORED := Color(0.80, 0.73, 0.58)  # blank parchment
+## The map is drawn like an old chart: muted, with shaded hills.
+const MAP_COLORS := [
+	Color("3d5c68"),  # deep water
+	Color("5c8390"),  # shallow water
+	Color("d6c497"),  # sand
+	Color("a9aa6a"),  # grass
+	Color("75814d"),  # forest
+	Color("9c9383"),  # rock
+]
+## What the props are drawn as. Trees come in two kinds.
+const DRAW_TYPES := ["tree_pine", "tree_oak", "stump", "rock", "iron_rock", "rubble", "bush", "bush_empty"]
 const POI_COUNTS := {"lighthouse": 2, "shipwreck": 4, "ruins": 6, "cave": 4, "shrine": 4, "camp": 6}
 var _poi_cells: Dictionary = {}  # cells kept clear around places to discover
 var _poi_centers: Dictionary = {}  # Vector2i cell -> poi id (these tiles can't be walked through)
@@ -62,6 +76,8 @@ var _map_dirty := false
 var _map_timer := 0.0
 
 var _noise: FastNoiseLite
+var _detail: FastNoiseLite
+var _grass: MultiMeshInstance3D
 var _continent: FastNoiseLite
 var _moisture: FastNoiseLite
 var _data: Dictionary = {}  # chunk -> {"t": PackedByteArray, "e": PackedFloat32Array}
@@ -72,7 +88,7 @@ var _build_queue: Array = []
 var _view_chunk := Vector2i(-999, -999)
 var _props_dirty := true
 var _layers: Dictionary = {}  # prop type -> Array of [MultiMeshInstance3D, part definition]
-var _terrain_mat: StandardMaterial3D
+var _terrain_mat: ShaderMaterial
 var _water: MeshInstance3D
 var _bed: MeshInstance3D
 
@@ -102,11 +118,15 @@ func generate(p_seed: int) -> void:
 	_moisture.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_moisture.frequency = 0.02
 
-	_terrain_mat = StandardMaterial3D.new()
-	_terrain_mat.vertex_color_use_as_albedo = true
-	_terrain_mat.vertex_color_is_srgb = true
-	_terrain_mat.roughness = 1.0
-	_terrain_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# Small bumps and dips that make the ground look natural up close.
+	_detail = FastNoiseLite.new()
+	_detail.seed = p_seed + 1231
+	_detail.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_detail.frequency = 0.16
+	_detail.fractal_octaves = 2
+
+	_terrain_mat = ShaderMaterial.new()
+	_terrain_mat.shader = preload("res://shaders/terrain.gdshader")
 
 	_find_spawn()
 	_place_pois()
@@ -124,7 +144,7 @@ func update_view(pos: Vector2, immediate: bool = false) -> void:
 	var center := _chunk_of_cell(cell_of(pos))
 	var ground := to_3d(pos)
 	_water.position = Vector3(snappedf(ground.x, 8.0), WATER_LEVEL, snappedf(ground.z, 8.0))
-	_bed.position = Vector3(_water.position.x, -2.45, _water.position.z)
+	_bed.position = Vector3(_water.position.x, -3.05, _water.position.z)
 
 	if center != _view_chunk:
 		_view_chunk = center
@@ -428,25 +448,29 @@ func _chunk_data(ck: Vector2i) -> Dictionary:
 
 func _tile_height(x: int, z: int) -> float:
 	if x < 0 or z < 0 or x >= SIZE or z >= SIZE:
-		return -2.4
+		return -3.0
 	var ck := Vector2i(x / CHUNK, z / CHUNK)
 	var data: Dictionary = _chunk_data(ck)
 	var i := (z - ck.y * CHUNK) * CHUNK + (x - ck.x * CHUNK)
-	var t: int = data["t"][i]
-	var e: float = data["e"][i]
+	return _height_for(data["t"][i], data["e"][i])
+
+
+## Ground height in metres for a terrain type and elevation: rolling hills,
+## with rocky peaks rising well above them.
+static func _height_for(t: int, e: float) -> float:
 	if t == DEEP:
-		return -2.4
+		return -3.0
 	if t == WATER:
-		return -0.8
+		return -1.0
 	if t == SAND:
-		return 0.12 + (e - 0.26) * 1.2
+		return 0.1 + (e - 0.26) * 1.5
 	if t == ROCK:
-		return minf(1.1 + (e - 0.9) * 9.0, 4.5)
-	return 0.24 + (e - 0.32) * 1.6
+		return minf(2.2 + (e - 0.9) * 14.0, 7.5)
+	return 0.3 + (e - 0.32) * 3.4
 
 
 ## Heights live on tile corners, averaged from the four tiles around each
-## corner, which gives smooth hills and beaches that slope into the sea.
+## corner, plus a little noise so the land isn't perfectly smooth.
 func _chunk_corners(ck: Vector2i) -> PackedFloat32Array:
 	if _corners.has(ck):
 		return _corners[ck]
@@ -457,10 +481,35 @@ func _chunk_corners(ck: Vector2i) -> PackedFloat32Array:
 		for cx in w:
 			var x := ck.x * CHUNK + cx
 			var z := ck.y * CHUNK + cz
-			corners[cz * w + cx] = (_tile_height(x - 1, z - 1) + _tile_height(x, z - 1)
+			var h := (_tile_height(x - 1, z - 1) + _tile_height(x, z - 1)
 				+ _tile_height(x - 1, z) + _tile_height(x, z)) / 4.0
+			h += _detail.get_noise_2d(x, z) * 0.28 * clampf(h * 2.0, 0.0, 1.0)
+			corners[cz * w + cx] = h
 	_corners[ck] = corners
 	return corners
+
+
+## The height of any tile corner on the island, across chunk borders.
+func _corner_height(gx: int, gz: int) -> float:
+	gx = clampi(gx, 0, SIZE)
+	gz = clampi(gz, 0, SIZE)
+	var ck := Vector2i(mini(gx / CHUNK, CHUNKS - 1), mini(gz / CHUNK, CHUNKS - 1))
+	var corners := _chunk_corners(ck)
+	return corners[(gz - ck.y * CHUNK) * (CHUNK + 1) + (gx - ck.x * CHUNK)]
+
+
+## How much sand, forest floor and rock meet at a corner, for the terrain shader.
+func _corner_blend(gx: int, gz: int) -> Color:
+	var c := Color(0, 0, 0, 1)
+	for o in [Vector2i(-1, -1), Vector2i(0, -1), Vector2i(-1, 0), Vector2i(0, 0)]:
+		var t := terrain_at(Vector2i(gx, gz) + o)
+		if t == SAND or t == WATER or t == DEEP:
+			c.r += 0.25
+		elif t == FOREST:
+			c.g += 0.25
+		elif t == ROCK:
+			c.b += 0.25
+	return c
 
 
 func _chunk_props(ck: Vector2i) -> Dictionary:
@@ -523,52 +572,71 @@ func _find_spawn() -> void:
 # ---------- 3D building ----------
 
 func _build_chunk_mesh(ck: Vector2i) -> void:
-	# One flat-shaded quad per tile, coloured by terrain, for a low-poly look.
-	var data: Dictionary = _chunk_data(ck)
-	var types: PackedByteArray = data["t"]
+	# One smooth surface per chunk: shared corners, smooth normals, and blend
+	# weights for the terrain shader. Open sea is left to the seabed plane.
 	var corners := _chunk_corners(ck)
-	var w := CHUNK + 1
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for lz in CHUNK:
-		for lx in CHUNK:
-			var x := ck.x * CHUNK + lx
-			var z := ck.y * CHUNK + lz
-			var t := types[lz * CHUNK + lx]
-			if t == DEEP and corners[lz * w + lx] < -2.3 and corners[(lz + 1) * w + lx + 1] < -2.3:
-				continue  # open sea: the seabed plane covers it
-			var color: Color = TERRAIN_COLORS[t]
-			if t == SAND or t == GRASS or t == FOREST or t == ROCK:
-				color = color.darkened(_hash01(x, z, 1) * 0.12)
-			st.set_color(color)
-			var a := Vector3(x, corners[lz * w + lx], z)
-			var b := Vector3(x + 1, corners[lz * w + lx + 1], z)
-			var c := Vector3(x + 1, corners[(lz + 1) * w + lx + 1], z + 1)
-			var d := Vector3(x, corners[(lz + 1) * w + lx], z + 1)
-			st.add_vertex(a)
-			st.add_vertex(b)
-			st.add_vertex(c)
-			st.add_vertex(a)
-			st.add_vertex(c)
-			st.add_vertex(d)
 	var mi := MeshInstance3D.new()
 	mi.name = "Terrain_%d_%d" % [ck.x, ck.y]
-	st.generate_normals()
-	mi.mesh = st.commit()
-	mi.material_override = _terrain_mat
 	add_child(mi)
 	_meshes[ck] = mi
+	var any_land := false
+	for h in corners:
+		if h > -2.7:
+			any_land = true
+			break
+	if not any_land:
+		return
+	var w := CHUNK + 1
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	verts.resize(w * w)
+	normals.resize(w * w)
+	colors.resize(w * w)
+	for cz in w:
+		for cx in w:
+			var gx := ck.x * CHUNK + cx
+			var gz := ck.y * CHUNK + cz
+			var i := cz * w + cx
+			verts[i] = Vector3(gx, corners[i], gz)
+			var hl := _corner_height(gx - 1, gz)
+			var hr := _corner_height(gx + 1, gz)
+			var hd := _corner_height(gx, gz - 1)
+			var hu := _corner_height(gx, gz + 1)
+			normals[i] = Vector3(hl - hr, 2.0, hd - hu).normalized()
+			colors[i] = _corner_blend(gx, gz)
+	var indices := PackedInt32Array()
+	indices.resize(CHUNK * CHUNK * 6)
+	var k := 0
+	for z in CHUNK:
+		for x in CHUNK:
+			var a := z * w + x
+			indices[k] = a
+			indices[k + 1] = a + 1
+			indices[k + 2] = a + w + 1
+			indices[k + 3] = a
+			indices[k + 4] = a + w + 1
+			indices[k + 5] = a + w
+			k += 6
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mi.mesh = mesh
+	mi.material_override = _terrain_mat
 
 
 func _build_water() -> void:
 	var plane := PlaneMesh.new()
-	plane.size = Vector2(400, 400)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.16, 0.42, 0.58, 0.78)
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.roughness = 0.12
-	mat.metallic = 0.3
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	plane.size = Vector2(640, 640)
+	plane.subdivide_width = 96
+	plane.subdivide_depth = 96
+	var mat := ShaderMaterial.new()
+	mat.shader = preload("res://shaders/water.gdshader")
 	_water = MeshInstance3D.new()
 	_water.name = "Water"
 	_water.mesh = plane
@@ -578,9 +646,9 @@ func _build_water() -> void:
 
 	# Dark seabed under the open sea.
 	var bed_plane := PlaneMesh.new()
-	bed_plane.size = Vector2(400, 400)
+	bed_plane.size = Vector2(640, 640)
 	var bed_mat := StandardMaterial3D.new()
-	bed_mat.albedo_color = Color("15304d")
+	bed_mat.albedo_color = Color("1b3540")
 	bed_mat.roughness = 1.0
 	_bed = MeshInstance3D.new()
 	_bed.mesh = bed_plane
@@ -588,47 +656,63 @@ func _build_water() -> void:
 	add_child(_bed)
 
 
-func _part(mesh: Mesh, color: Color, offset: Vector3, size: Vector3 = Vector3.ONE) -> Dictionary:
-	return {"mesh": mesh, "color": color, "offset": offset, "scale": size}
+func _part(mesh: Mesh, color: Color, offset: Vector3, size: Vector3 = Vector3.ONE, sway: float = 0.0) -> Dictionary:
+	return {"mesh": mesh, "color": color, "offset": offset, "scale": size, "sway": sway}
 
 
 func _prop_parts() -> Dictionary:
-	var berry := _sphere(0.075, 3, 6)
+	var berry := _sphere(0.07, 4, 6)
+	var bark := Color("4f3a28")
 	return {
-		"tree": [
-			_part(_cylinder(0.11, 0.16, 1.0, 6), Color("5a3d22"), Vector3(0, 0.5, 0)),
-			_part(_cylinder(0.0, 0.8, 1.3, 7), Color("1f4a27"), Vector3(0, 1.35, 0)),
-			_part(_cylinder(0.0, 0.6, 1.1, 7), Color("2c6234"), Vector3(0, 2.0, 0)),
-			_part(_cylinder(0.0, 0.38, 0.8, 7), Color("3a7a40"), Vector3(0, 2.55, 0)),
+		# A tall pine in tiers of needles.
+		"tree_pine": [
+			_part(_cylinder(0.1, 0.22, 3.4, 8), bark, Vector3(0, 1.7, 0)),
+			_part(_cylinder(0.08, 1.55, 2.3, 11), Color("23402a"), Vector3(0, 2.1, 0), Vector3.ONE, 0.03),
+			_part(_cylinder(0.06, 1.25, 2.0, 11), Color("2a4a30"), Vector3(0, 3.1, 0), Vector3.ONE, 0.04),
+			_part(_cylinder(0.04, 0.95, 1.7, 10), Color("315636"), Vector3(0, 4.0, 0), Vector3.ONE, 0.05),
+			_part(_cylinder(0.0, 0.6, 1.5, 9), Color("3a613c"), Vector3(0, 4.9, 0), Vector3.ONE, 0.06),
+		],
+		# A broad-leaved tree with a rounded, lumpy crown.
+		"tree_oak": [
+			_part(_cylinder(0.16, 0.3, 2.8, 8), Color("5a4430"), Vector3(0, 1.4, 0)),
+			_part(_sphere(1.45, 6, 10), Color("34482a"), Vector3(0, 3.5, 0), Vector3(1.0, 0.85, 1.0), 0.05),
+			_part(_sphere(1.1, 6, 10), Color("3e552e"), Vector3(0.95, 3.15, 0.35), Vector3(1.0, 0.85, 1.0), 0.06),
+			_part(_sphere(1.05, 6, 10), Color("2f4226"), Vector3(-0.85, 3.25, -0.4), Vector3(1.0, 0.85, 1.0), 0.06),
+			_part(_sphere(0.95, 6, 10), Color("4a6133"), Vector3(0.2, 4.2, -0.45), Vector3(1.0, 0.85, 1.0), 0.07),
+			_part(_sphere(0.85, 6, 10), Color("3b522c"), Vector3(-0.35, 3.95, 0.75), Vector3(1.0, 0.85, 1.0), 0.07),
 		],
 		"stump": [
-			_part(_cylinder(0.17, 0.2, 0.28, 7), Color("5a3d22"), Vector3(0, 0.14, 0)),
-			_part(_cylinder(0.15, 0.15, 0.02, 7), Color("b08a5a"), Vector3(0, 0.29, 0)),
+			_part(_cylinder(0.22, 0.3, 0.42, 9), bark, Vector3(0, 0.2, 0)),
+			_part(_cylinder(0.2, 0.2, 0.02, 9), Color("b89466"), Vector3(0, 0.42, 0)),
 		],
 		"rock": [
-			_part(_sphere(0.55, 3, 6), Color("77746c"), Vector3(0, 0.15, 0), Vector3(1.0, 0.75, 0.9)),
-			_part(_sphere(0.3, 3, 5), Color("8d8a80"), Vector3(0.35, 0.1, 0.25), Vector3(1.0, 0.8, 1.0)),
+			_part(_sphere(0.75, 5, 9), Color("7d7a72"), Vector3(0, 0.12, 0), Vector3(1.25, 0.62, 1.0)),
+			_part(_sphere(0.42, 5, 8), Color("8f8b82"), Vector3(0.55, 0.12, 0.35), Vector3(1.0, 0.7, 1.1)),
+			_part(_sphere(0.3, 4, 7), Color("6c6a64"), Vector3(-0.5, 0.06, -0.35), Vector3(1.1, 0.6, 1.0)),
 		],
 		"iron_rock": [
-			_part(_sphere(0.55, 3, 6), Color("6e625a"), Vector3(0, 0.15, 0), Vector3(1.0, 0.8, 0.9)),
-			_part(_sphere(0.16, 2, 5), Color("b0582a"), Vector3(0.3, 0.42, 0.2)),
-			_part(_sphere(0.13, 2, 5), Color("c4652e"), Vector3(-0.28, 0.38, -0.1)),
-			_part(_sphere(0.11, 2, 5), Color("a14d24"), Vector3(0.05, 0.52, -0.3)),
+			_part(_sphere(0.75, 5, 9), Color("6b6058"), Vector3(0, 0.14, 0), Vector3(1.2, 0.68, 1.0)),
+			_part(_sphere(0.17, 4, 6), Color("a4532a"), Vector3(0.38, 0.5, 0.25)),
+			_part(_sphere(0.14, 4, 6), Color("b9612e"), Vector3(-0.35, 0.44, -0.12)),
+			_part(_sphere(0.12, 4, 6), Color("944822"), Vector3(0.05, 0.6, -0.36)),
 		],
 		"rubble": [
-			_part(_sphere(0.14, 2, 5), Color("77746c"), Vector3(0.15, 0.04, 0.05)),
-			_part(_sphere(0.1, 2, 5), Color("8d8a80"), Vector3(-0.15, 0.03, -0.1)),
-			_part(_sphere(0.08, 2, 5), Color("6c6a63"), Vector3(0.0, 0.03, 0.2)),
+			_part(_sphere(0.16, 4, 6), Color("7d7a72"), Vector3(0.18, 0.04, 0.05)),
+			_part(_sphere(0.12, 4, 6), Color("8f8b82"), Vector3(-0.18, 0.03, -0.12)),
+			_part(_sphere(0.1, 4, 6), Color("6c6a64"), Vector3(0.0, 0.03, 0.24)),
 		],
 		"bush": [
-			_part(_sphere(0.42, 3, 7), Color("2e5a2a"), Vector3(0, 0.32, 0), Vector3(1.0, 0.85, 1.0)),
-			_part(berry, Color("d6334a"), Vector3(0.28, 0.45, 0.12)),
-			_part(berry, Color("d6334a"), Vector3(-0.2, 0.5, 0.22)),
-			_part(berry, Color("e0405a"), Vector3(0.05, 0.62, -0.25)),
-			_part(berry, Color("c42a40"), Vector3(-0.3, 0.35, -0.12)),
+			_part(_sphere(0.5, 5, 9), Color("355a2a"), Vector3(0, 0.34, 0), Vector3(1.0, 0.8, 1.0), 0.03),
+			_part(_sphere(0.36, 5, 8), Color("3f6630"), Vector3(0.38, 0.28, 0.2), Vector3(1.0, 0.8, 1.0), 0.03),
+			_part(_sphere(0.32, 5, 8), Color("2f5126"), Vector3(-0.32, 0.26, -0.22), Vector3(1.0, 0.8, 1.0), 0.03),
+			_part(berry, Color("b8263c"), Vector3(0.3, 0.55, 0.15)),
+			_part(berry, Color("c42a40"), Vector3(-0.22, 0.6, 0.25)),
+			_part(berry, Color("a8233a"), Vector3(0.05, 0.7, -0.28)),
+			_part(berry, Color("c42a40"), Vector3(-0.4, 0.42, -0.1)),
 		],
 		"bush_empty": [
-			_part(_sphere(0.36, 3, 7), Color("4a6a38"), Vector3(0, 0.27, 0), Vector3(1.0, 0.8, 1.0)),
+			_part(_sphere(0.45, 5, 9), Color("4c6a3a"), Vector3(0, 0.3, 0), Vector3(1.0, 0.75, 1.0), 0.03),
+			_part(_sphere(0.3, 5, 8), Color("557040"), Vector3(0.3, 0.24, 0.2), Vector3(1.0, 0.75, 1.0), 0.03),
 		],
 	}
 
@@ -639,7 +723,8 @@ func _build_prop_layers() -> void:
 			layer[0].queue_free()
 	_layers.clear()
 	var parts := _prop_parts()
-	for kind in PROP_TYPES:
+	var foliage_shader := preload("res://shaders/foliage.gdshader")
+	for kind in DRAW_TYPES:
 		var layers := []
 		for p in parts[kind]:
 			var mm := MultiMesh.new()
@@ -649,32 +734,89 @@ func _build_prop_layers() -> void:
 			var inst := MultiMeshInstance3D.new()
 			inst.name = "Props_%s" % kind
 			inst.multimesh = mm
-			var mat := StandardMaterial3D.new()
-			mat.vertex_color_use_as_albedo = true
-			mat.vertex_color_is_srgb = true
-			mat.roughness = 0.95
-			inst.material_override = mat
+			if float(p["sway"]) > 0.0:
+				var leaves := ShaderMaterial.new()
+				leaves.shader = foliage_shader
+				leaves.set_shader_parameter("sway", p["sway"])
+				inst.material_override = leaves
+			else:
+				var mat := StandardMaterial3D.new()
+				mat.vertex_color_use_as_albedo = true
+				mat.vertex_color_is_srgb = true
+				mat.roughness = 0.95
+				inst.material_override = mat
 			add_child(inst)
 			layers.append([inst, p])
 		_layers[kind] = layers
+	# Grass clumps around the player.
+	_grass = MultiMeshInstance3D.new()
+	_grass.name = "Grass"
+	var gmm := MultiMesh.new()
+	gmm.transform_format = MultiMesh.TRANSFORM_3D
+	gmm.use_colors = true
+	gmm.mesh = _grass_clump_mesh()
+	_grass.multimesh = gmm
+	var gmat := ShaderMaterial.new()
+	gmat.shader = preload("res://shaders/grass.gdshader")
+	_grass.material_override = gmat
+	_grass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_grass)
 
 
-## Rebuilds the 3D props for the chunks around the player.
+## Five thin blades leaning out from one root.
+func _grass_clump_mesh() -> ArrayMesh:
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var colors := PackedColorArray()
+	var r := RandomNumberGenerator.new()
+	r.seed = 7
+	for b in 7:
+		var a := r.randf() * TAU
+		var root := Vector3(cos(a), 0, sin(a)) * r.randf_range(0.0, 0.18)
+		var side := Vector3(cos(a + PI / 2), 0, sin(a + PI / 2)) * r.randf_range(0.025, 0.04)
+		var lean := Vector3(cos(a), 0, sin(a)) * r.randf_range(0.08, 0.25)
+		var height := r.randf_range(0.35, 0.6)
+		for v in [[root - side, 0.0], [root + side, 0.0], [root + lean + Vector3(0, height, 0), 1.0]]:
+			verts.append(v[0])
+			normals.append(Vector3.UP)
+			uvs.append(Vector2(0.5, v[1]))
+			colors.append(Color(1, 1, 1))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_COLOR] = colors
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+## Which kind of tree grows on a cell: mostly pines in forests, broad-leaved trees in the open.
+func _tree_kind(cell: Vector2i) -> String:
+	var pine_share := 0.7 if terrain_at(cell) == FOREST else 0.25
+	return "tree_pine" if _hash01(cell.x, cell.y, 9) < pine_share else "tree_oak"
+
+
+## Rebuilds the 3D props and grass for the chunks around the player.
 func _refresh_props() -> void:
 	var cells_by_kind := {}
-	for kind in PROP_TYPES:
+	for kind in DRAW_TYPES:
 		cells_by_kind[kind] = []
-	for dz in range(-VIEW, VIEW + 1):
-		for dx in range(-VIEW, VIEW + 1):
+	for dz in range(-PROP_VIEW, PROP_VIEW + 1):
+		for dx in range(-PROP_VIEW, PROP_VIEW + 1):
 			var ck := _view_chunk + Vector2i(dx, dz)
 			if not _chunk_in_bounds(ck):
 				continue
 			for cell in _chunk_props(ck):
 				var kind := prop_type(cell)
+				if kind == "tree":
+					kind = _tree_kind(cell)
 				if cells_by_kind.has(kind):
 					cells_by_kind[kind].append(cell)
 
-	for kind in PROP_TYPES:
+	for kind in DRAW_TYPES:
 		var cells: Array = cells_by_kind[kind]
 		# Work out each prop's place, turn and size once, then use it for every part.
 		var origins := []
@@ -699,8 +841,41 @@ func _refresh_props() -> void:
 				var turn: Basis = turns[i]
 				var origin: Vector3 = origins[i]
 				mm.set_instance_transform(i, Transform3D(turn * part_scale, origin + turn * offset))
-				var shade := (_hash01(cell.x, cell.y, 6) - 0.5) * 0.18
+				var shade := (_hash01(cell.x, cell.y, 6) - 0.5) * 0.22
 				mm.set_instance_color(i, base_color.lightened(shade) if shade > 0.0 else base_color.darkened(-shade))
+	_refresh_grass()
+
+
+func _refresh_grass() -> void:
+	var center := _view_chunk * CHUNK + Vector2i(CHUNK / 2, CHUNK / 2)
+	var xforms := []
+	var tints := []
+	for dz in range(-GRASS_RADIUS, GRASS_RADIUS + 1):
+		for dx in range(-GRASS_RADIUS, GRASS_RADIUS + 1):
+			if dx * dx + dz * dz > GRASS_RADIUS * GRASS_RADIUS:
+				continue
+			var cell := center + Vector2i(dx, dz)
+			var t := terrain_at(cell)
+			if t != GRASS and t != FOREST:
+				continue
+			if structures.has(cell) or _poi_cells.has(cell):
+				continue
+			var clumps := 3 if t == GRASS else 1
+			for c in clumps:
+				var jx := _hash01(cell.x, cell.y, 20 + c)
+				var jz := _hash01(cell.x, cell.y, 30 + c)
+				var p := Vector2(cell.x + jx, cell.y + jz)
+				var y := height_at(p * TILE)
+				var s := 0.7 + _hash01(cell.x, cell.y, 40 + c) * 0.7
+				xforms.append(Transform3D(Basis(Vector3.UP, jx * TAU) * Basis.from_scale(Vector3(s, s, s)), Vector3(p.x, y - 0.02, p.y)))
+				var g := _hash01(cell.x, cell.y, 50 + c)
+				var tint := Color("50652c").lerp(Color("7a7a42"), g * 0.8) if t == GRASS else Color("3b4c25")
+				tints.append(tint)
+	var mm := _grass.multimesh
+	mm.instance_count = xforms.size()
+	for i in xforms.size():
+		mm.set_instance_transform(i, xforms[i])
+		mm.set_instance_color(i, tints[i])
 
 
 func _hash01(x: int, y: int, salt: int) -> float:
@@ -734,21 +909,33 @@ func _cylinder(top: float, bottom: float, height: float, segments: int) -> Cylin
 ## otherwise (restoring a save) it samples the noise directly, which is cheaper.
 func _paint_chunk(ck: Vector2i, loaded: bool) -> void:
 	var per := CHUNK / MAP_SCALE
-	var types: PackedByteArray = _chunk_data(ck)["t"] if loaded else PackedByteArray()
 	for py in per:
 		for px in per:
-			var lx := px * MAP_SCALE + MAP_SCALE / 2
-			var lz := py * MAP_SCALE + MAP_SCALE / 2
-			var t: int
-			if loaded:
-				t = types[lz * CHUNK + lx]
-			else:
-				t = int(_sample(ck.x * CHUNK + lx, ck.y * CHUNK + lz)[0])
-			var color: Color = TERRAIN_COLORS[t]
+			var x := ck.x * CHUNK + px * MAP_SCALE + MAP_SCALE / 2
+			var z := ck.y * CHUNK + py * MAP_SCALE + MAP_SCALE / 2
+			var here := _map_sample(x, z, loaded)
+			var t: int = here[0]
+			var color: Color = MAP_COLORS[t]
+			# Shade hills as if lit from the north-west, like a relief map.
+			var nw: float = _map_sample(x - MAP_SCALE, z - MAP_SCALE, loaded)[1]
+			var se: float = _map_sample(x + MAP_SCALE, z + MAP_SCALE, loaded)[1]
+			var shade := clampf((nw - se) * 0.22, -0.22, 0.22)
 			if t == DEEP or t == WATER:
-				color = color.lightened(0.12)
+				shade = 0.0
+			color = color.lightened(shade) if shade > 0.0 else color.darkened(-shade)
 			map_image.set_pixel(ck.x * per + px, ck.y * per + py, color)
 	_map_dirty = true
+
+
+## [terrain type, height] for a tile, from loaded chunk data or straight from the noise.
+func _map_sample(x: int, z: int, loaded: bool) -> Array:
+	if x < 0 or z < 0 or x >= SIZE or z >= SIZE:
+		return [DEEP, -3.0]
+	if loaded or _data.has(Vector2i(x / CHUNK, z / CHUNK)):
+		var t := terrain_at(Vector2i(x, z))
+		return [t, _tile_height(x, z)]
+	var s := _sample(x, z)
+	return [int(s[0]), _height_for(int(s[0]), float(s[1]))]
 
 
 ## Explored chunks as a compact hex string (one bit per chunk), for the save file.

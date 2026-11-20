@@ -30,6 +30,10 @@ var dead := false
 var _model: Node3D
 var _body: CharacterModel
 var _right_hand: Node3D
+var _left_hand: Node3D
+var _head: Node3D
+var _shield: Node3D
+var _helmet: Node3D
 var _spear: Node3D
 var _cooldown := 0.0
 var _hurt := 0.0
@@ -46,6 +50,9 @@ func _ready() -> void:
 		"idle": ["Man_Idle"], "run": ["Man_Run"], "slash": ["Man_SwordSlash"], "death": ["Man_Death"],
 	}, {"Shirt": {"color": Color("8b2e2e")}, "Pants": {"color": Color("3a2a1a")}})  # red tunic
 	_right_hand = _body.bone_follower("Palm.R")
+	_left_hand = _body.bone_follower("Palm.L")
+	_head = _body.bone_follower("Head")
+	_build_kit()
 	# With up to a hundred soldiers, shadows cost too much.
 	for mi in _model.find_children("*", "MeshInstance3D", true, false):
 		(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -101,6 +108,8 @@ func hurt(amount: float) -> bool:
 	if hp <= 0.0 and not dead:
 		dead = true
 		_spear.visible = false
+		_shield.visible = false
+		_helmet.visible = false
 		_body.flash(false)
 		_body.play_once("death")
 		return true
@@ -151,6 +160,27 @@ func _move_toward(goal: Vector2, delta: float, stop_at: float) -> void:
 			pos = landing
 
 
+## A legionary's kit: a bronze helmet with a red crest, and a tall red shield.
+func _build_kit() -> void:
+	_helmet = Node3D.new()
+	_helmet.top_level = true
+	add_child(_helmet)
+	var dome := Art.part(_helmet, Art.sphere(0.155, 6, 12), Color("a07a3a"), Vector3(0, 0.1, -0.01))
+	dome.scale = Vector3(1.0, 0.9, 1.08)
+	Art.part(_helmet, Art.box(Vector3(0.34, 0.03, 0.04)), Color("8a6630"), Vector3(0, 0.02, -0.15))  # neck guard
+	Art.part(_helmet, Art.box(Vector3(0.045, 0.12, 0.3)), Color("a32626"), Vector3(0, 0.27, -0.02))  # crest
+	_shield = Node3D.new()
+	_shield.top_level = true
+	add_child(_shield)
+	Art.part(_shield, Art.box(Vector3(0.52, 0.86, 0.05)), Color("8e2323"), Vector3.ZERO)
+	Art.part(_shield, Art.box(Vector3(0.56, 0.05, 0.06)), Color("c9a24a"), Vector3(0, 0.42, 0))
+	Art.part(_shield, Art.box(Vector3(0.56, 0.05, 0.06)), Color("c9a24a"), Vector3(0, -0.42, 0))
+	Art.part(_shield, Art.box(Vector3(0.04, 0.8, 0.06)), Color("c9a24a"), Vector3(0, 0, 0.005))
+	Art.part(_shield, Art.sphere(0.075, 5, 8), Color("d8b45a"), Vector3(0, 0, 0.04), Vector3.ZERO, 0.4)
+	for part in _helmet.get_children() + _shield.get_children():
+		(part as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
 ## Hides soldiers far from the player so a big army stays fast.
 func set_shown(shown: bool) -> void:
 	if shown == _shown:
@@ -158,6 +188,8 @@ func set_shown(shown: bool) -> void:
 	_shown = shown
 	_model.visible = shown
 	_spear.visible = shown and not dead
+	_shield.visible = shown and not dead
+	_helmet.visible = shown
 	if _body.anim:
 		_body.anim.active = shown
 
@@ -170,6 +202,11 @@ func _animate(delta: float) -> void:
 	_body.tick(delta)
 	_body.play("run" if _moving else "idle")
 	_body.flash(_hurt > 0.0)
+	var turn := Basis(Vector3.UP, _model.rotation.y)
 	if _right_hand:
-		var turn := Basis(Vector3.UP, _model.rotation.y)
 		_spear.global_transform = Transform3D(turn * Basis(Vector3.RIGHT, PI / 2 - 0.3), _right_hand.global_position)
+	if _left_hand:
+		# Held in front, slightly turned, like a wall of shields.
+		_shield.global_transform = Transform3D(turn * Basis(Vector3.UP, 0.35), _left_hand.global_position + turn * Vector3(0.05, 0.05, 0.14))
+	if _head:
+		_helmet.global_transform = Transform3D(turn, _head.global_position + Vector3(0, 0.06, 0))
