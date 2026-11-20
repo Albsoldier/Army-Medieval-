@@ -30,7 +30,10 @@ const WORLD_SEED := 20261119  # the island's shape never changes
 const SAVE_INTERVAL := 6.0  # seconds between autosaves
 const CLOUD_INTERVAL := 15.0  # seconds between uploads of the save to the server
 
-const DAY_LENGTH := 240.0  # seconds of real time per in-game day
+const DAY_LENGTH := 960.0  # seconds of real time per in-game day (16 minutes)
+## Cold and darkness build up at this pace, so a long night costs about as much
+## warmth and sanity as the old 4-minute day did. Hunger stays tied to real time.
+const NIGHT_PACE := 240.0 / DAY_LENGTH
 const INTERACT_RADIUS := 26.0
 const ITEM_NAMES := {
 	"wood": "wood", "stone": "stone", "berries": "berries",
@@ -524,12 +527,12 @@ func _tick_survival(delta: float) -> void:
 		var loss := lerpf(-0.6, 1.1, n)  # warm up by day, freeze by night
 		if has_torch and loss > 0.0:
 			loss *= 0.4
-		player.warmth = clampf(player.warmth - loss * delta, 0.0, 100.0)
+		player.warmth = clampf(player.warmth - loss * NIGHT_PACE * delta, 0.0, 100.0)
 
 	if near_fire or has_torch or player.lantern or n < 0.5 or _nearest(_torch_posts(), player.pos, Structure.TORCH_RADIUS) != null:
-		player.sanity = minf(player.sanity + 0.05 * delta, 100.0)
+		player.sanity = minf(player.sanity + 0.05 * NIGHT_PACE * delta, 100.0)
 	else:
-		player.sanity = maxf(player.sanity - 0.35 * delta, 0.0)
+		player.sanity = maxf(player.sanity - 0.35 * NIGHT_PACE * delta, 0.0)
 
 	if player.hunger <= 0.0:
 		_hurt(1.0 * delta, "starvation")
@@ -692,13 +695,13 @@ func _use_fire(fire: Campfire) -> void:
 			hud.toast("You cook %d meat over the flames." % raw)
 		elif player.count("wood") > 0:
 			player.add_item("wood", -1)
-			fire.add_fuel(60.0)
+			fire.add_fuel(120.0)
 			hud.toast("You feed the fire. It will burn for about %d more seconds." % int(fire.fuel))
 		else:
 			hud.toast("The fire crackles. Bring wood to keep it going.")
 	elif player.count("wood") >= 2:
 		player.add_item("wood", -2)
-		fire.add_fuel(90.0)
+		fire.add_fuel(180.0)
 		hud.toast("You relight the cold fire pit%s." % whose)
 	else:
 		hud.toast("A cold fire pit%s. 2 wood would bring it back to life." % whose)
@@ -829,7 +832,7 @@ func _craft(what: String) -> void:
 			if not world.is_walkable(pos):
 				pos = player.pos
 			player.pay(cost)
-			_add_campfire(pos, 180.0, "")
+			_add_campfire(pos, 360.0, "")
 			audio.play("craft", world.to_3d(pos))
 			hud.toast("You build a campfire. If you fall, you'll wake here.")
 			home = pos
@@ -841,7 +844,7 @@ func _craft(what: String) -> void:
 				hud.toast("You're already carrying a lit torch.")
 				return
 			player.pay(cost)
-			player.torch_time = 90.0
+			player.torch_time = 180.0
 			audio.play("craft")
 			hud.toast("You light a torch. It will last a while.")
 		"spear":
