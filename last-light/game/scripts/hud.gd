@@ -6,23 +6,25 @@ const HELP_TEXT := """[ Controls ]
 WASD / arrows   move
 E (hold)          chop, mine, pick, use, read
 Space / click   attack
-F                    eat
-N                    write a note for others
-G                    leave a stash for others
+F                    eat         Q   healing salve
+M                    island map
+N / G              leave a note / a stash
 Mouse wheel     zoom
-B                    build: walls, gates, chests, barracks…
+B                    build (1–0 to choose)
 T                    army: follow me / guard here
-Esc                 pause menu: save, account
+Esc                 pause: save, account, sound
 H                    show / hide this help
 
 [ Crafting ]
 1  Campfire    5 wood, 3 stone
 2  Torch         2 wood
 3  Spear         3 wood, 2 stone
+Build a workbench, forge and smokehouse
+for tools, iron gear and smoked meat.
 
-Stay fed, stay warm, stay sane.
-Wolves hunt at night but fear fire.
-Cook raw meat at a fire."""
+Wolves fear fire. Explore to find ruins,
+wrecks, caves, shrines and a lighthouse."""
+const Minimap = preload("res://scripts/minimap.gd")
 
 
 class StatBars extends Control:
@@ -54,6 +56,9 @@ var _conn_label: Label
 var _hint_label: Label
 var _toasts: VBoxContainer
 var _help: PanelContainer
+var minimap: Minimap
+var _map_center: CenterContainer
+var _big_map: Minimap
 var _hurt_overlay: ColorRect
 var _dim: ColorRect
 var _dialog_center: CenterContainer
@@ -80,6 +85,7 @@ func _ready() -> void:
 	_build_status_panel()
 	_build_hint_and_toasts()
 	_build_help()
+	_build_maps()
 	_build_dialog()
 
 
@@ -143,7 +149,7 @@ func _build_help() -> void:
 	_help.anchor_right = 1.0
 	_help.offset_left = -300
 	_help.offset_right = -12
-	_help.offset_top = 12
+	_help.offset_top = 214
 	_root.add_child(_help)
 	var text := _label(13, Color(0.92, 0.9, 0.85))
 	text.text = HELP_TEXT
@@ -254,7 +260,56 @@ func flash() -> void:
 
 
 func is_modal() -> bool:
-	return _dialog_center.visible
+	return _dialog_center.visible or _map_center.visible
+
+
+func _build_maps() -> void:
+	minimap = Minimap.new()
+	minimap.anchor_left = 1.0
+	minimap.anchor_right = 1.0
+	minimap.offset_left = -202
+	minimap.offset_right = -12
+	minimap.offset_top = 12
+	minimap.offset_bottom = 202
+	_root.add_child(minimap)
+
+	_map_center = CenterContainer.new()
+	_map_center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_map_center.mouse_filter = Control.MOUSE_FILTER_STOP
+	_map_center.visible = false
+	_root.add_child(_map_center)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _panel_style())
+	_map_center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	panel.add_child(box)
+	var title := _label(20, Color(1.0, 0.85, 0.6))
+	title.text = "Island map"
+	box.add_child(title)
+	_big_map = Minimap.new()
+	_big_map.full = true
+	_big_map.custom_minimum_size = Vector2(560, 560)
+	box.add_child(_big_map)
+	var legend := _label(12, Color(0.85, 0.85, 0.8))
+	legend.text = "◆ places you've found   ■ your buildings   ● campfires   ✝ graves   ▲ you      M or Esc to close"
+	box.add_child(legend)
+
+
+## Connects both maps to the world and to a function that returns the markers.
+func setup_maps(world: Node3D, markers: Callable) -> void:
+	minimap.world = world
+	minimap.get_markers = markers
+	_big_map.world = world
+	_big_map.get_markers = markers
+
+
+func toggle_map() -> void:
+	_map_center.visible = not _map_center.visible
+
+
+func is_map_open() -> bool:
+	return _map_center.visible
 
 
 ## Shows a dialog. `on_choice` is called with (button_index, typed_text);
@@ -307,6 +362,12 @@ func _choose(index: int) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if _map_center.visible and not _dialog_center.visible:
+		var map_key := event as InputEventKey
+		if map_key and map_key.pressed and not map_key.echo and (map_key.keycode == KEY_ESCAPE or map_key.physical_keycode == KEY_M):
+			_map_center.visible = false
+			get_viewport().set_input_as_handled()
+		return
 	if not _dialog_center.visible or not _dismissable:
 		return
 	var key := event as InputEventKey

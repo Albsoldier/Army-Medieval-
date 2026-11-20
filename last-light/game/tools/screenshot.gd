@@ -100,6 +100,9 @@ func _run() -> void:
 	main._try_build("barracks", c + Vector2i(3, -3))
 	main._try_build("tent", c + Vector2i(-3, 2))
 	main._try_build("chest", c + Vector2i(3, 2))
+	main._try_build("forge", c + Vector2i(0, -3))
+	main._try_build("workbench", c + Vector2i(-1, 3))
+	main._try_build("smokehouse", c + Vector2i(1, 3))
 	main._recruit(20)
 	main.clock = 240.0 * 0.3
 	main.zoom = 1.6
@@ -111,6 +114,28 @@ func _run() -> void:
 	main.zoom = 1.3
 	await _frames(30)
 	await _shot("8-base-night")
+
+	# Places to discover: a lighthouse at night and a shipwreck by day, then the map.
+	for kind in ["lighthouse", "shipwreck"]:
+		for poi in w.pois:
+			if poi["type"] != kind:
+				continue
+			var spot: Vector2 = w.random_walkable_near(w.cell_center(poi["cell"]), 70.0, 110.0, main.rng)
+			if spot == Vector2.INF:
+				continue
+			main.player.pos = spot
+			main.player.facing = (w.cell_center(poi["cell"]) - spot).normalized()
+			w.update_view(spot, true)
+			main._update_pois(0.0, true)
+			main.clock = 240.0 * (0.8 if kind == "lighthouse" else 0.3)
+			main.zoom = 1.7
+			await _frames(40)
+			await _shot("9-lighthouse-night" if kind == "lighthouse" else "10-shipwreck-day")
+			break
+	main.hud.toggle_map()
+	await _frames(10)
+	await _shot("11-island-map")
+	main.hud.toggle_map()
 
 	print("Screenshots written to ", _dir)
 	quit(0)

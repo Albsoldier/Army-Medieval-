@@ -16,6 +16,7 @@ var _t := 0.0
 var _flame: Node3D
 var _light: OmniLight3D
 var _embers: CPUParticles3D
+var sound: AudioStreamPlayer3D  # set by main.gd: the crackle loop
 
 
 func _ready() -> void:
@@ -73,6 +74,11 @@ func tick(delta: float) -> void:
 
 func _update_visuals() -> void:
 	var lit := is_lit()
+	if sound and sound.playing != lit:
+		if lit:
+			sound.play(randf() * 5.0)
+		else:
+			sound.stop()
 	_flame.visible = lit
 	_light.visible = lit
 	_embers.emitting = lit

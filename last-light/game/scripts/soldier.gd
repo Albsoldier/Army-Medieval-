@@ -139,9 +139,16 @@ func _move_toward(goal: Vector2, delta: float, stop_at: float) -> void:
 	var next_y := pos + Vector2(0, step.y)
 	if world.is_walkable(next_y):
 		pos = next_y
-	# Stuck far behind (behind a wall, across water): catch up with the player.
+	# Stuck far behind (behind a wall, across water): catch up with the player,
+	# landing on solid ground near your place in the formation.
 	if mode == "follow" and to_goal.length() > 400.0:
-		pos = goal
+		var landing := goal
+		if not world.is_walkable(landing):
+			var rng := RandomNumberGenerator.new()
+			rng.seed = slot * 7919 + 1
+			landing = world.random_walkable_near(goal, 4.0, 60.0, rng)
+		if landing != Vector2.INF and world.is_walkable(landing):
+			pos = landing
 
 
 ## Hides soldiers far from the player so a big army stays fast.

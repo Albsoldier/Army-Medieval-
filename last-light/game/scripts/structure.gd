@@ -21,9 +21,34 @@ const TYPES := {
 	"tent": {"name": "Tent", "cost": {"wood": 10, "berries": 3}, "hp": 80, "blocks": "all",
 		"about": "You wake here after dying, and can sleep through the night."},
 	"barracks": {"name": "Barracks", "cost": {"wood": 20, "stone": 10}, "hp": 300, "blocks": "all",
-		"about": "Recruit soldiers here (3 per barracks)."},
+		"about": "Recruit soldiers here (10 per barracks)."},
+	"workbench": {"name": "Workbench", "cost": {"wood": 8, "stone": 4}, "hp": 120, "blocks": "all",
+		"about": "Make an axe, a pickaxe and healing salve."},
+	"forge": {"name": "Forge", "cost": {"stone": 12, "wood": 6}, "hp": 200, "blocks": "all",
+		"about": "Smelt iron ore, then forge an iron spear, armour and a lantern."},
+	"smokehouse": {"name": "Smokehouse", "cost": {"wood": 10, "stone": 4}, "hp": 150, "blocks": "all",
+		"about": "Smokes all your raw meat at once. Smoked meat is the best food."},
 }
-const ORDER := ["wood_wall", "stone_wall", "gate", "torch_post", "chest", "tent", "barracks"]
+const ORDER := ["wood_wall", "stone_wall", "gate", "torch_post", "chest", "tent", "barracks",
+	"workbench", "forge", "smokehouse"]
+## What each crafting station makes. "gives" is an item, or a tool you keep.
+const RECIPES := {
+	"workbench": [
+		{"id": "axe", "name": "Axe", "cost": {"wood": 4, "stone": 3}, "about": "2 wood for every hit on a tree."},
+		{"id": "pickaxe", "name": "Pickaxe", "cost": {"wood": 4, "stone": 4},
+			"about": "2 stone for every hit on a rock, and it can mine iron ore."},
+		{"id": "salve", "name": "Healing salve", "cost": {"berries": 6}, "about": "Press Q to heal 30 health."},
+	],
+	"forge": [
+		{"id": "iron", "name": "Smelt iron", "cost": {"ore": 2, "wood": 1}, "about": "Turns 2 iron ore into 1 iron."},
+		{"id": "iron_spear", "name": "Iron spear", "cost": {"iron": 3, "wood": 2}, "about": "Hits wolves 3 times as hard as your fists."},
+		{"id": "armour", "name": "Iron armour", "cost": {"iron": 5, "hide": 3}, "about": "Wolf bites hurt half as much."},
+		{"id": "lantern", "name": "Lantern", "cost": {"iron": 2, "wood": 1}, "about": "A light that never runs out."},
+	],
+	"smokehouse": [
+		{"id": "smoke", "name": "Smoke all raw meat", "cost": {}, "about": "Smoked meat fills 45 hunger."},
+	],
+}
 const TORCH_RADIUS := 80.0
 ## Walls and gates turn to line up with the walls next to them.
 const LINES_UP := ["wood_wall", "stone_wall", "gate"]  # game pixels: wolves won't come closer to a lit torch post
@@ -170,6 +195,43 @@ func _build_model() -> void:
 			_add(Art.cylinder(0.0, 0.85, 1.5, 4), Color("c9b48a"), Vector3(0, 0.75, 0), Vector3(0, PI / 4, 0))
 			_add(Art.box(Vector3(0.36, 0.7, 0.02)), Color("3d2f22"), Vector3(0, 0.35, 0.47))
 			_add(Art.cylinder(0.03, 0.03, 0.3, 4), Color("5a3d22"), Vector3(0, 1.6, 0))
+		"workbench":
+			_add(Art.box(Vector3(1.0, 0.1, 0.6)), Color("8f6239"), Vector3(0, 0.8, 0))
+			for corner in [Vector3(-0.42, 0.38, -0.22), Vector3(0.42, 0.38, -0.22), Vector3(-0.42, 0.38, 0.22), Vector3(0.42, 0.38, 0.22)]:
+				_add(Art.box(Vector3(0.08, 0.76, 0.08)), Color("5a3d22"), corner)
+			_add(Art.box(Vector3(0.4, 0.04, 0.12)), Color("b9bcc2"), Vector3(-0.15, 0.87, 0.05), Vector3(0, 0.4, 0))
+			_add(Art.cylinder(0.025, 0.025, 0.32, 5), Color("6b4a2b"), Vector3(0.25, 0.87, -0.05), Vector3(0, 0, PI / 2))
+			_add(Art.box(Vector3(0.12, 0.07, 0.07)), Color("4a4846"), Vector3(0.4, 0.87, -0.05))
+		"forge":
+			_add(Art.box(Vector3(1.0, 0.8, 0.9)), Color("6f6b63"), Vector3(0, 0.4, 0))
+			_add(Art.box(Vector3(0.6, 0.12, 0.5)), Color(1.0, 0.45, 0.1), Vector3(0, 0.82, 0), Vector3.ZERO, 3.0, true)
+			_add(Art.cylinder(0.18, 0.22, 1.3, 8), Color("5d5a52"), Vector3(0.3, 1.45, -0.25))
+			_add(Art.box(Vector3(0.36, 0.22, 0.18)), Color("2e2e30"), Vector3(-0.2, 0.92, 0.48))
+			var coals := Art.omni(Color(1.0, 0.5, 0.2), 3.5, 1.2)
+			coals.position = Vector3(0, 1.1, 0)
+			add_child(coals)
+		"smokehouse":
+			_add(Art.box(Vector3(0.95, 1.0, 0.95)), Color("6b4a2b"), Vector3(0, 0.5, 0))
+			_add(Art.cylinder(0.0, 0.8, 0.6, 4), Color("4d3420"), Vector3(0, 1.3, 0), Vector3(0, PI / 4, 0))
+			_add(Art.cylinder(0.1, 0.12, 0.5, 6), Color("5d5a52"), Vector3(0.25, 1.65, 0.2))
+			_add(Art.box(Vector3(0.36, 0.5, 0.03)), Color("2b1d12"), Vector3(0, 0.3, 0.49))
+			var smoke := CPUParticles3D.new()
+			var puff := Art.sphere(0.12, 3, 6)
+			var smoke_mat := Art.material(Color(0.6, 0.6, 0.6, 0.35))
+			smoke_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			puff.material = smoke_mat
+			smoke.mesh = puff
+			smoke.amount = 8
+			smoke.lifetime = 3.0
+			smoke.direction = Vector3.UP
+			smoke.spread = 15.0
+			smoke.gravity = Vector3(0.15, 0.25, 0)
+			smoke.initial_velocity_min = 0.3
+			smoke.initial_velocity_max = 0.5
+			smoke.scale_amount_min = 0.8
+			smoke.scale_amount_max = 2.0
+			smoke.position = Vector3(0.25, 1.95, 0.2)
+			add_child(smoke)
 		"barracks":
 			_add(Art.box(Vector3(1.0, 1.1, 1.0)), Color("7a5634"), Vector3(0, 0.55, 0))
 			_add(Art.cylinder(0.0, 0.85, 0.8, 4), Color("8b2e2e"), Vector3(0, 1.5, 0), Vector3(0, PI / 4, 0))
