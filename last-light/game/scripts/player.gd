@@ -43,6 +43,8 @@ var _spear: Node3D
 var _axe: Node3D
 var _pickaxe: Node3D
 var _armour: Node3D
+var _torso: Node3D
+var _neck: Node3D
 var _torch: Node3D
 var _torch_light: OmniLight3D
 var _moving := false
@@ -64,6 +66,8 @@ func _ready() -> void:
 	}, {"Shirt": {"color": Color("3b4f35")}})  # a dark green field jacket
 	_right_hand = _body.bone_follower("Palm.R")
 	_left_hand = _body.bone_follower("Palm.L")
+	_torso = _body.bone_follower("Torso")
+	_neck = _body.bone_follower("Neck")
 
 	# Spear and torch follow the hands but keep their own size and direction.
 	_spear = Node3D.new()
@@ -77,24 +81,26 @@ func _ready() -> void:
 	_axe = Node3D.new()
 	_axe.top_level = true
 	add_child(_axe)
-	Art.part(_axe, Art.cylinder(0.025, 0.025, 0.7, 5), Color("8a6440"), Vector3(0, 0.2, 0))
-	Art.part(_axe, Art.box(Vector3(0.05, 0.14, 0.2)), Color("9a9ea4"), Vector3(0, 0.48, 0.1))
+	Art.part(_axe, Art.cylinder(0.03, 0.03, 0.85, 6), Color("a07548"), Vector3(0, 0.3, 0))
+	Art.part(_axe, Art.box(Vector3(0.06, 0.22, 0.28)), Color("c4c8ce"), Vector3(0, 0.62, 0.13))
 	_axe.visible = false
 
 	# The pickaxe: a haft with a curved iron head across the top.
 	_pickaxe = Node3D.new()
 	_pickaxe.top_level = true
 	add_child(_pickaxe)
-	Art.part(_pickaxe, Art.cylinder(0.025, 0.025, 0.75, 5), Color("7a5636"), Vector3(0, 0.22, 0))
-	Art.part(_pickaxe, Art.box(Vector3(0.05, 0.06, 0.46)), Color("8f9399"), Vector3(0, 0.56, 0), Vector3(0.25, 0, 0))
+	Art.part(_pickaxe, Art.cylinder(0.03, 0.03, 0.85, 6), Color("8f6640"), Vector3(0, 0.3, 0))
+	Art.part(_pickaxe, Art.box(Vector3(0.07, 0.08, 0.62)), Color("b9bdc3"), Vector3(0, 0.7, 0))
 	_pickaxe.visible = false
 
-	# Worn armour: a hide cuirass over the jacket.
+	# Worn iron armour: a breastplate and shoulder guards that follow the chest.
 	_armour = Node3D.new()
-	_model.add_child(_armour)
-	var chest := Art.part(_armour, Art.cylinder(0.17, 0.15, 0.42, 8), Color("6e4f33"), Vector3(0, 1.12, 0.0))
-	chest.scale = Vector3(1.0, 1.0, 0.75)
-	Art.part(_armour, Art.box(Vector3(0.36, 0.05, 0.22)), Color("5a3f28"), Vector3(0, 0.92, 0))
+	_armour.top_level = true
+	add_child(_armour)
+	Art.part(_armour, Art.box(Vector3(0.3, 0.26, 0.08)), Color("7d8186"), Vector3(0, 0, 0.1))
+	Art.part(_armour, Art.box(Vector3(0.3, 0.26, 0.06)), Color("6a6e73"), Vector3(0, 0, -0.1))
+	Art.part(_armour, Art.box(Vector3(0.12, 0.05, 0.2)), Color("8c9095"), Vector3(0.19, 0.14, 0))
+	Art.part(_armour, Art.box(Vector3(0.12, 0.05, 0.2)), Color("8c9095"), Vector3(-0.19, 0.14, 0))
 	_armour.visible = false
 
 	_torch = Node3D.new()
@@ -156,6 +162,8 @@ func tick_visuals(delta: float) -> void:
 	_spear.visible = equipped == "spear" and has_spear and not dead
 	_axe.visible = equipped == "axe" and has_axe and not dead
 	_pickaxe.visible = equipped == "pickaxe" and has_pickaxe and not dead
+	if _armour.visible and _torso and _neck:
+		_armour.global_transform = Transform3D(turn, _torso.global_position.lerp(_neck.global_position, 0.45))
 	if _right_hand:
 		if _spear.visible:
 			# Held low and pointing forward, tipped slightly up.

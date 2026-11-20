@@ -119,6 +119,7 @@ func _run() -> void:
 	main.player.lantern = true
 	main.player.add_item("cooked_meat", 3)
 	main._on_hotbar_slot(2)
+	main.player.facing = Vector2(1, 0.4).normalized()  # side on, so the tool shows
 	main.zoom = 0.6
 	await _frames(30)
 	await _shot("7b-axe-in-hand")
