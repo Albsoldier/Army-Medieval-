@@ -12,6 +12,7 @@ const SaveGame = preload("res://scripts/save_game.gd")
 const Structure = preload("res://scripts/structure.gd")
 const Soldier = preload("res://scripts/soldier.gd")
 const Boat = preload("res://scripts/boat.gd")
+const Gear = preload("res://scripts/gear.gd")
 const Audio = preload("res://scripts/audio.gd")
 const Poi = preload("res://scripts/poi.gd")
 
@@ -50,7 +51,7 @@ const INTERACT_RADIUS := 26.0
 const ITEM_NAMES := {
 	"wood": "wood", "stone": "stone", "berries": "berries",
 	"raw_meat": "raw meat", "cooked_meat": "cooked meat", "smoked_meat": "smoked meat",
-	"ore": "iron ore", "iron": "iron", "hide": "wolf hide", "salve": "healing salve", "gold": "gold",
+	"ore": "iron ore", "iron": "iron", "hide": "wolf hide", "salve": "healing salve", "gold": "gold", "steel": "steel",
 }
 const RECIPES := {
 	"campfire": {"wood": 5, "stone": 3},
@@ -113,6 +114,8 @@ var boats: Array = []  # Boat nodes, moored where you left them
 var sailing: Boat = null  # the boat you're on
 var _resume_sailing := -1  # boat to put the player back on after loading
 var army_mode := "follow"
+var _wolf_kinds_seen := {}  # tougher wolves are announced the first time
+var _station_open := ""  # the crafting station whose panel is open
 var formation := "line"  # Z cycles: line, shield wall, wedge
 var selected: Array = []  # soldiers picked with a drag box
 var _drag_from := Vector2.INF  # where a left-drag started (screen)
@@ -228,6 +231,7 @@ func _setup_input() -> void:
 	_bind("slot_2", [KEY_2])
 	_bind("slot_3", [KEY_3])
 	_bind("slot_4", [KEY_4])
+	_bind("slot_5", [KEY_5])
 	_bind("craft_campfire", [KEY_C])
 	_bind("craft_torch", [KEY_R])
 	_bind("inventory", [KEY_I, KEY_TAB])
@@ -720,6 +724,8 @@ func _tick_survival(delta: float) -> void:
 				loss = lerpf(0.25, 1.8, n)  # cold even by day
 		if has_torch and loss > 0.0:
 			loss *= 0.4
+		if loss > 0.0:
+			loss *= 1.0 - player.armour_warmth()
 		player.warmth = clampf(player.warmth - loss * NIGHT_PACE * delta, 0.0, 100.0)
 
 	if near_fire or has_torch or player.lantern_lit() or n < 0.5 or _nearest(_torch_posts(), player.pos, Structure.TORCH_RADIUS) != null:
@@ -775,6 +781,11 @@ func _tick_wolves(delta: float) -> void:
 					var wolf: Wolf = Wolf.new()
 					wolf.world = world
 					wolf.pos = pos
+					wolf.kind = Wolf.pick_kind(day, world.season == "winter", rng.randf())
+					if wolf.kind != "grey" and not _wolf_kinds_seen.has(wolf.kind):
+						_wolf_kinds_seen[wolf.kind] = true
+						hud.toast({"timber": "A timber wolf is out tonight: bigger and tougher. Iron gear will help.",
+							"dire": "A dire wolf prowls the island. Only the best weapons and armour stand up to it."}[wolf.kind])
 					entities.add_child(wolf)
 					wolves.append(wolf)
 					audio.play("wolf_howl", wolf_3d(pos), -4.0)
@@ -798,8 +809,8 @@ func _tick_wolves(delta: float) -> void:
 			audio.play("wolf_bite", wolf.position, -2.0)
 			if victim == null:
 				# Iron armour halves the bite.
-				_hurt(Wolf.BITE_DAMAGE * (0.5 if player.wearing_armour() else 1.0), "wolves")
-			elif victim.hurt(Wolf.BITE_DAMAGE):
+				_hurt(wolf.bite * (1.0 - player.armour_reduction()), "wolves")
+			elif victim.hurt(wolf.bite):
 				_on_soldier_fallen(victim)
 		# A wolf pressed against your walls gnaws through them.
 		if night and buildings.has(wolf.blocked_cell):
@@ -820,11 +831,14 @@ func wolf_3d(pos: Vector2) -> Vector3:
 func _kill_wolf(wolf: Wolf, by_army: bool) -> void:
 	wolves.erase(wolf)
 	audio.play("wolf_yelp", wolf.position)
-	player.add_item("hide", 1)
+	var stats := Wolf.info(wolf.kind)
+	var meat := int(stats["meat"])
+	var hides := int(stats["hide"])
+	player.add_item("hide", hides)
+	player.add_item("raw_meat", meat)
 	var fall_time: float = wolf.die()
 	get_tree().create_timer(fall_time + 1.0).timeout.connect(wolf.queue_free)
-	player.add_item("raw_meat", 2)
-	hud.toast("Your soldiers bring down a wolf. +2 raw meat, +1 hide" if by_army else "The wolf falls. +2 raw meat, +1 hide")
+	hud.toast("%s the %s. +%d raw meat, +%d hide" % ["Your soldiers bring down" if by_army else "You bring down", stats["name"], meat, hides])
 
 
 # ---------- Actions ----------
@@ -953,7 +967,9 @@ func _use_trace(t: Trace) -> void:
 		"bag":
 			var items := t.items()
 			for item in items:
-				if TOOLS.has(item):
+				if str(item).begins_with("gear_"):
+					_restore_gear(str(item).trim_prefix("gear_"), int(items[item]) - 1)
+				elif TOOLS.has(item):
 					player.set(TOOLS[item], true)
 				elif ITEM_NAMES.has(item):
 					player.add_item(item, clampi(int(items[item]), 0, 999))
@@ -1000,7 +1016,7 @@ func _remove_trace(t: Trace) -> void:
 func _attack() -> void:
 	if attack_cooldown > 0.0:
 		return
-	attack_cooldown = 0.45
+	attack_cooldown = player.attack_cooldown()
 	player.swing()
 	audio.play("swing", player.position, -6.0)
 	var damage := player.attack_damage()
@@ -1075,14 +1091,7 @@ func _craft(what: String) -> void:
 			audio.play("craft")
 			hud.toast("You light a torch. It will last a while.")
 		"spear":
-			if player.has_spear:
-				hud.toast("You already have a spear.")
-				return
-			player.pay(cost)
-			player.has_spear = true
-			player.equip("spear")
-			audio.play("craft")
-			hud.toast("You carve a spear and take it in hand (2). Wolves beware.")
+			_make_gear("spear", 1)  # a flint spear
 
 
 func _write_note() -> void:
@@ -1156,6 +1165,9 @@ func _on_stash_posted(ok: bool, data: Variant, items: Dictionary, pos: Vector2) 
 func _items_text(items: Dictionary) -> String:
 	var parts := PackedStringArray()
 	for item in items:
+		if str(item).begins_with("gear_"):
+			parts.append("a " + Gear.tier_name(str(item).trim_prefix("gear_"), int(items[item]) - 1).to_lower())
+			continue
 		parts.append("%d %s" % [int(items[item]), ITEM_NAMES.get(item, TOOL_NAMES.get(item, str(item)))])
 	return ", ".join(parts)
 
@@ -1218,14 +1230,17 @@ func _refresh_hud() -> void:
 		player.count("raw_meat"), player.count("cooked_meat"),
 	]
 	var extras := PackedStringArray()
-	for item in ["smoked_meat", "ore", "iron", "hide", "salve", "gold"]:
+	for item in ["smoked_meat", "ore", "iron", "steel", "hide", "salve", "gold"]:
 		if player.count(item) > 0:
 			extras.append("%s %d" % [ITEM_NAMES[item].capitalize(), player.count(item)])
 	if not extras.is_empty():
 		inv += "\n" + "   ".join(extras)
 	var gear := PackedStringArray()
-	for tool in ["iron_spear", "spear", "axe", "pickaxe", "armour", "lantern"]:
-		if player.get(TOOLS[tool]) and not (tool == "spear" and player.iron_spear):
+	for kind in ["spear", "sword", "armour"]:
+		if _gear_tier(kind) >= 0:
+			gear.append(Gear.tier_name(kind, _gear_tier(kind)))
+	for tool in ["axe", "pickaxe", "lantern"]:
+		if player.get(TOOLS[tool]):
 			gear.append(TOOL_NAMES[tool].capitalize())
 	if player.torch_time > 0.0:
 		gear.append("Torch %ds" % int(player.torch_time))
@@ -1277,33 +1292,61 @@ func _use_salve() -> void:
 	hud.toast("You apply the salve. +30 health")
 
 
+## A crafting station: materials and tools on the left, weapons and armour
+## (gear.gd) on the right, each with its cost and what it does.
 func _open_station(kind: String) -> void:
-	var recipes: Array = Structure.RECIPES[kind]
-	var lines := PackedStringArray()
-	var buttons := PackedStringArray()
-	for r in recipes:
+	_station_open = kind
+	var basics := []
+	for r in Structure.RECIPES[kind]:
 		var cost: Dictionary = r["cost"]
 		var owned: bool = TOOLS.has(r["id"]) and player.get(TOOLS[r["id"]])
-		var price := "free" if cost.is_empty() else _items_text(cost)
-		lines.append("%s (%s): %s%s" % [r["name"], price, r["about"], "  ✓ You have this." if owned else ""])
-		buttons.append(str(r["name"]))
-	buttons.append("Close")
-	hud.open_dialog(Structure.info(kind)["name"], "\n\n".join(lines), buttons, _on_station_choice.bind(kind))
+		basics.append({"name": str(r["name"]), "detail": "free" if cost.is_empty() else _items_text(cost),
+			"button": "Owned" if owned else "Make", "action": "station:%s:%s" % [kind, r["id"]],
+			"enabled": not owned and (cost.is_empty() or player.can_afford(cost)), "dim": owned})
+	var weapons := []
+	var armour := []
+	for r in Gear.recipes_for(kind):
+		var have: bool = _gear_tier(r["kind"]) >= int(r["tier"])
+		var row := {"name": str(r["name"]), "detail": "%s · %s" % [r["about"], _items_text(r["cost"])],
+			"button": "Owned" if have else "Make", "action": "make:" + str(r["id"]),
+			"enabled": not have and player.can_afford(r["cost"]), "dim": have}
+		if r["kind"] == "armour":
+			armour.append(row)
+		else:
+			weapons.append(row)
+	var right := []
+	if not weapons.is_empty():
+		right.append({"title": "Weapons", "rows": weapons})
+	if not armour.is_empty():
+		right.append({"title": "Armour", "rows": armour})
+	var about := {"workbench": "Tools and hide armour.", "forge": "Smelt iron and steel, then forge weapons and armour. Gold comes from the islets.",
+		"smokehouse": "Smoked meat is the best food."}
+	var columns := [[{"title": "Make", "rows": basics}]]
+	if not right.is_empty():
+		columns.append(right)
+	hud.show_panel(Structure.info(kind)["name"], str(about.get(kind, "")) + "   Esc to close", columns, _on_station_action)
 
 
-func _on_station_choice(choice: int, _text: String, kind: String) -> void:
-	var recipes: Array = Structure.RECIPES[kind]
-	if choice < 0 or choice >= recipes.size():
+func _on_station_action(action: String) -> void:
+	var parts := action.split(":")
+	if parts[0] == "make":
+		_make_gear(parts[2], int(parts[3]))
+		_open_station(_station_open)
 		return
-	if _make(recipes[choice]):
-		_save_timer = SAVE_INTERVAL - 1.0
-	_open_station(kind)  # stay at the station to make more
+	if parts[0] == "station":
+		for r in Structure.RECIPES[parts[1]]:
+			if r["id"] == parts[2] and _make(r):
+				_save_timer = SAVE_INTERVAL - 1.0
+		_open_station(parts[1])
 
 
 ## Makes one recipe from a crafting station. Returns true if something was made.
 func _make(r: Dictionary) -> bool:
 	var id: String = r["id"]
 	var cost: Dictionary = r["cost"]
+	if id.begins_with("gear:"):
+		var parts := id.split(":")
+		return _make_gear(parts[1], int(parts[2]))
 	if TOOLS.has(id) and player.get(TOOLS[id]):
 		hud.toast("You already have a %s." % TOOL_NAMES[id])
 		return false
@@ -1337,6 +1380,61 @@ func _make(r: Dictionary) -> bool:
 		player.add_item(id, 1)
 	audio.play("craft")
 	hud.toast("You make: %s." % str(r["name"]).to_lower())
+	return true
+
+
+## Takes back gear (from a save or a bag), keeping whichever is better.
+func _restore_gear(kind: String, tier: int) -> void:
+	var top := Gear.list_for(kind).size() - 1
+	tier = clampi(tier, -1, top)
+	match kind:
+		"spear":
+			player.spear_tier = maxi(player.spear_tier, tier)
+		"sword":
+			player.sword_tier = maxi(player.sword_tier, tier)
+		"armour":
+			player.armour_tier = maxi(player.armour_tier, tier)
+
+
+func _gear_tier(kind: String) -> int:
+	match kind:
+		"spear":
+			return player.spear_tier
+		"sword":
+			return player.sword_tier
+	return player.armour_tier
+
+
+## Makes a spear, sword or armour of a tier (gear.gd). It replaces what you
+## had, so only a better one can be made. Returns true if it was made.
+func _make_gear(kind: String, tier: int) -> bool:
+	var g := Gear.info(kind, tier)
+	if g.is_empty():
+		return false
+	if _gear_tier(kind) >= tier:
+		hud.toast("You already have %s." % ("a better one" if _gear_tier(kind) > tier else "one"))
+		return false
+	var cost: Dictionary = g["cost"]
+	if not player.can_afford(cost):
+		hud.toast("%s needs %s." % [g["name"], _items_text(cost)])
+		return false
+	player.pay(cost)
+	match kind:
+		"spear":
+			player.spear_tier = tier
+			player.equip("spear")
+		"sword":
+			player.sword_tier = tier
+			player.equip("sword")
+		_:
+			player.armour_tier = tier
+			player.armour_on = true
+	audio.play("craft")
+	if kind == "armour":
+		hud.toast("You put on your new %s (%s)." % [str(g["name"]).to_lower(), Gear.stat_text(kind, tier)])
+	else:
+		hud.toast("You make a %s (%s) and take it in hand." % [str(g["name"]).to_lower(), Gear.stat_text(kind, tier)])
+	_save_timer = SAVE_INTERVAL - 1.0
 	return true
 
 
@@ -1683,7 +1781,7 @@ func _on_demolish_choice(choice: int, _text: String, b: Structure) -> void:
 
 # ---------- Hotbar and inventory ----------
 
-const HOTBAR := ["hands", "spear", "axe", "pickaxe"]
+const HOTBAR := ["hands", "spear", "axe", "pickaxe", "sword"]
 
 
 func _slot_pressed(event: InputEvent) -> int:
@@ -1698,7 +1796,7 @@ func _on_hotbar_slot(i: int) -> void:
 	var tool: String = HOTBAR[i]
 	if not player.owns(tool):
 		hud.toast("You don't have a %s yet. %s" % [tool, {
-			"spear": "Craft one in the inventory (I).",
+			"spear": "Craft one in the inventory (I).", "sword": "Forge one from iron at a forge.",
 			"axe": "Make one at a workbench.", "pickaxe": "Make one at a workbench."}.get(tool, "")])
 		return
 	_equip(tool if player.equipped != tool else "hands")
@@ -1715,15 +1813,21 @@ func _equip(tool: String) -> void:
 func _hotbar_slots() -> Array:
 	return [
 		{"label": "Hands", "owned": true},
-		{"label": "Iron spear" if player.iron_spear else "Spear", "owned": player.has_spear},
+		{"label": _short(Gear.tier_name("spear", player.spear_tier), "Spear"), "owned": player.has_spear},
 		{"label": "Axe", "owned": player.has_axe},
 		{"label": "Pickaxe", "owned": player.has_pickaxe},
+		{"label": _short(Gear.tier_name("sword", player.sword_tier), "Sword"), "owned": player.sword_tier >= 0},
 	]
+
+
+## "Steel spear" -> "Steel spear"; nothing yet -> the plain name.
+static func _short(gear_name: String, fallback: String) -> String:
+	return gear_name if gear_name != "" else fallback
 
 
 func _open_inventory() -> void:
 	var supplies := []
-	for item in ["wood", "stone", "berries", "raw_meat", "cooked_meat", "smoked_meat", "ore", "iron", "hide", "salve", "gold"]:
+	for item in ["wood", "stone", "berries", "raw_meat", "cooked_meat", "smoked_meat", "ore", "iron", "steel", "hide", "salve", "gold"]:
 		var n: int = player.count(item)
 		var row := {"name": str(ITEM_NAMES[item]).capitalize(), "detail": "× %d" % n, "dim": n == 0}
 		if item in ["berries", "raw_meat", "cooked_meat", "smoked_meat"]:
@@ -1738,11 +1842,18 @@ func _open_inventory() -> void:
 		if tool == "hands" or not player.owns(tool):
 			continue
 		var held: bool = player.equipped == tool
-		gear.append({"name": "Iron spear" if tool == "spear" and player.iron_spear else tool.capitalize(),
-			"detail": "in hand" if held else "key %d" % (i + 1),
+		var label := tool.capitalize()
+		var stat := ""
+		if tool == "spear" or tool == "sword":
+			var tier: int = player.spear_tier if tool == "spear" else player.sword_tier
+			label = Gear.tier_name(tool, tier)
+			stat = Gear.stat_text(tool, tier) + " · "
+		gear.append({"name": label,
+			"detail": stat + ("in hand" if held else "key %d" % (i + 1)),
 			"button": "Put away" if held else "Equip", "action": "equip:" + ("hands" if held else tool)})
 	if player.armour:
-		gear.append({"name": "Iron armour", "detail": "worn" if player.armour_on else "packed",
+		gear.append({"name": Gear.tier_name("armour", player.armour_tier),
+			"detail": "%s · %s" % [Gear.stat_text("armour", player.armour_tier), "worn" if player.armour_on else "packed"],
 			"button": "Take off" if player.armour_on else "Wear", "action": "armour"})
 	if player.lantern:
 		gear.append({"name": "Lantern", "detail": "lit" if player.lantern_on else "shuttered",
@@ -1751,12 +1862,16 @@ func _open_inventory() -> void:
 		gear.append({"name": "Torch", "detail": "%d s left" % int(player.torch_time)})
 
 	var crafting := []
-	for what in ["campfire", "torch", "spear"]:
+	for what in ["campfire", "torch"]:
 		var cost: Dictionary = RECIPES[what]
-		var done: bool = (what == "spear" and player.has_spear) or (what == "torch" and player.torch_time > 0.0)
-		crafting.append({"name": what.capitalize() + {"campfire": "  (C)", "torch": "  (R)", "spear": ""}[what],
+		var done: bool = what == "torch" and player.torch_time > 0.0
+		crafting.append({"name": what.capitalize() + {"campfire": "  (C)", "torch": "  (R)"}[what],
 			"detail": _items_text(cost), "button": "Craft", "action": "craft:" + what,
 			"enabled": player.can_afford(cost) and not done, "dim": done})
+	for r in Gear.recipes_for("hand"):
+		var have: bool = _gear_tier(r["kind"]) >= int(r["tier"])
+		crafting.append({"name": r["name"], "detail": _items_text(r["cost"]), "button": "Craft", "action": "make:" + str(r["id"]),
+			"enabled": player.can_afford(r["cost"]) and not have, "dim": have})
 
 	hud.show_inventory([
 		[{"title": "Supplies", "rows": supplies}],
@@ -1783,6 +1898,8 @@ func _on_inventory_action(action: String) -> void:
 			if parts[1] == "campfire":
 				hud.close_inventory()  # see where it goes
 			_craft(parts[1])
+		"make":
+			_make_gear(parts[2], int(parts[3]))
 	if hud.is_inventory_open():
 		_open_inventory()
 
@@ -2704,6 +2821,7 @@ func save_game(respawn: bool = false, upload: bool = false) -> void:
 			"inventory": player.inventory.duplicate(),
 			"spear": player.has_spear,
 			"tools": _tools_owned(),
+			"gear": {"spear": player.spear_tier, "sword": player.sword_tier, "armour": player.armour_tier},
 			"equipped": player.equipped,
 			"armour_on": player.armour_on,
 			"lantern_on": player.lantern_on,
@@ -2716,7 +2834,11 @@ func save_game(respawn: bool = false, upload: bool = false) -> void:
 			if int(player.inventory[item]) > 0:
 				items[item] = int(player.inventory[item])
 		for tool in _tools_owned():
-			items[tool] = 1
+			if not tool in ["spear", "iron_spear", "armour"]:  # gear goes in by tier, below
+				items[tool] = 1
+		for kind in ["spear", "sword", "armour"]:
+			if _gear_tier(kind) >= 0:
+				items["gear_" + kind] = _gear_tier(kind) + 1
 		if not items.is_empty():
 			bags.append({
 				"id": "bag-%d" % Time.get_ticks_usec(), "kind": "bag",
@@ -2778,6 +2900,13 @@ func _apply_save(save: Dictionary) -> bool:
 		for tool in p.get("tools", []):
 			if TOOLS.has(str(tool)):
 				player.set(TOOLS[str(tool)], true)
+		# Newer saves store each piece of gear by tier; that's exact, so it wins
+		# over the old yes/no flags above.
+		var gear: Variant = p.get("gear", {})
+		if typeof(gear) == TYPE_DICTIONARY and not gear.is_empty():
+			player.spear_tier = clampi(int(gear.get("spear", -1)), -1, Gear.SPEAR.size() - 1)
+			player.sword_tier = clampi(int(gear.get("sword", -1)), -1, Gear.SWORD.size() - 1)
+			player.armour_tier = clampi(int(gear.get("armour", -1)), -1, Gear.ARMOUR.size() - 1)
 		player.equipped = "hands"
 		player.equip(str(p.get("equipped", "hands")))
 		player.armour_on = bool(p.get("armour_on", true))

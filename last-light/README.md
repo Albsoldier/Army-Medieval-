@@ -38,6 +38,18 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
 - **Explore.** 26 places are spread over the island: lighthouses (their beams sweep the sea at night), shipwrecks, ruins, caves, shrines and abandoned camps. Each has a story and loot you can take once; shrines restore your sanity once a day. One abandoned camp is always close to the start.
 - **Map (M).** A minimap in the corner and a full island map fill in as you explore, showing your buildings, campfires, graves and the places you've found. What you've explored is saved.
 - **Crafting stations.** Build a *workbench* (axe: 20 wood per hit; pickaxe: 20 stone, iron ore or gold per hit, and needed to mine ore; the bonus counts while the tool is in your hand; healing salve, used with Q), a *forge* (smelt iron ore into iron; iron spear, iron armour that halves wolf bites, a lantern that never runs out) and a *smokehouse* (smokes all your raw meat; smoked meat fills 45 hunger). Wolves drop hides for armour, and iron ore is in the rust-veined rocks on the mountains.
+- **Weapons and armour by material.** The better the material, the better the gear, and each new piece replaces the one it beats:
+
+  | Tier | Spear (damage) | Sword (damage, quicker swings) | Armour (bites stopped) | Made at |
+  |---|---|---|---|---|
+  | Wood | Wooden spear (2): 4 wood | – | – | inventory |
+  | Flint / hide | Flint spear (3): 3 wood, 2 stone | – | Hide armour (20%, also keeps you warm): 4 hides, 1 wood | inventory / workbench |
+  | Iron | Iron spear (5) | Iron sword (6) | Iron armour (45%) | forge |
+  | Steel | Steel spear (8) | Steel sword (10) | Steel armour (60%) | forge |
+  | Gilded | Gilded spear (12) | Gilded sword (15) | Gilded armour (75%) | forge, with gold from the islets |
+
+  Steel is folded from 2 iron and 2 wood at the forge. The sword goes on hotbar key 5; spears reach further, swords swing faster.
+- **Tougher wolves.** Grey wolves at first; from day 4 *timber wolves* (more health, harder bite) and from day 9 *dire wolves* (huge, red-eyed, with a deadly bite; more of them in winter). Bigger wolves drop more meat and hides.
 - **Sound and music.** Chopping, mining, footsteps, crackling fires, wolf howls, birds by day, crickets and wind at night, and a calm day theme that fades into a darker night theme. Turn sound or music off in Esc → Settings. Every sound is synthesized by `tools/make_sounds.py`, so there are no recordings or licences involved.
 - **Raise a legion.** At a barracks, recruit up to 10 soldiers per barracks and 100 in all, of four kinds:
   - *Legionaries* (3 wood, 2 stone, 5 berries): shield and spear.
@@ -49,7 +61,7 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
 - **Seasons.** Three days each of spring, summer, autumn and winter. Summer nights are mild, and autumn bushes give extra berries. In winter snow covers the island, lakes and shallow sea freeze so you can walk on the ice, nothing grows, and the cold bites even by day.
 - **Boats and islets.** Build a dock at the water's edge (build mode, `-`). It makes a raft (12 wood) for lakes and the shallows, or a galley (40 wood, 4 iron, 4 hides) that crosses the open sea, carrying your legion with you. Five islets lie offshore, each with a treasure hoard and rich iron and gold ore. E by a boat boards it; E at sea goes ashore.
 
-Controls: WASD/arrows to move, mouse wheel to zoom, `E` (hold) to gather or use, `Space`/click to attack, `1`–`4` hotbar, `I`/`Tab` inventory, `V` first person, `F` to eat, `X` to take down a building, `H` to show or hide help.
+Controls: WASD/arrows to move, mouse wheel to zoom, `E` (hold) to gather or use, `Space`/click to attack, `1`–`5` hotbar, `I`/`Tab` inventory, `V` first person, `F` to eat, `X` to take down a building, `H` to show or hide help.
 
 Without a server configured, the game runs offline: the island and survival work, but there are no traces and no leaderboard.
 

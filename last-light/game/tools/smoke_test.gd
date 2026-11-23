@@ -92,7 +92,7 @@ func _run_game() -> void:
 	_check(main.player.torch_time > 0.0, "torch crafted")
 	main._craft("spear")
 	_check(main.player.has_spear and main.player.equipped == "spear", "spear crafted and taken in hand")
-	_check(main.player.attack_damage() == 2 and main.player.attack_reach() > 30.0, "a spear hits harder and further")
+	_check(main.player.spear_tier == 1 and main.player.attack_damage() == 3 and main.player.attack_reach() > 30.0, "a flint spear hits harder and further")
 	main._on_hotbar_slot(1)
 	_check(main.player.equipped == "hands" and main.player.attack_damage() == 1, "pressing 2 again puts the spear away")
 	main._on_hotbar_slot(2)
@@ -265,8 +265,40 @@ func _run_game() -> void:
 	_check(main._make(forge[0]) and main.player.count("iron") == iron_before + 1 and main.player.count("ore") == 0, "the forge smelts iron ore into iron")
 	main.player.add_item("iron", 10)
 	main.player.add_item("hide", 3)
-	_check(main._make(forge[2]) and main.player.armour, "the forge makes iron armour")
-	_check(main._make(forge[3]) and main.player.lantern, "the forge makes a lantern")
+	_check(main._make_gear("armour", 1) and main.player.armour and main.player.armour_tier == 1, "the forge makes iron armour")
+	_check(main._make(forge[2]) and main.player.lantern, "the forge makes a lantern")
+
+	# Gear by material: better materials, better weapons and armour.
+	var Gear = load("res://scripts/gear.gd")
+	var Wolf = load("res://scripts/wolf.gd")
+	main.player.add_item("iron", 30)
+	main.player.add_item("wood", 30)
+	main.player.add_item("hide", 10)
+	main.player.add_item("gold", 10)
+	var steel_before: int = main.player.count("steel")
+	_check(main._make(forge[1]) and main.player.count("steel") == steel_before + 1, "the forge folds iron into steel")
+	main.player.add_item("steel", 20)
+	var flint_damage: int = Gear.SPEAR[1]["damage"]
+	_check(not main._make_gear("spear", 0), "you can't make a worse spear than the one you have")
+	_check(main._make_gear("spear", 3) and main.player.spear_tier == 3 and main.player.attack_damage() == Gear.SPEAR[3]["damage"]
+		and main.player.attack_damage() > flint_damage, "a steel spear hits harder than flint (%d vs %d)" % [main.player.attack_damage(), flint_damage])
+	_check(main._make_gear("sword", 0) and main.player.equipped == "sword" and main.player.attack_reach() < Gear.SPEAR_REACH
+		and main.player.attack_cooldown() < Gear.SPEAR_COOLDOWN, "an iron sword: shorter reach, quicker swings")
+	_check(main._make_gear("sword", 2) and main.player.attack_damage() == Gear.SWORD[2]["damage"], "a gilded sword, with gold from the islets")
+	var iron_cut: float = main.player.armour_reduction()
+	_check(main._make_gear("armour", 3) and main.player.armour_reduction() > iron_cut, "gilded armour stops more of a bite than iron (%d%%)" % int(main.player.armour_reduction() * 100))
+	for k in Gear.ARMOUR.size() - 1:
+		_check(Gear.ARMOUR[k + 1]["reduce"] > Gear.ARMOUR[k]["reduce"], "%s beats %s" % [Gear.ARMOUR[k + 1]["name"], Gear.ARMOUR[k]["name"]])
+	for k in Gear.SPEAR.size() - 1:
+		_check(Gear.SPEAR[k + 1]["damage"] > Gear.SPEAR[k]["damage"], "%s beats %s" % [Gear.SPEAR[k + 1]["name"], Gear.SPEAR[k]["name"]])
+	main._on_hotbar_slot(4)  # the new sword is already in hand
+	_check(main.player.equipped == "hands", "key 5 puts the sword away")
+	main._on_hotbar_slot(4)
+	_check(main.player.equipped == "sword", "key 5 takes the sword in hand")
+	_check(Wolf.pick_kind(1, false, 0.01) == "grey" and Wolf.pick_kind(6, false, 0.01) == "timber" and Wolf.pick_kind(14, true, 0.01) == "dire",
+		"wolves get tougher as the days go on")
+	_check(Wolf.info("dire")["hp"] > Gear.SPEAR[1]["damage"] * 4 and Wolf.info("dire")["hp"] <= Gear.SWORD[2]["damage"] * 2,
+		"a dire wolf shrugs off a flint spear but not a gilded sword")
 	main.player.add_item("raw_meat", 4)
 	var raw_before: int = main.player.count("raw_meat")
 	var smoked_before: int = main.player.count("smoked_meat")
@@ -513,6 +545,8 @@ func _run_game() -> void:
 	_check(copy_main.player.pos.distance_to(main.player.pos) < 1.0, "resumed at the same spot")
 	_check(copy_main.player.count("wood") == main.player.count("wood"), "resumed with the same wood")
 	_check(copy_main.player.has_spear, "resumed with the spear")
+	_check(copy_main.player.spear_tier == main.player.spear_tier and copy_main.player.sword_tier == main.player.sword_tier
+		and copy_main.player.armour_tier == main.player.armour_tier, "your spear, sword and armour keep their materials after reload")
 	_check(copy_main.player.equipped == main.player.equipped, "resumed holding the same tool (%s)" % copy_main.player.equipped)
 	_check(copy_main.world.prop_type(tree_cell) == "stump", "felled tree is still a stump after reload")
 	_check(copy_main.campfires.size() == 1, "campfire is still there after reload")

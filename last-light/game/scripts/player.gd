@@ -4,6 +4,7 @@ extends Node3D
 
 const World = preload("res://scripts/world.gd")
 const Art = preload("res://scripts/art.gd")
+const Gear = preload("res://scripts/gear.gd")
 
 const SPEED := 95.0
 const TORCH_RADIUS := 85.0
@@ -15,14 +16,32 @@ var hunger := 100.0
 var warmth := 100.0
 var sanity := 100.0
 var inventory := {"wood": 0, "stone": 0, "berries": 0, "raw_meat": 0, "cooked_meat": 0,
-	"smoked_meat": 0, "ore": 0, "iron": 0, "hide": 0, "salve": 0, "gold": 0}
-var has_spear := false
-var iron_spear := false
+	"smoked_meat": 0, "ore": 0, "iron": 0, "hide": 0, "salve": 0, "gold": 0, "steel": 0}
+## Your best spear, sword and armour, as tiers in gear.gd (-1: none).
+var spear_tier := -1
+var sword_tier := -1
+var armour_tier := -1
 var has_axe := false
 var has_pickaxe := false
-var armour := false
 var lantern := false
-## What's in your hand: "hands", "spear", "axe" or "pickaxe" (the hotbar).
+## Older saves stored "has a spear", "has an iron spear" and "has armour".
+var has_spear: bool:
+	get:
+		return spear_tier >= 0
+	set(v):
+		spear_tier = maxi(spear_tier, 1) if v else -1
+var iron_spear: bool:
+	get:
+		return spear_tier >= 2
+	set(v):
+		if v:
+			spear_tier = maxi(spear_tier, 2)
+var armour: bool:
+	get:
+		return armour_tier >= 0
+	set(v):
+		armour_tier = maxi(armour_tier, 1) if v else -1
+## What's in your hand: "hands", "spear", "axe", "pickaxe" or "sword" (the hotbar).
 var equipped := "hands"
 var armour_on := true  # armour can be taken off in the inventory
 var lantern_on := true  # and the lantern shuttered
@@ -46,6 +65,8 @@ var _body: CharacterModel
 var _right_hand: Node3D
 var _left_hand: Node3D
 var _spear: Node3D
+var _sword: Node3D
+var _gear_look := ""  # which tiers the models are coloured for
 var _axe: Node3D
 var _pickaxe: Node3D
 var _armour: Node3D
@@ -85,6 +106,17 @@ func _ready() -> void:
 	Art.part(_spear, Art.cylinder(0.022, 0.022, 1.6, 5), Color("caa472"), Vector3(0, 0.3, 0))
 	Art.part(_spear, Art.cylinder(0.0, 0.05, 0.2, 5), Color("c9ccd1"), Vector3(0, 1.2, 0))
 	_spear.visible = false
+
+	# The sword: a straight blade, a cross-guard and a wrapped grip.
+	_sword = Node3D.new()
+	_sword.top_level = true
+	add_child(_sword)
+	Art.part(_sword, Art.box(Vector3(0.05, 0.75, 0.012)), Color("9ea2a8"), Vector3(0, 0.5, 0))
+	Art.part(_sword, Art.cylinder(0.0, 0.025, 0.08, 4), Color("9ea2a8"), Vector3(0, 0.91, 0))
+	Art.part(_sword, Art.box(Vector3(0.2, 0.035, 0.04)), Color("5a3d22"), Vector3(0, 0.12, 0))
+	Art.part(_sword, Art.cylinder(0.018, 0.018, 0.16, 5), Color("3d2a18"), Vector3(0, 0.03, 0))
+	Art.part(_sword, Art.sphere(0.03, 3, 6), Color("5a3d22"), Vector3(0, -0.06, 0))
+	_sword.visible = false
 
 	# The axe: a short haft with an iron head on one side.
 	_axe = Node3D.new()
@@ -180,7 +212,9 @@ func tick_visuals(delta: float) -> void:
 	var turn := Basis(Vector3.UP, _model.rotation.y)
 	_lantern.visible = lantern and lantern_on and not dead
 	_armour.visible = armour and armour_on and not dead
+	_restyle_gear()
 	_spear.visible = equipped == "spear" and has_spear and not dead
+	_sword.visible = equipped == "sword" and sword_tier >= 0 and not dead
 	_axe.visible = equipped == "axe" and has_axe and not dead
 	_pickaxe.visible = equipped == "pickaxe" and has_pickaxe and not dead
 	if _armour.visible and _torso and _neck:
@@ -189,6 +223,8 @@ func tick_visuals(delta: float) -> void:
 		if _spear.visible:
 			# Held low and pointing forward, tipped slightly up.
 			_spear.global_transform = Transform3D(turn * Basis(Vector3.RIGHT, PI / 2 - 0.3), _right_hand.global_position)
+		if _sword.visible:
+			_sword.global_transform = Transform3D(turn * Basis(Vector3.RIGHT, 0.7), _right_hand.global_position)
 		for tool in [_axe, _pickaxe]:
 			if tool.visible:
 				# Held by the end of the haft, head up and a little forward.
@@ -259,7 +295,7 @@ func place_view_model(cam: Camera3D, delta: float) -> void:
 		# Held low and pointing ahead; a swing is a thrust.
 		var thrust := o + b * (Vector3(0.26, -0.4, -0.35 - 0.35 * chop) + sway)
 		_spear.global_transform = Transform3D(b * Basis(Vector3.RIGHT, -PI / 2 + 0.12) * Basis(Vector3.FORWARD, 0.08), thrust)
-	for tool in [_axe, _pickaxe]:
+	for tool in [_axe, _pickaxe, _sword]:
 		if tool.visible:
 			# Head forward and up, not in your face; a swing tips it further forward.
 			tool.global_transform = Transform3D(b * Basis(Vector3.RIGHT, -0.9 - 0.8 * chop) * Basis(Vector3.FORWARD, 0.3), hand)
@@ -273,7 +309,7 @@ func swing() -> void:
 	swing_time = 0.15
 	_fp_swing = 1.0
 	if not dead:
-		_body.play_once("punch" if equipped == "hands" else "slash", 1.6)
+		_body.play_once("punch" if equipped == "hands" else "slash", 2.2 if equipped == "sword" else 1.6)
 
 
 ## Puts a tool in your hand ("hands" puts it away). Returns false if you don't have it.
@@ -288,6 +324,7 @@ func owns(tool: String) -> bool:
 	match tool:
 		"hands": return true
 		"spear": return has_spear
+		"sword": return sword_tier >= 0
 		"axe": return has_axe
 		"pickaxe": return has_pickaxe
 	return false
@@ -299,18 +336,68 @@ func holding(tool: String) -> bool:
 
 ## Damage a swing does with what's in your hand.
 func attack_damage() -> int:
-	match equipped:
-		"spear": return (3 if iron_spear else 2) if has_spear else 1
-		"axe": return 2 if has_axe else 1
+	if holding("spear"):
+		return int(Gear.info("spear", spear_tier)["damage"])
+	if holding("sword"):
+		return int(Gear.info("sword", sword_tier)["damage"])
+	if holding("axe"):
+		return 2
 	return 1
 
 
 func attack_reach() -> float:
-	return 34.0 if holding("spear") else 24.0
+	if holding("spear"):
+		return Gear.SPEAR_REACH
+	if holding("sword"):
+		return Gear.SWORD_REACH
+	return 24.0
+
+
+## Seconds between swings: a sword is quicker than a spear or your fists.
+func attack_cooldown() -> float:
+	return Gear.SWORD_COOLDOWN if holding("sword") else Gear.SPEAR_COOLDOWN
 
 
 func wearing_armour() -> bool:
 	return armour and armour_on
+
+
+## The share of a bite your armour stops (0 without armour).
+func armour_reduction() -> float:
+	return float(Gear.info("armour", armour_tier)["reduce"]) if wearing_armour() else 0.0
+
+
+## How much your armour slows the cold (hide keeps you warm).
+func armour_warmth() -> float:
+	return float(Gear.info("armour", armour_tier)["warmth"]) if wearing_armour() else 0.0
+
+
+## Colours the spear, sword and armour for the materials they're made of.
+func _restyle_gear() -> void:
+	var look := "%d/%d/%d" % [spear_tier, sword_tier, armour_tier]
+	if look == _gear_look:
+		return
+	_gear_look = look
+	if spear_tier >= 0:
+		var g := Gear.info("spear", spear_tier)
+		_tint(_spear, [g["shaft"], g["tip"]])
+	if sword_tier >= 0:
+		var g := Gear.info("sword", sword_tier)
+		_tint(_sword, [g["blade"], g["blade"], g["hilt"], g["hilt"].darkened(0.3), g["hilt"]])
+	if armour_tier >= 0:
+		var g := Gear.info("armour", armour_tier)
+		_tint(_armour, [g["color"], g["color"].darkened(0.12), g["trim"], g["trim"]])
+
+
+func _tint(node: Node3D, colors: Array) -> void:
+	var parts := node.get_children()
+	for i in mini(parts.size(), colors.size()):
+		var mi := parts[i] as MeshInstance3D
+		if mi and mi.material_override is StandardMaterial3D:
+			(mi.material_override as StandardMaterial3D).albedo_color = colors[i]
+			var shiny: bool = colors[i].s < 0.35 and colors[i].v > 0.55
+			(mi.material_override as StandardMaterial3D).metallic = 0.6 if shiny else 0.0
+			(mi.material_override as StandardMaterial3D).roughness = 0.35 if shiny else 0.9
 
 
 func lantern_lit() -> bool:
