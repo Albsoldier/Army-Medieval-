@@ -8,7 +8,18 @@ const Art = preload("res://scripts/art.gd")
 const CharacterModel = preload("res://scripts/character_model.gd")
 const HORSE_MODEL := preload("res://models/horse.glb")
 
-const COATS := [Color("5b3a22"), Color("2f2620"), Color("8a6a48"), Color("c9b8a0"), Color("6e4e32")]
+## Horse coats: bay, black, chestnut, grey, dark brown.
+const COATS := [Color("6b3f22"), Color("221c19"), Color("8c4a24"), Color("9c968e"), Color("4a3220")]
+## Reshaping the deer-family model into a horse: (bone, scale along x, along
+## the bone, along z). A thicker neck and bigger head, small ears, a deeper
+## chest and sturdy legs. The animations only rotate bones, so this sticks.
+const SHAPE := [
+	["Neck1", 1.55, 1.0, 1.55], ["Head", 0.72, 1.3, 0.78],  # a long head, not just a wide one
+	["Ear1.L", 0.5, 0.45, 0.5], ["Ear1.R", 0.5, 0.45, 0.5],
+	["Torso", 1.2, 1.0, 1.3], ["Torso2", 1.1, 1.0, 1.15],
+	["FrontUpperLeg.L", 1.5, 1.0, 1.5], ["FrontUpperLeg.R", 1.5, 1.0, 1.5],
+	["BackUpperLeg.L", 1.45, 1.0, 1.45], ["BackUpperLeg.R", 1.45, 1.0, 1.45],
+]
 const FEEDS_TO_TAME := 3  # berries are offered this many times before a horse trusts you
 const BERRIES_PER_FEED := 2
 const WANDER := 70.0  # how far a wild horse strays from its herd
@@ -49,17 +60,29 @@ static func build_model(parent: Node3D, coat_color: Color, saddled: bool) -> Dic
 	parent.add_child(body)
 	body.build(HORSE_MODEL, 2.25, true, {
 		"idle": ["Idle"], "walk": ["Walk"], "run": ["Gallop"], "graze": ["Eating"], "death": ["Death"],
-	}, {"Main": {"color": coat_color}, "Main_Light": {"color": coat_color.lightened(0.22)},
-		"Main_Dark": {"color": coat_color.darkened(0.35)}, "Hooves": {"color": Color("2a2420")}})
-	body.scale = Vector3(1.35, 1.0, 1.0)  # a horse is broader than a deer
+	}, {"Main": {"color": coat_color}, "Main_Light": {"color": coat_color.lightened(0.06)},
+		"Main_Dark": {"color": coat_color.darkened(0.45)}, "Hooves": {"color": Color("2a2420")}})
+	body.scale = Vector3(1.15, 1.0, 1.0)  # a horse is broader than a deer
+	if body.skeleton:
+		for shape in SHAPE:
+			var bone := body.skeleton.find_bone(str(shape[0]))
+			if bone >= 0:
+				body.skeleton.set_bone_pose_scale(bone, Vector3(shape[1], shape[2], shape[3]))
 	var look := {"body": body, "torso": body.bone_follower("Torso"), "neck": body.bone_follower("Neck2"),
-		"head": body.bone_follower("Head")}
+		"head": body.bone_follower("Head"), "tail_root": body.bone_follower("Tail1")}
 	var mane := Node3D.new()
 	mane.top_level = true
 	parent.add_child(mane)
 	for k in 4:
 		Art.part(mane, Art.box(Vector3(0.07, 0.16, 0.18)), Color("1f1a16"), Vector3(0, 0.1 - k * 0.02, -0.16 * k))
 	look["mane"] = mane
+	# A long, dark horse tail (a deer's is short).
+	var tail := Node3D.new()
+	tail.top_level = true
+	parent.add_child(tail)
+	Art.part(tail, Art.cylinder(0.05, 0.09, 0.75, 6), Color("1f1a16"), Vector3(0, -0.36, 0))
+	Art.part(tail, Art.cylinder(0.09, 0.03, 0.18, 6), Color("1f1a16"), Vector3(0, -0.82, 0))
+	look["tail"] = tail
 	if saddled:
 		var saddle := Node3D.new()
 		saddle.top_level = true
@@ -91,6 +114,12 @@ static func animate(look: Dictionary, delta: float, pace: float, grazing: bool =
 		var along := (neck.global_position - head.global_position)
 		mane.global_transform = Transform3D(yaw * Basis(Vector3.RIGHT, -atan2(along.y, maxf(Vector2(along.x, along.z).length(), 0.001))),
 			head.global_position.lerp(neck.global_position, 0.25) + Vector3(0, 0.12, 0))
+	var tail_root: Node3D = look.get("tail_root")
+	if tail_root and look.has("tail"):
+		# It hangs down from the rump, swaying a little as the horse moves.
+		var swish := sin(Time.get_ticks_msec() / 260.0) * (0.25 if pace > 0.05 else 0.08)
+		(look["tail"] as Node3D).global_transform = Transform3D(yaw * Basis(Vector3.RIGHT, 0.35) * Basis(Vector3.FORWARD, swish),
+			tail_root.global_position + Vector3(0, 0.04, 0))
 	var torso: Node3D = look.get("torso")
 	if torso and look.has("saddle"):
 		(look["saddle"] as Node3D).global_transform = Transform3D(yaw, torso.global_position + Vector3(0, 0.2, 0))
@@ -107,7 +136,7 @@ static func saddle_height(look: Dictionary) -> float:
 
 static func set_visible_look(look: Dictionary, shown: bool) -> void:
 	(look["body"] as Node3D).visible = shown
-	for key in ["mane", "saddle"]:
+	for key in ["mane", "saddle", "tail"]:
 		if look.has(key):
 			(look[key] as Node3D).visible = shown
 

@@ -42,7 +42,7 @@ func _run() -> void:
 	# Close-up of the characters: you, a horse, a raider chief and a wolf.
 	var me: Vector2 = main.player.pos
 	main.player.facing = Vector2.DOWN
-	var steed = main._spawn_horse(me + Vector2(-34, 6), 2, false)
+	var steed = main._spawn_horse(me + Vector2(-34, 6), 0, false)
 	steed.facing = Vector2(1, 0.4).normalized()
 	var chief = main._spawn_raider("raider_chief", me + Vector2(32, 2))
 	chief.home = chief.pos
@@ -52,7 +52,9 @@ func _run() -> void:
 	pup.pos = me + Vector2(4, 28)
 	main.entities.add_child(pup)
 	main.zoom = 0.55
-	await _frames(6)
+	for k in 6:
+		steed.tick(0.05)
+		await process_frame
 	await _shot("2c-characters")
 	main.wolves.erase(chief)
 	chief.queue_free()
