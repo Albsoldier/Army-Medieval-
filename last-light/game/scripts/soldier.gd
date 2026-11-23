@@ -431,7 +431,7 @@ func _build_horse() -> void:
 	_horse = Node3D.new()
 	_model.add_child(_horse)
 	var coat := Color("5b3a22") if randf() < 0.6 else Color("2f2620")
-	Art.part(_horse, Art.box(Vector3(0.5, 0.55, 1.35)), coat, Vector3(0, 1.1, 0))
+	Art.part(_horse, Art.box(Vector3(0.46, 0.55, 1.35)), coat, Vector3(0, 1.1, 0))
 	var neck := Art.part(_horse, Art.box(Vector3(0.3, 0.75, 0.32)), coat, Vector3(0, 1.5, 0.68), Vector3(0.55, 0, 0))
 	neck.scale = Vector3(1, 1, 1)
 	Art.part(_horse, Art.box(Vector3(0.26, 0.28, 0.55)), coat, Vector3(0, 1.82, 0.98), Vector3(0.35, 0, 0))  # head
@@ -446,7 +446,8 @@ func _build_horse() -> void:
 			Art.part(hip, Art.box(Vector3(0.12, 0.9, 0.14)), coat.darkened(0.1), Vector3(0, -0.45, 0))
 			Art.part(hip, Art.box(Vector3(0.13, 0.08, 0.16)), Color("1f1a16"), Vector3(0, -0.88, 0))  # hoof
 			_legs.append(hip)
-	_body.position = Vector3(0, 0.78, -0.05)  # in the saddle
+	# Hips on the saddle: the legs hang down either side of the horse.
+	_body.position = Vector3(0, 0.55, -0.05)
 
 
 func _piece() -> Node3D:
@@ -478,7 +479,7 @@ func _animate(delta: float) -> void:
 	_model.rotation.y = lerp_angle(_model.rotation.y, atan2(facing.x, facing.y), minf(delta * 10.0, 1.0))
 	_body.tick(delta)
 	if kind == "cavalry":
-		_body.play("sit")
+		_body.play("idle")
 		_gait += delta * (11.0 if _moving else 0.0)
 		for i in _legs.size():
 			(_legs[i] as Node3D).rotation.x = sin(_gait + (PI if i % 3 == 0 else 0.0)) * (0.55 if _moving else 0.0)
