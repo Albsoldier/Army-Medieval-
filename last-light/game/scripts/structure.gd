@@ -9,7 +9,7 @@ const Art = preload("res://scripts/art.gd")
 ## blocks: "all" (nobody passes), "wolves" (only wolves are stopped) or "none".
 const TYPES := {
 	"wood_wall": {"name": "Wooden wall", "cost": {"wood": 4}, "hp": 100, "blocks": "all",
-		"about": "Keeps wolves out. They gnaw through it slowly."},
+		"about": "Keeps wolves out."},
 	"stone_wall": {"name": "Stone wall", "cost": {"stone": 3, "wood": 1}, "hp": 250, "blocks": "all",
 		"about": "Much tougher than wood."},
 	"gate": {"name": "Gate", "cost": {"wood": 6}, "hp": 120, "blocks": "wolves",

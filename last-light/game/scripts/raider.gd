@@ -1,7 +1,7 @@
-## Raiders: human enemies. War bands come ashore to attack your fort, and
-## camps of raiders guard the treasure on the islets. They share the wolves'
-## rules (so soldiers, weapons and armour all work on them), but they don't
-## fear fire or daylight, and they smash walls whenever they meet them.
+## Raiders: human enemies who live in camps scattered over the island and the
+## islets. They share the wolves' rules (so soldiers, weapons and armour all
+## work on them), but they don't fear fire or daylight. They only ever defend
+## their own camp: they never leave it and never touch your buildings.
 extends "res://scripts/wolf.gd"
 
 const Art = preload("res://scripts/art.gd")
@@ -15,10 +15,9 @@ const RAIDERS := {
 		"shirt": Color("2e2a3a"), "pants": Color("1e1a22"), "shield": Color("7a1f1f"),
 		"loot": {"gold": 2, "iron": 3, "steel": 1}},
 }
-const GUARD_LEASH := 260.0  # camp guards don't chase further than this from camp
-const WALL_DAMAGE := 22.0  # per second against wood (stone takes a third)
+const GUARD_LEASH := 260.0  # guards don't chase further than this from camp
 
-## Where a camp guard lives (INF for a war band, which roams).
+## The camp this raider guards.
 var home := Vector2.INF
 var camp := -1  # the islet a guard belongs to
 

@@ -532,47 +532,90 @@ func _run_game() -> void:
 	_check(int(afloat.get("sailing", -1)) == 1 and afloat.get("boats", []).size() == 2, "the save remembers your boats and that you're aboard")
 	main._go_ashore()
 
-	# Raiders: war bands on the main island, camps guarding the islets.
+	# Raiders live in their own camps around the island; they never come for your base.
 	var Raider = load("res://scripts/raider.gd")
-	main.player.pos = home_pos
-	var wolves_before: int = main.wolves.size()
-	main.day = 5
-	main._start_raid()
-	var band: Array = main.wolves.filter(func(w): return w.is_raider())
-	_check(band.size() >= 2 and main.wolves.size() > wolves_before, "a war band comes ashore (%d raiders)" % band.size())
-	_check(main._count_wolves() == wolves_before, "raiders don't count as wolves")
-	var raider = band[0]
-	var gap: float = raider.pos.distance_to(main.player.pos)
+	var main_camps: Array = main.camps.filter(func(c): return int(c["islet"]) < 0)
+	_check(main_camps.size() >= 5, "raider camps are scattered over the main island (%d)" % main_camps.size())
+	_check(main_camps.all(func(c): return (c["pos"] as Vector2).distance_to(world.cell_center(world.spawn_cell)) > 140.0 * 16.0),
+		"no raider camp is near where you start")
+	_check(main.camps.size() == main_camps.size() + world.islets.size(), "every islet has a raider camp too")
+	_check(not main.has_method("_start_raid"), "no war bands come raiding")
+	var camp0: Dictionary = main_camps[0]
+	var camp_at: Vector2 = camp0["pos"]
+	main.player.pos = camp_at + Vector2(0, 200)
+	main._tick_camps()
+	var guards: Array = main._camp_guards.get(camp0["id"], [])
+	_check(guards.size() >= 3 and guards.any(func(g): return g.kind == "raider_chief"), "a chief and his raiders guard the camp (%d)" % guards.size())
+	_check(main.camps_found.has(camp0["id"]), "you discover a camp when you come near")
+	_check(main._count_wolves() == main.wolves.filter(func(w): return not w.is_raider()).size(), "raiders don't count as wolves")
+	var guard = guards[1]
+	var gap: float = guard.pos.distance_to(camp_at + Vector2(0, 120))
 	for i in 20:
-		raider.tick(0.1, main.player.pos, main._lights(), false)
-	_check(raider.pos.distance_to(main.player.pos) < gap, "raiders come for you by day, not just at night")
+		guard.tick(0.1, camp_at + Vector2(0, 120), main._lights(), false)
+	_check(guard.pos.distance_to(camp_at + Vector2(0, 120)) < gap, "guards come for you by day if you trespass")
+	for i in 80:
+		guard.tick(0.1, home_pos, main._lights(), true)
+	_check(guard.pos.distance_to(camp_at) < Raider.GUARD_LEASH * 1.3, "guards never leave their camp to chase you home")
 	var iron_pre_raid: int = main.player.count("iron")
-	main._kill_wolf(raider, false)
-	_check(main.player.count("iron") > iron_pre_raid and not main.wolves.has(raider), "a fallen raider drops iron")
+	main._kill_wolf(guard, false)
+	_check(main.player.count("iron") > iron_pre_raid and not main.wolves.has(guard), "a fallen raider drops iron")
 	_check(Raider.raider_info("raider_chief")["hp"] > Raider.raider_info("raider")["hp"] * 2, "raider chiefs are much tougher")
-	for w in main.wolves.duplicate():
-		if w.is_raider():
-			main.wolves.erase(w)
-			w.queue_free()
+	var gold_pre_chest: int = main.player.count("gold")
+	for g in guards.duplicate():
+		if main.wolves.has(g):
+			main._kill_wolf(g, false)
+	main._tick_camps()
+	_check(main.camps_cleared.has(camp0["id"]) and not main._camp_holds(camp0["id"]) and main.player.count("gold") > gold_pre_chest,
+		"beating the guards clears the camp and wins its war chest")
+	main.day = 1 + main.CAMP_REGROUP_DAYS
+	_check(main._camp_holds(camp0["id"]), "raiders retake a camp after a while")
 	main.day = 1
+	# A camp next to anything you've built stays empty.
+	var camp1: Dictionary = main_camps[1]
+	var wall_cells: Array = _free_cells(world, world.cell_of(camp1["pos"]), 1, [])
+	main.player.add_item("wood", 10)
+	var wall_ok: bool = wall_cells.size() == 1 and main._try_build("wood_wall", wall_cells[0])
+	main.player.pos = (camp1["pos"] as Vector2) + Vector2(0, 200)
+	main._tick_camps()
+	_check(wall_ok and not main._camp_guards.has(camp1["id"]), "no raiders appear near your buildings")
+	# Nothing damages your buildings: a wolf pressed against a wall at night leaves it whole.
+	if wall_ok:
+		var wall_cell: Vector2i = wall_cells[0]
+		var pup2 = load("res://scripts/wolf.gd").new()
+		pup2.world = world
+		pup2.pos = world.cell_center(wall_cell) + Vector2(-18, 0)
+		main.entities.add_child(pup2)
+		main.wolves.append(pup2)
+		main.player.pos = world.cell_center(wall_cell) + Vector2(18, 0)
+		main.clock = main.DAY_LENGTH * 0.8
+		for i in 30:
+			main._tick_wolves(0.1)
+		var wall = main.buildings[wall_cell]
+		_check(wall.hp >= wall.max_hp(wall.kind), "wolves never damage your walls")
+		main.wolves.erase(pup2)
+		pup2.queue_free()
+		main._demolish(wall_cell)
+		main.clock = main.DAY_LENGTH * 0.3
+	# Islet camps guard their hoard.
 	var isle_centre: Vector2 = world.cell_center(world.islets[0]["cell"])
 	main.player.pos = isle_centre
-	main._tick_raids()
-	var guards: Array = main._camp_guards.get(0, [])
-	_check(guards.size() >= 3 and guards.any(func(g): return g.kind == "raider_chief"), "raiders and a chief guard the islet camp (%d)" % guards.size())
+	main._tick_camps()
+	var isle_guards: Array = main._camp_guards.get("islet-0", [])
+	_check(isle_guards.size() >= 3, "raiders guard the islet camp (%d)" % isle_guards.size())
 	main._update_pois(0.0, true)
 	if main.poi_nodes.has("hoard-0"):
 		main._use_poi(main.poi_nodes["hoard-0"])
 		_check(not main.poi_looted.has("hoard-0"), "the hoard can't be taken while its guards stand")
-	for g in guards.duplicate():
+	for g in isle_guards.duplicate():
 		main._kill_wolf(g, false)
-	main._tick_raids()
-	_check(main.camps_cleared.has(0) and not main._camp_holds(0), "beating the guards clears the camp")
-	main.day = 1 + main.CAMP_REGROUP_DAYS
-	_check(main._camp_holds(0), "raiders retake a camp after a while")
-	main.day = 1
+	main._tick_camps()
+	_check(main.camps_cleared.has("islet-0"), "beating the islet guards frees the hoard")
+	for w in main.wolves.duplicate():
+		if w.is_raider():
+			main.wolves.erase(w)
+			w.queue_free()
+	main._camp_guards.clear()
 	main.player.pos = home_pos
-	main._tick_raids()
 	main.save_game()
 	var saved: Dictionary = load("res://scripts/save_game.gd").read()
 	_check(saved.get("props", {}).has("%d,%d" % [tree_cell.x, tree_cell.y]), "save remembers the felled tree")
@@ -596,7 +639,7 @@ func _run_game() -> void:
 	_check(copy_main.soldiers[0].soldier_name == main.soldiers[0].soldier_name and copy_main._count_kind("archer") == main._count_kind("archer")
 		and copy_main.soldiers[1].kills == main.soldiers[1].kills, "names, kinds and kills survive a reload")
 	_check(copy_main.boats.size() == 2 and copy_main.formation == main.formation, "boats and the formation survive a reload")
-	_check(copy_main.camps_cleared.has(0), "cleared raider camps are remembered")
+	_check(copy_main.camps_cleared.has("islet-0") and copy_main.camps_found.has(camp0["id"]), "found and cleared raider camps are remembered")
 	_check(not copy_main.world.is_walkable(world.cell_center(cells[0])), "walls still block after reload")
 	_check(copy_main.player.has_axe and copy_main.player.armour and copy_main.player.lantern, "tools are still yours after reload")
 	_check(copy_main.poi_looted.has(first_camp["id"]) and copy_main.poi_found.has(shrine_data["id"]), "found and looted places are remembered")
