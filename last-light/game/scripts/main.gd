@@ -133,6 +133,7 @@ var tame_horses: Array = []  # Horse nodes that trust you
 var riding_horse: Horse = null  # the one you're on
 var _wild_horses := {}  # id -> Horse grazing near you now
 var _resume_riding := -1
+var _horse_open: Horse = null  # the horse whose saddlebags are open
 var camps: Array = []
 var camps_cleared := {}  # camp id -> the day you cleared it
 var camps_found := {}  # camp id -> true once you've seen it
@@ -1385,7 +1386,7 @@ func _update_hint() -> void:
 		hint = "Sailing the %s · E: go ashore" % sailing.display_name().to_lower()
 	elif horse_near != null:
 		var hn: Horse = horse_near
-		hint = "E: ride your horse" if not hn.wild else "E: offer %d berries to the wild horse (trust %d / %d)" % [Horse.BERRIES_PER_FEED, hn.trust, Horse.FEEDS_TO_TAME]
+		hint = "E: your horse (ride, saddlebags)" if not hn.wild else "E: offer %d berries to the wild horse (trust %d / %d)" % [Horse.BERRIES_PER_FEED, hn.trust, Horse.FEEDS_TO_TAME]
 	elif _nearest(buildings.values().filter(func(b): return b.kind == "dock"), pos, 24.0) != null:
 		hint = "E: use the dock (boats)"
 	elif boat != null:
@@ -2071,6 +2072,9 @@ func _open_inventory() -> void:
 			"button": "Shutter" if player.lantern_on else "Light", "action": "lantern"})
 	if player.torch_time > 0.0:
 		gear.append({"name": "Torch", "detail": "%d s left" % int(player.torch_time)})
+	if riding_horse != null:
+		gear.append({"name": "Saddlebags", "detail": "%d / %d" % [riding_horse.load_count(), Horse.CAPACITY],
+			"button": "Open", "action": "bags"})
 
 	var crafting := []
 	for what in ["campfire", "torch"]:
@@ -2111,6 +2115,10 @@ func _on_inventory_action(action: String) -> void:
 			_craft(parts[1])
 		"make":
 			_make_gear(parts[2], int(parts[3]))
+		"bags":
+			if riding_horse != null:
+				_open_horse(riding_horse)
+				return
 	if hud.is_inventory_open():
 		_open_inventory()
 
@@ -2289,7 +2297,7 @@ func _spawn_horse(at: Vector2, coat: int, wild: bool, id: String = "", home_pos:
 ## E by a horse: feed a wild one (berries win its trust), or ride a tame one.
 func _use_horse(horse: Horse) -> void:
 	if not horse.wild:
-		_mount(horse)
+		_open_horse(horse)
 		return
 	if tame_horses.size() >= MAX_TAME_HORSES:
 		hud.toast("You have all the horses you can look after (%d)." % MAX_TAME_HORSES)
@@ -2308,6 +2316,85 @@ func _use_horse(horse: Horse) -> void:
 		_save_timer = SAVE_INTERVAL - 1.0
 	else:
 		hud.toast("It eats from your hand. (Trust %d / %d)" % [horse.trust, Horse.FEEDS_TO_TAME])
+
+
+## Your horse: ride it, or move things between your pack and its saddlebags.
+func _open_horse(horse: Horse) -> void:
+	_horse_open = horse
+	var actions := []
+	if riding_horse == null:
+		actions.append({"name": "Ride", "detail": "almost twice as fast", "button": "Ride", "action": "ride"})
+	actions.append({"name": "Store everything", "detail": "", "button": "Store all", "action": "store_all",
+		"enabled": horse.room() > 0 and _carried() > 0})
+	actions.append({"name": "Take everything", "detail": "", "button": "Take all", "action": "take_all",
+		"enabled": not horse.items.is_empty()})
+	var pack := []
+	for item in player.inventory:
+		var n := player.count(item)
+		if n > 0:
+			pack.append({"name": str(ITEM_NAMES.get(item, item)).capitalize(), "detail": "× %d" % n, "button": "Store",
+				"action": "store:" + str(item), "enabled": horse.room() > 0})
+	var bags := []
+	for item in horse.items:
+		bags.append({"name": str(ITEM_NAMES.get(item, item)).capitalize(), "detail": "× %d" % int(horse.items[item]),
+			"button": "Take", "action": "take:" + str(item)})
+	hud.show_panel("Your horse", "Saddlebags: %d / %d   ·   Esc to close" % [horse.load_count(), Horse.CAPACITY],
+		[[{"title": "Horse", "rows": actions}, {"title": "You carry", "rows": pack}],
+		[{"title": "Saddlebags", "rows": bags}]], _on_horse_action)
+
+
+func _on_horse_action(action: String) -> void:
+	var horse := _horse_open
+	if horse == null or not is_instance_valid(horse):
+		hud.close_inventory()
+		return
+	var parts := action.split(":")
+	match parts[0]:
+		"ride":
+			hud.close_inventory()
+			_mount(horse)
+			return
+		"store_all":
+			for item in player.inventory.keys():
+				_store_in_horse(horse, item, player.count(item))
+		"take_all":
+			for item in horse.items.keys():
+				_take_from_horse(horse, item, int(horse.items[item]))
+		"store":
+			_store_in_horse(horse, parts[1], player.count(parts[1]))
+		"take":
+			_take_from_horse(horse, parts[1], int(horse.items.get(parts[1], 0)))
+	audio.play("ui", Vector3.INF, -8.0)
+	_save_timer = SAVE_INTERVAL - 1.0
+	_open_horse(horse)
+
+
+## Moves up to `n` of an item into the saddlebags, as far as there's room.
+func _store_in_horse(horse: Horse, item: String, n: int) -> int:
+	var moved := mini(n, horse.room())
+	if moved <= 0:
+		return 0
+	player.add_item(item, -moved)
+	horse.items[item] = int(horse.items.get(item, 0)) + moved
+	return moved
+
+
+func _take_from_horse(horse: Horse, item: String, n: int) -> int:
+	var moved := mini(n, int(horse.items.get(item, 0)))
+	if moved <= 0:
+		return 0
+	horse.items[item] = int(horse.items[item]) - moved
+	if int(horse.items[item]) <= 0:
+		horse.items.erase(item)
+	player.add_item(item, moved)
+	return moved
+
+
+func _carried() -> int:
+	var n := 0
+	for item in player.inventory:
+		n += player.count(item)
+	return n
 
 
 func _mount(horse: Horse) -> void:
@@ -2343,7 +2430,7 @@ func _export_horses() -> Array:
 	var out := []
 	for h in tame_horses:
 		var at: Vector2 = player.pos if h == riding_horse else h.pos  # the one you ride is where you are
-		out.append([snappedf(at.x, 0.1), snappedf(at.y, 0.1), h.coat])
+		out.append([snappedf(at.x, 0.1), snappedf(at.y, 0.1), h.coat, h.items.duplicate()])
 	return out
 
 
@@ -3332,7 +3419,12 @@ func _apply_save(save: Dictionary) -> bool:
 			horses_taken[str(t)] = true
 		for row in hs.get("tame", []):
 			if typeof(row) == TYPE_ARRAY and row.size() >= 3 and tame_horses.size() < MAX_TAME_HORSES:
-				tame_horses.append(_spawn_horse(Vector2(float(row[0]), float(row[1])), int(row[2]), false))
+				var tame := _spawn_horse(Vector2(float(row[0]), float(row[1])), int(row[2]), false)
+				if row.size() > 3 and typeof(row[3]) == TYPE_DICTIONARY:
+					for item in row[3]:
+						if ITEM_NAMES.has(str(item)) and int(row[3][item]) > 0:
+							tame.items[str(item)] = int(row[3][item])
+				tame_horses.append(tame)
 		_resume_riding = int(hs.get("riding", -1))
 	var aboard := int(save.get("sailing", -1))
 	if aboard >= 0 and aboard < boats.size():
