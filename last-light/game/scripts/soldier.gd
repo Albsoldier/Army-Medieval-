@@ -80,6 +80,8 @@ var _moving := false
 var _shown := true
 var _thrust := 0.0
 var _gait := 0.0
+var _detour_time := 0.0
+var _detour_side := 1.0
 
 
 static func info(k: String) -> Dictionary:
@@ -346,12 +348,25 @@ func _move_toward(goal: Vector2, delta: float, stop_at: float, speed: float) -> 
 	facing = to_goal.normalized()
 	var pace := speed * (1.4 if to_goal.length() > 120.0 else 1.0)
 	var step := facing * minf(pace * delta, to_goal.length())
+	var before := pos
 	var next_x := pos + Vector2(step.x, 0)
 	if world.is_walkable(next_x):
 		pos = next_x
 	var next_y := pos + Vector2(0, step.y)
 	if world.is_walkable(next_y):
 		pos = next_y
+	if pos.distance_to(before) < step.length() * 0.3:
+		# Blocked by a tree or a rock: step round it, keeping to one side.
+		if _detour_time <= 0.0:
+			_detour_side = 1.0 if (slot + int(Time.get_ticks_msec() / 2000)) % 2 == 0 else -1.0
+		_detour_time = 0.6
+	if _detour_time > 0.0:
+		_detour_time -= delta
+		var around := pos + facing.orthogonal() * _detour_side * pace * delta
+		if world.is_walkable(around):
+			pos = around
+		else:
+			_detour_side = -_detour_side
 	# Stuck far behind (behind a wall, across water): catch up with the player,
 	# landing on solid ground near your place in the formation.
 	if mode == "follow" and to_goal.length() > 400.0:

@@ -190,6 +190,7 @@ func _run() -> void:
 			var so = main._spawn_soldier(field + spots[k], -1.0, "hold", field + spots[k], kinds[k])
 			so.order_facing = Vector2.DOWN
 			so.group_size = 1
+			so.slot = 0
 			trio.append(so)
 		main.player.pos = field + Vector2(0, 45)
 		main.player.facing = Vector2.UP

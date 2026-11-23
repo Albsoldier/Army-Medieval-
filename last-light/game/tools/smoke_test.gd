@@ -379,7 +379,18 @@ func _run_game() -> void:
 	_check(main.formation == "shield wall" and main.soldiers[0].formation == "shield wall", "Z changes the formation")
 	main._set_selection(main.soldiers.slice(0, 5))
 	_check(main.selected.size() == 5 and main.soldiers[0].selected, "soldiers can be selected")
-	var march_to: Vector2 = world.random_walkable_near(main.player.pos, 120.0, 160.0, main.rng)
+	# Somewhere with an open straight path, so the check is about orders, not the terrain.
+	var march_to: Vector2 = main.player.pos
+	for k in 16:
+		var way := Vector2.from_angle(k * TAU / 16.0)
+		var open_path := true
+		for step in range(0, 150, 6):
+			for side in [-24.0, 0.0, 24.0]:
+				if not world.is_walkable(main.player.pos + way * step + way.orthogonal() * side):
+					open_path = false
+		if open_path:
+			march_to = main.player.pos + way * 140.0
+			break
 	main._order_to(march_to)
 	for i in 120:
 		main._tick_army(0.1)
