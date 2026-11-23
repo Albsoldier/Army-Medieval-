@@ -177,16 +177,38 @@ func _run() -> void:
 		main._tick_army(0.1)
 	await _frames(30)
 	await _shot("14-legion-units")
-	# Close up: a horseman, an archer and a centurion.
-	for kind in ["cavalry", "archer", "centurion"]:
+	# Close up, in open ground: a horseman, an archer and a centurion.
+	var field: Vector2 = w.random_walkable_near(main.player.pos, 260.0, 340.0, main.rng)
+	if field != Vector2.INF:
+		for so in main.soldiers:  # the rest of the army stays at the fort
+			so.mode = "guard"
+			so.guard_point = w.cell_center(c)
+		var trio := []
+		var spots := [Vector2(-22, 0), Vector2(0, -4), Vector2(22, 0)]
+		var kinds := ["archer", "cavalry", "centurion"]
+		for k in 3:
+			var so = main._spawn_soldier(field + spots[k], -1.0, "hold", field + spots[k], kinds[k])
+			so.order_facing = Vector2.DOWN
+			so.group_size = 1
+			trio.append(so)
+		main.player.pos = field + Vector2(0, 70)
+		main.player.facing = Vector2.UP
+		main.cam_yaw = 0.0
+		main.zoom = 0.55
+		w.update_view(main.player.pos, true)
+		await _frames(40)
+		await _shot("14b-unit-types")
+		main.cam_yaw = 1.2
+		await _frames(20)
+		await _shot("14c-cavalry-side")
+		main.cam_yaw = 0.0
+		for so in trio:
+			main.soldiers.erase(so)
+			so.queue_free()
+		main._reassign_slots()
 		for so in main.soldiers:
-			if so.kind == kind:
-				main.zoom = 0.55
-				main.player.pos = so.pos + Vector2(0, 40)
-				main.player.facing = Vector2.UP
-				await _frames(12)
-				await _shot("14b-%s" % kind)
-				break
+			so.mode = "follow"
+		main._reassign_slots()
 	main.player.pos = w.cell_center(c + Vector2i(0, 1))
 	main.player.facing = Vector2.DOWN
 	main.zoom = 0.85
