@@ -1,4 +1,4 @@
-// Creates the Last Light tables in your Turso database. Works on Windows, macOS and Linux.
+// Creates the Islander tables in your Turso database. Works on Windows, macOS and Linux.
 // PowerShell:
 //   $env:TURSO_DATABASE_URL="libsql://..."; $env:TURSO_AUTH_TOKEN="..."; npm run db:setup
 import { readFileSync } from "node:fs";

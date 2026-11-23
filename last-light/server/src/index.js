@@ -1,4 +1,4 @@
-// Cloudflare Worker entry point for the Last Light island server.
+// Cloudflare Worker entry point for the Islander island server.
 // Secrets (set with `npx wrangler secret put NAME`):
 //   TURSO_DATABASE_URL  libsql://<db>-<org>.turso.io
 //   TURSO_AUTH_TOKEN    from `turso db tokens create <db>`

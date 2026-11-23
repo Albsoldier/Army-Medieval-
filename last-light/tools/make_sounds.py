@@ -1,4 +1,4 @@
-"""Synthesizes every sound and music track in Last Light (no recordings, no licences).
+"""Synthesizes every sound and music track in Islander (no recordings, no licences).
 
 Run from the repo root:  python3 last-light/tools/make_sounds.py
 Needs numpy and ffmpeg (with libvorbis). Writes OGG files to last-light/game/sounds/.

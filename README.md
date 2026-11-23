@@ -30,4 +30,4 @@ Shortcuts: **E** ends the turn, **Esc** deselects.
 
 ## Also in this repository
 
-- [`last-light/`](last-light/): **Last Light**, a Godot survival game on a shared daily island, with a Cloudflare Worker + Turso server. See its [README](last-light/README.md).
+- [`last-light/`](last-light/): **Islander**, a Godot survival game on a shared daily island, with a Cloudflare Worker + Turso server. See its [README](last-light/README.md).

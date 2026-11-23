@@ -1,4 +1,4 @@
-// Last Light island server: request handling, independent of where the database lives.
+// Islander island server: request handling, independent of where the database lives.
 // src/index.js wires this to Turso inside a Cloudflare Worker; the tests use a local database.
 
 export const DAY_SECONDS = 960; // must match DAY_LENGTH in game/scripts/main.gd

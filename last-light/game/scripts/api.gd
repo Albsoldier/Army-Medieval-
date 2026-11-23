@@ -1,4 +1,4 @@
-## Talks to the Last Light island server (a Cloudflare Worker backed by Turso).
+## Talks to the Islander island server (a Cloudflare Worker backed by Turso).
 ## If no server URL is configured, the game runs offline and every call
 ## reports failure, so the game never depends on the network to be playable.
 extends Node
