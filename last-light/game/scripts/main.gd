@@ -13,6 +13,11 @@ const Structure = preload("res://scripts/structure.gd")
 const Soldier = preload("res://scripts/soldier.gd")
 const Boat = preload("res://scripts/boat.gd")
 const Gear = preload("res://scripts/gear.gd")
+const Raider = preload("res://scripts/raider.gd")
+const Art = preload("res://scripts/art.gd")
+const RAID_FIRST_DAY := 5  # war bands start coming ashore on this day
+const RAID_EVERY := 3  # and then every few days, at nightfall
+const CAMP_REGROUP_DAYS := 8  # a cleared islet camp is retaken after this many days
 const Audio = preload("res://scripts/audio.gd")
 const Poi = preload("res://scripts/poi.gd")
 
@@ -114,6 +119,10 @@ var boats: Array = []  # Boat nodes, moored where you left them
 var sailing: Boat = null  # the boat you're on
 var _resume_sailing := -1  # boat to put the player back on after loading
 var army_mode := "follow"
+var raided_day := 0  # the last day a war band came
+var camps_cleared := {}  # islet index -> the day you cleared its raider camp
+var _camp_guards := {}  # islet index -> raiders guarding it now
+var _camp_nodes := {}  # islet index -> the camp's tents
 var _wolf_kinds_seen := {}  # tougher wolves are announced the first time
 var _station_open := ""  # the crafting station whose panel is open
 var formation := "line"  # Z cycles: line, shield wall, wedge
@@ -775,7 +784,7 @@ func _tick_wolves(delta: float) -> void:
 		if wolf_spawn_timer <= 0.0:
 			wolf_spawn_timer = rng.randf_range(9.0, 16.0)
 			# Bigger armies draw bigger packs.
-			if wolves.size() < mini(1 + day, 6) + soldiers.size() / 10:
+			if _count_wolves() < mini(1 + day, 6) + soldiers.size() / 10:
 				var pos := world.random_walkable_near(player.pos, 300.0, 420.0, rng)
 				if pos != Vector2.INF:
 					var wolf: Wolf = Wolf.new()
@@ -805,23 +814,140 @@ func _tick_wolves(delta: float) -> void:
 					best = d
 					target_pos = soldier.pos
 					victim = soldier
+		var raider: bool = wolf.is_raider()
 		if wolf.tick(delta, target_pos, lights, night):
-			audio.play("wolf_bite", wolf.position, -2.0)
+			audio.play("hit" if raider else "wolf_bite", wolf.position, -2.0)
 			if victim == null:
-				# Iron armour halves the bite.
-				_hurt(wolf.bite * (1.0 - player.armour_reduction()), "wolves")
+				# Armour stops part of every blow.
+				_hurt(wolf.bite * (1.0 - player.armour_reduction()), "raiders" if raider else "wolves")
 			elif victim.hurt(wolf.bite):
 				_on_soldier_fallen(victim)
-		# A wolf pressed against your walls gnaws through them.
-		if night and buildings.has(wolf.blocked_cell):
+		# Pressed against your walls, wolves gnaw through them at night;
+		# raiders hack through them at any hour.
+		if (night or raider) and buildings.has(wolf.blocked_cell):
 			var b: Structure = buildings[wolf.blocked_cell]
 			var rate := 4.0 if b.kind == "stone_wall" else 12.0
+			if raider:
+				rate = Raider.WALL_DAMAGE / (3.0 if b.kind == "stone_wall" else 1.0)
 			if b.damage(rate * delta):
-				hud.toast("Wolves broke through your %s!" % b.display_name().to_lower())
+				hud.toast("%s broke through your %s!" % ["Raiders" if raider else "Wolves", b.display_name().to_lower()])
 				_remove_structure(b.cell)
-		if not night and wolf.pos.distance_to(player.pos) > 450.0:
+		var far := wolf.pos.distance_to(player.pos)
+		if (not raider and not night and far > 450.0) or (raider and wolf.home == Vector2.INF and not night and far > 900.0):
 			wolves.erase(wolf)
 			wolf.queue_free()
+	_tick_raids()
+
+
+func _count_wolves() -> int:
+	var n := 0
+	for w in wolves:
+		if not w.is_raider():
+			n += 1
+	return n
+
+
+## War bands land at nightfall every few days from day 5, and raider camps
+## hold the islets: their guards turn out when you come close.
+func _tick_raids() -> void:
+	if not started or not alive:
+		return
+	if day >= RAID_FIRST_DAY and raided_day != day and (day - RAID_FIRST_DAY) % RAID_EVERY == 0 \
+			and night_amount() > 0.5 and world.islet_at(world.cell_of(player.pos)) < 0:
+		raided_day = day
+		_start_raid()
+	for i in world.islets.size():
+		var centre: Vector2 = world.cell_center(world.islets[i]["cell"])
+		var near := centre.distance_to(player.pos) < 900.0
+		if near and not _camp_nodes.has(i):
+			_camp_nodes[i] = _build_camp(_camp_spot(i))
+		if near and not _camp_guards.has(i) and _camp_holds(i):
+			_spawn_camp_guards(i)
+		if _camp_guards.has(i):
+			var alive_guards: Array = _camp_guards[i].filter(func(r): return is_instance_valid(r) and not r.dead and wolves.has(r))
+			_camp_guards[i] = alive_guards
+			if alive_guards.is_empty():
+				_camp_guards.erase(i)
+				camps_cleared[i] = day
+				hud.toast("You've cleared the raider camp on %s. Its hoard is yours." % world.islets[i]["name"])
+				audio.play("discover")
+				_save_timer = SAVE_INTERVAL - 1.0
+			elif not near:
+				# Out of sight: the guards go back to their tents.
+				for r in alive_guards:
+					wolves.erase(r)
+					r.queue_free()
+				_camp_guards.erase(i)
+
+
+## Whether raiders hold an islet's camp right now.
+func _camp_holds(i: int) -> bool:
+	return not camps_cleared.has(i) or day >= int(camps_cleared[i]) + CAMP_REGROUP_DAYS
+
+
+## The raiders' camp sits beside the islet's hoard.
+func _camp_spot(i: int) -> Vector2:
+	var fixed := RandomNumberGenerator.new()  # the same spot every time
+	fixed.seed = world.seed_value + i * 131
+	for data in world.pois:
+		if data["id"] == "hoard-%d" % i:
+			var spot := world.random_walkable_near(world.cell_center(data["cell"]), 30.0, 50.0, fixed)
+			if spot != Vector2.INF:
+				return spot
+			return world.cell_center(data["cell"])
+	return world.cell_center(world.islets[i]["cell"])
+
+
+func _spawn_camp_guards(i: int) -> void:
+	var camp := _camp_spot(i)
+	var guards := []
+	var count := 3 + mini(day / 6, 3)
+	for k in count + 1:
+		var spot := world.random_walkable_near(camp, 8.0, 50.0, rng)
+		if spot == Vector2.INF:
+			continue
+		var r := _spawn_raider("raider_chief" if k == 0 else "raider", spot)
+		r.home = camp
+		r.camp = i
+		guards.append(r)
+	_camp_guards[i] = guards
+
+
+func _spawn_raider(kind: String, at: Vector2) -> Raider:
+	var r: Raider = Raider.new()
+	r.world = world
+	r.kind = kind
+	r.pos = at
+	entities.add_child(r)
+	wolves.append(r)
+	return r
+
+
+func _start_raid() -> void:
+	var landing := world.random_walkable_near(player.pos, 380.0, 480.0, rng)
+	if landing == Vector2.INF:
+		return
+	var size := mini(2 + (day - RAID_FIRST_DAY) / 3, 8)
+	for k in size:
+		var spot := world.random_walkable_near(landing, 4.0, 40.0, rng)
+		if spot != Vector2.INF:
+			_spawn_raider("raider_chief" if k == 0 and day >= 11 else "raider", spot)
+	hud.toast("Raiders! A war band of %d has come ashore. They'll smash walls to reach you." % size)
+	audio.play("wolf_howl", world.to_3d(landing), 2.0, 0.0)
+
+
+## A few hide tents and a banner, where a camp's raiders live.
+func _build_camp(at: Vector2) -> Node3D:
+	var camp := Node3D.new()
+	entities.add_child(camp)
+	camp.position = world.to_3d(at)
+	for k in 3:
+		var a := k * TAU / 3.0 + 0.4
+		Art.part(camp, Art.cylinder(0.0, 0.9, 1.5, 6), Color("5e4a36"), Vector3(cos(a) * 2.6, 0.75, sin(a) * 2.6))
+	Art.part(camp, Art.cylinder(0.04, 0.04, 2.8, 5), Color("4d3420"), Vector3(0, 1.4, 0))
+	Art.part(camp, Art.box(Vector3(0.7, 0.45, 0.03)), Color("7a1f1f"), Vector3(0.36, 2.5, 0))
+	Art.part(camp, Art.cylinder(0.5, 0.5, 0.05, 8), Color("2b2522"), Vector3(0, 0.02, 0))  # a cold fire pit
+	return camp
 
 
 func wolf_3d(pos: Vector2) -> Vector3:
@@ -830,15 +956,13 @@ func wolf_3d(pos: Vector2) -> Vector3:
 
 func _kill_wolf(wolf: Wolf, by_army: bool) -> void:
 	wolves.erase(wolf)
-	audio.play("wolf_yelp", wolf.position)
-	var stats := Wolf.info(wolf.kind)
-	var meat := int(stats["meat"])
-	var hides := int(stats["hide"])
-	player.add_item("hide", hides)
-	player.add_item("raw_meat", meat)
+	audio.play("hurt" if wolf.is_raider() else "wolf_yelp", wolf.position)
+	var loot: Dictionary = wolf.loot()
+	for item in loot:
+		player.add_item(item, int(loot[item]))
 	var fall_time: float = wolf.die()
 	get_tree().create_timer(fall_time + 1.0).timeout.connect(wolf.queue_free)
-	hud.toast("%s the %s. +%d raw meat, +%d hide" % ["Your soldiers bring down" if by_army else "You bring down", stats["name"], meat, hides])
+	hud.toast("%s the %s. +%s" % ["Your soldiers bring down" if by_army else "You bring down", wolf.display_name(), _items_text(loot)])
 
 
 # ---------- Actions ----------
@@ -1490,6 +1614,11 @@ func _update_pois(delta: float, force: bool = false) -> void:
 
 func _use_poi(place: Poi) -> void:
 	var id := place.poi_id()
+	if place.kind == "hoard" and not poi_looted.has(id):
+		var isle := id.trim_prefix("hoard-").to_int()
+		if _camp_guards.has(isle) and not _camp_guards[isle].is_empty():
+			hud.toast("Raiders guard this hoard. Defeat their camp first (%d left)." % _camp_guards[isle].size())
+			return
 	if place.kind == "shrine":
 		if int(shrine_days.get(id, -1)) == day:
 			hud.toast("The shrine is quiet. Come back tomorrow.")
@@ -1542,6 +1671,10 @@ func _map_markers() -> Dictionary:
 		items.append(["home", home])
 	for b in boats:
 		items.append(["boat", b.pos])
+	# Raider camps on the islets you've found.
+	for i in world.islets.size():
+		if _camp_holds(i) and poi_found.has("hoard-%d" % i):
+			items.append(["raiders", _camp_spot(i)])
 	var posts := {}
 	for so in soldiers:
 		if so.mode != "follow":
@@ -1966,6 +2099,7 @@ func _on_sleep_choice(choice: int, _text: String) -> void:
 	for wolf in wolves:
 		wolf.queue_free()
 	wolves.clear()
+	_camp_guards.clear()
 	hud.toast("You sleep through the night.")
 
 
@@ -2809,6 +2943,7 @@ func save_game(respawn: bool = false, upload: bool = false) -> void:
 		"soldiers": _export_soldiers(),
 		"army_mode": army_mode,
 		"formation": formation,
+		"raids": {"last": raided_day, "cleared": camps_cleared.duplicate()},
 		"boats": _export_boats(),
 		"sailing": boats.find(sailing) if sailing != null else -1,
 		"player": {
@@ -2945,6 +3080,13 @@ func _apply_save(save: Dictionary) -> bool:
 				var items: Variant = st[4] if st.size() > 4 else {}
 				_add_structure(str(st[2]), cell, float(st[3]), items if typeof(items) == TYPE_DICTIONARY else {})
 	army_mode = "guard" if str(save.get("army_mode", "follow")) == "guard" else "follow"
+	var raids: Variant = save.get("raids", {})
+	if typeof(raids) == TYPE_DICTIONARY:
+		raided_day = int(raids.get("last", 0))
+		var cleared: Variant = raids.get("cleared", {})
+		if typeof(cleared) == TYPE_DICTIONARY:
+			for k in cleared:
+				camps_cleared[int(str(k))] = int(cleared[k])
 	formation = str(save.get("formation", "line"))
 	if not formation in Soldier.FORMATIONS:
 		formation = "line"

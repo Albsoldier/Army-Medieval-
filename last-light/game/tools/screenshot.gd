@@ -241,6 +241,21 @@ func _run() -> void:
 		main._tick_army(0.1)
 	await _frames(20)
 	await _shot("16-shield-wall")
+	# A war band attacks: a chief and his raiders against the legion.
+	var front: Vector2 = main.player.pos + Vector2(0, 70)
+	for k in 6:
+		var at: Vector2 = w.random_walkable_near(front, 4.0, 40.0, main.rng)
+		if at != Vector2.INF:
+			main._spawn_raider("raider_chief" if k == 0 else "raider", at)
+	main.cam_yaw = PI
+	main.zoom = 0.9
+	await _frames(25)
+	await _shot("16b-raiders-attack")
+	for r in main.wolves.duplicate():
+		if r.is_raider():
+			main.wolves.erase(r)
+			r.queue_free()
+	main.cam_yaw = 0.0
 	main._cycle_formation()
 	main._cycle_formation()  # back to a line
 

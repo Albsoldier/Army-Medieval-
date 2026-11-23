@@ -58,6 +58,19 @@ static func info(k: String) -> Dictionary:
 	return KINDS.get(k, KINDS["grey"])
 
 
+func is_raider() -> bool:
+	return false
+
+
+func display_name() -> String:
+	return str(info(kind)["name"])
+
+
+## What you get for bringing it down.
+func loot() -> Dictionary:
+	return {"raw_meat": int(info(kind)["meat"]), "hide": int(info(kind)["hide"])}
+
+
 func _ready() -> void:
 	var stats := info(kind)
 	hp = int(stats["hp"])
