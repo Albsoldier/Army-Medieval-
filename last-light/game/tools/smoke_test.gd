@@ -396,13 +396,14 @@ func _run_game() -> void:
 	_check(Main.season_of(1) == "spring" and Main.season_of(4) == "summer" and Main.season_of(7) == "autumn"
 		and Main.season_of(10) == "winter" and Main.season_of(13) == "spring", "the seasons turn every 3 days")
 	var lake := Vector2i(-1, -1)
-	for r in range(1, 160):
-		for dz in range(-r, r + 1, 2):
-			for dx in range(-r, r + 1, 2):
-				if lake == Vector2i(-1, -1) and maxi(absi(dx), absi(dz)) >= r - 1 and world.terrain_at(world.spawn_cell + Vector2i(dx, dz)) == 1:  # shallow water
+	for r in range(1, 400):
+		for dz in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if lake == Vector2i(-1, -1) and maxi(absi(dx), absi(dz)) == r and world.terrain_at(world.spawn_cell + Vector2i(dx, dz)) == 1:  # shallow water
 					lake = world.spawn_cell + Vector2i(dx, dz)
 		if lake != Vector2i(-1, -1):
 			break
+	_check(lake != Vector2i(-1, -1), "found shallow water (%d, %d)" % [lake.x, lake.y])
 	_check(lake != Vector2i(-1, -1) and not world.is_walkable(world.cell_center(lake)), "shallow water can't be walked on in spring")
 	world.set_season("winter")
 	_check(world.is_walkable(world.cell_center(lake)) and world.to_3d(world.cell_center(lake)).y > 0.0, "in winter the water freezes and you walk on the ice")
