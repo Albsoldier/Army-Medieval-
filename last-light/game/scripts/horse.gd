@@ -8,18 +8,12 @@ const Art = preload("res://scripts/art.gd")
 const CharacterModel = preload("res://scripts/character_model.gd")
 const HORSE_MODEL := preload("res://models/horse.glb")
 
-## Horse coats: bay, black, chestnut, grey, dark brown.
-const COATS := [Color("6b3f22"), Color("221c19"), Color("6e3d22"), Color("9c968e"), Color("4a3220")]
-## Reshaping the deer-family model into a horse: (bone, scale along x, along
-## the bone, along z). A thicker neck and bigger head, small ears, a deeper
-## chest and sturdy legs. The animations only rotate bones, so this sticks.
-const SHAPE := [
-	["Neck1", 1.55, 1.0, 1.55], ["Head", 0.72, 1.3, 0.78],  # a long head, not just a wide one
-	["Ear1.L", 0.5, 0.45, 0.5], ["Ear1.R", 0.5, 0.45, 0.5],
-	["Torso", 1.2, 1.0, 1.3], ["Torso2", 1.1, 1.0, 1.15],
-	["FrontUpperLeg.L", 1.5, 1.0, 1.5], ["FrontUpperLeg.R", 1.5, 1.0, 1.5],
-	["BackUpperLeg.L", 1.45, 1.0, 1.45], ["BackUpperLeg.R", 1.45, 1.0, 1.45],
-]
+## Coat tints over the model's chestnut (it's coloured per vertex, so a tint
+## shades it): natural chestnut, dark bay, black, light dun, liver.
+const COATS := [Color(1, 1, 1), Color(0.72, 0.62, 0.58), Color(0.42, 0.4, 0.4), Color(1.18, 1.08, 0.9), Color(0.82, 0.7, 0.62)]
+## The model's parts: the horse itself, and the tack a tame or war horse wears.
+const TACK := ["attach-blanket-mesh", "attach-saddle-mesh", "attach-bridle-mesh"]
+const SIZE := 1.08  # in proportion with people
 const FEEDS_TO_TAME := 3  # berries are offered this many times before a horse trusts you
 const BERRIES_PER_FEED := 2
 const WANDER := 70.0  # how far a wild horse strays from its herd
@@ -52,94 +46,54 @@ func _ready() -> void:
 	_model.rotation.y = atan2(facing.x, facing.y)
 
 
-## A horse on `parent`: the animated deer-family model, recoloured to a horse
-## coat, built stockier, with a dark mane (and a saddle cloth when tame).
-## Returns a "look" to pass to animate().
+## A horse on `parent`: the barded war horse (CC0), with its scale barding,
+## saddle and plumed bridle when `saddled`; wild horses go bare. Returns a
+## "look" to pass to animate().
 static func build_model(parent: Node3D, coat_color: Color, saddled: bool) -> Dictionary:
 	var body: CharacterModel = CharacterModel.new()
 	parent.add_child(body)
-	body.build(HORSE_MODEL, 2.25, true, {
-		"idle": ["Idle"], "walk": ["Walk"], "run": ["Gallop"], "graze": ["Eating"], "death": ["Death"],
-	}, {"Main": {"color": coat_color}, "Main_Light": {"color": coat_color.lightened(0.06)},
-		"Main_Dark": {"color": coat_color.darkened(0.45)}, "Hooves": {"color": Color("2a2420")}})
-	body.scale = Vector3(1.15, 1.0, 1.0)  # a horse is broader than a deer
-	if body.skeleton:
-		for shape in SHAPE:
-			var bone := body.skeleton.find_bone(str(shape[0]))
-			if bone >= 0:
-				body.skeleton.set_bone_pose_scale(bone, Vector3(shape[1], shape[2], shape[3]))
-	var look := {"body": body, "torso": body.bone_follower("Torso"), "neck": body.bone_follower("Neck2"),
-		"head": body.bone_follower("Head"), "tail_root": body.bone_follower("Tail1")}
-	var mane := Node3D.new()
-	mane.top_level = true
-	parent.add_child(mane)
-	for k in 4:
-		Art.part(mane, Art.box(Vector3(0.07, 0.16, 0.18)), Color("1f1a16"), Vector3(0, 0.1 - k * 0.02, -0.16 * k))
-	look["mane"] = mane
-	# A long, dark horse tail (a deer's is short).
-	var tail := Node3D.new()
-	tail.top_level = true
-	parent.add_child(tail)
-	Art.part(tail, Art.cylinder(0.05, 0.09, 0.75, 6), Color("1f1a16"), Vector3(0, -0.36, 0))
-	Art.part(tail, Art.cylinder(0.09, 0.03, 0.18, 6), Color("1f1a16"), Vector3(0, -0.82, 0))
-	look["tail"] = tail
-	if saddled:
-		var saddle := Node3D.new()
-		saddle.top_level = true
-		parent.add_child(saddle)
-		Art.part(saddle, Art.box(Vector3(0.62, 0.05, 0.62)), Color("8b2e2e"), Vector3(0, 0, 0))
-		Art.part(saddle, Art.box(Vector3(0.64, 0.02, 0.06)), Color("c9a24a"), Vector3(0, 0.03, 0.29))
-		Art.part(saddle, Art.box(Vector3(0.64, 0.02, 0.06)), Color("c9a24a"), Vector3(0, 0.03, -0.29))
-		Art.part(saddle, Art.box(Vector3(0.34, 0.1, 0.4)), Color("5a3d22"), Vector3(0, 0.07, 0))
-		look["saddle"] = saddle
-	return look
+	body.build(HORSE_MODEL, 0.0, false, {"idle": ["Idle"], "walk": ["Walk"], "run": ["Run"]})
+	body.scale = Vector3.ONE * SIZE
+	for mi in body.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := mi as MeshInstance3D
+		var tack := mesh_instance.name in TACK
+		mesh_instance.visible = saddled or not tack
+		# The model is coloured per vertex; the coat tint shades the horse, not its tack.
+		var mat := StandardMaterial3D.new()
+		mat.vertex_color_use_as_albedo = true
+		mat.albedo_color = Color.WHITE if tack else coat_color
+		mat.roughness = 0.5 if mesh_instance.name == "attach-blanket-mesh" else 0.85
+		mat.metallic = 0.35 if mesh_instance.name == "attach-blanket-mesh" else 0.0
+		mat.rim_enabled = true
+		mat.rim = 0.3
+		mat.rim_tint = 0.7
+		mesh_instance.material_override = mat
+	return {"body": body, "spine": body.bone_follower("Spine")}
 
 
-## Plays the right gait (pace 0 still, ~0.5 walking, 1 galloping) and keeps the
-## mane and saddle on the horse.
-static func animate(look: Dictionary, delta: float, pace: float, grazing: bool = false) -> void:
+## Plays the right gait: pace 0 standing, ~0.5 walking, 1 running.
+static func animate(look: Dictionary, delta: float, pace: float, _grazing: bool = false) -> void:
 	var body: CharacterModel = look["body"]
 	body.tick(delta)
 	if pace > 0.7:
 		body.play("run", 1.0)
 	elif pace > 0.05:
-		body.play("walk", 1.2)
+		body.play("walk", 1.1)
 	else:
-		body.play("graze" if grazing else "idle")
-	var yaw := Basis(Vector3.UP, body.get_parent_node_3d().global_rotation.y) if body.get_parent_node_3d() else Basis()
-	var neck: Node3D = look.get("neck")
-	var head: Node3D = look.get("head")
-	if neck and head:
-		var mane: Node3D = look["mane"]
-		var along := (neck.global_position - head.global_position)
-		# Lying along the top of the neck, from behind the ears back towards the withers.
-		mane.global_transform = Transform3D(yaw * Basis(Vector3.RIGHT, atan2(along.y, maxf(Vector2(along.x, along.z).length(), 0.001))),
-			head.global_position.lerp(neck.global_position, 0.2) + Vector3(0, 0.07, 0))
-	var tail_root: Node3D = look.get("tail_root")
-	if tail_root and look.has("tail"):
-		# It hangs down from the rump, swaying a little as the horse moves.
-		var swish := sin(Time.get_ticks_msec() / 260.0) * (0.25 if pace > 0.05 else 0.08)
-		(look["tail"] as Node3D).global_transform = Transform3D(yaw * Basis(Vector3.RIGHT, 0.35) * Basis(Vector3.FORWARD, swish),
-			tail_root.global_position + Vector3(0, 0.04, 0))
-	var torso: Node3D = look.get("torso")
-	if torso and look.has("saddle"):
-		(look["saddle"] as Node3D).global_transform = Transform3D(yaw, torso.global_position + Vector3(0, 0.2, 0))
+		body.play("idle")
 
 
-## How high the saddle sits above the horse's feet, in metres.
+## How high the saddle seat is above the horse's hooves, in metres.
 static func saddle_height(look: Dictionary) -> float:
-	var torso: Node3D = look.get("torso")
+	var spine: Node3D = look.get("spine")
 	var body: CharacterModel = look["body"]
-	if torso == null or not torso.is_inside_tree():
-		return 1.2
-	return torso.global_position.y - body.global_position.y + 0.2
+	if spine == null or not spine.is_inside_tree():
+		return 1.32 * SIZE
+	return spine.global_position.y - body.global_position.y + 0.36 * SIZE
 
 
 static func set_visible_look(look: Dictionary, shown: bool) -> void:
 	(look["body"] as Node3D).visible = shown
-	for key in ["mane", "saddle", "tail"]:
-		if look.has(key):
-			(look[key] as Node3D).visible = shown
 
 
 ## Wild horses wander and graze near their herd; tame ones stand and wait.

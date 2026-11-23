@@ -99,8 +99,8 @@ func _find(root: Node, type_name: String) -> Node:
 
 
 func _fit(target: float, measure_length: bool) -> void:
-	if skeleton == null:
-		return
+	if skeleton == null or target <= 0.0:
+		return  # a target of 0 keeps the model's own size (it's already in metres)
 	# Bone rest positions in the model's own space.
 	var to_model := Transform3D.IDENTITY
 	var node: Node = skeleton
