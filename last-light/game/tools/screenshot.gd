@@ -250,7 +250,7 @@ func _run() -> void:
 	main.player.pos = (rc["pos"] as Vector2) + Vector2(0, 150)
 	main.player.facing = Vector2.UP
 	w.update_view(main.player.pos, true)
-	main.zoom = 1.0
+	main.zoom = 1.9  # high enough to see over the trees around the meadow
 	await _frames(40)
 	await _shot("16b-raider-camp")
 	# Wild horses in their meadow, then riding one.
@@ -259,7 +259,7 @@ func _run() -> void:
 	main.player.facing = Vector2.UP
 	w.update_view(main.player.pos, true)
 	main._tick_horses(0.1)
-	main.zoom = 0.9
+	main.zoom = 1.5
 	await _frames(30)
 	await _shot("16c-wild-horses")
 	if not main._wild_horses.is_empty():
