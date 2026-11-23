@@ -30,6 +30,7 @@ func build(scene: PackedScene, target: float, measure_length: bool, actions: Dic
 	_fit(target, measure_length)
 	_map_actions(actions)
 	_recolor(recolor)
+	_enhance()
 
 	_flash_mat = StandardMaterial3D.new()
 	_flash_mat.albedo_color = Color(1.0, 0.15, 0.1, 0.45)
@@ -79,7 +80,12 @@ func flash(on: bool) -> void:
 
 ## A node that follows a bone, e.g. a hand. Returns null if the bone is missing.
 func bone_follower(bone: String) -> Node3D:
-	if skeleton == null or skeleton.find_bone(bone) < 0:
+	if skeleton == null:
+		return null
+	if skeleton.find_bone(bone) < 0:
+		# Models name their hand bones differently.
+		bone = {"Palm.R": "Wrist.R", "Palm.L": "Wrist.L"}.get(bone, bone)
+	if skeleton.find_bone(bone) < 0:
 		return null
 	var follower := BoneAttachment3D.new()
 	follower.bone_name = bone
@@ -151,3 +157,47 @@ func _recolor(recolor: Dictionary) -> void:
 				copy.emission = copy.albedo_color
 				copy.emission_energy_multiplier = float(spec["emission"])
 			mesh_instance.set_surface_override_material(s, copy)
+
+
+## Gives every material a more natural finish: soft rim light on skin, hair
+## and fur (which reads as fuzz and subsurface light), and shiny metal.
+func _enhance() -> void:
+	for mi in _meshes:
+		var mesh_instance := mi as MeshInstance3D
+		if mesh_instance.mesh == null:
+			continue
+		for s in mesh_instance.mesh.get_surface_count():
+			var mat := mesh_instance.get_active_material(s) as BaseMaterial3D
+			if mat == null:
+				continue
+			var own := mesh_instance.get_surface_override_material(s) as BaseMaterial3D
+			var m: BaseMaterial3D = own if own != null else mat.duplicate() as BaseMaterial3D
+			var label := mat.resource_name.to_lower()
+			m.metallic_specular = 0.35
+			m.roughness = 0.85
+			m.rim_enabled = true
+			m.rim = 0.18
+			m.rim_tint = 0.6
+			if "skin" in label:
+				m.roughness = 0.62
+				m.rim = 0.32
+				m.rim_tint = 0.85
+				m.metallic_specular = 0.45
+			elif "hair" in label or "eyebrow" in label:
+				m.roughness = 0.5
+				m.rim = 0.25
+			elif "metal" in label or "gold" in label or "grey" in label:
+				m.metallic = 0.75
+				m.roughness = 0.34
+				m.rim = 0.1
+			elif "eye" in label or "pupil" in label:
+				m.roughness = 0.2
+				m.metallic_specular = 0.8
+				m.rim_enabled = false
+			elif "main" in label or "fur" in label:
+				m.roughness = 0.95
+				m.rim = 0.45  # fur catches the light at the edges
+				m.rim_tint = 0.75
+			elif "hoof" in label or "hooves" in label or "nose" in label:
+				m.roughness = 0.45
+			mesh_instance.set_surface_override_material(s, m)

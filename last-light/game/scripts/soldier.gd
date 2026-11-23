@@ -7,7 +7,8 @@ const World = preload("res://scripts/world.gd")
 const Art = preload("res://scripts/art.gd")
 const CharacterModel = preload("res://scripts/character_model.gd")
 const Wolf = preload("res://scripts/wolf.gd")
-const SURVIVOR := preload("res://models/survivor.glb")
+const SURVIVOR := preload("res://models/adventurer.glb")
+const Horse = preload("res://scripts/horse.gd")
 
 const MAX_ARMY := 100
 const PER_BARRACKS := 10
@@ -71,7 +72,7 @@ var _helmet: Node3D
 var _spear: Node3D
 var _bow: Node3D
 var _horse: Node3D
-var _legs: Array = []
+var _horse_look: Dictionary = {}
 var _ring: MeshInstance3D
 var _label: Label3D
 var _cooldown := 0.0
@@ -79,7 +80,6 @@ var _hurt := 0.0
 var _moving := false
 var _shown := true
 var _thrust := 0.0
-var _gait := 0.0
 var _detour_time := 0.0
 var _detour_side := 1.0
 
@@ -127,10 +127,12 @@ func _ready() -> void:
 	_body = CharacterModel.new()
 	_model.add_child(_body)
 	var tunic := {"legionary": "8b2e2e", "archer": "4f5d2f", "cavalry": "7a2a3a", "centurion": "6e1f1f"}
+	var cloth := Color(tunic.get(kind, "8b2e2e"))
 	_body.build(SURVIVOR, 1.62, false, {
-		"idle": ["Man_Idle"], "run": ["Man_Run"], "slash": ["Man_SwordSlash"], "death": ["Man_Death"],
-		"sit": ["Man_Sitting"],
-	}, {"Shirt": {"color": Color(tunic.get(kind, "8b2e2e"))}, "Pants": {"color": Color("3a2a1a")}})
+		"idle": ["Man_Idle", "Idle"], "run": ["Man_Run", "Run"], "slash": ["Man_SwordSlash", "Sword_Slash"],
+		"death": ["Man_Death", "Death"],
+	}, {"Shirt": {"color": cloth}, "Green": {"color": cloth}, "LightGreen": {"color": cloth.lightened(0.12)},
+		"Pants": {"color": Color("3a2a1a")}, "Brown": {"color": Color("3a2a1a")}})
 	_right_hand = _body.bone_follower("Palm.R")
 	_left_hand = _body.bone_follower("Palm.L")
 	_head = _body.bone_follower("Head")
@@ -426,28 +428,12 @@ func _build_archer() -> void:
 		Art.part(_model, Art.cylinder(0.008, 0.008, 0.25, 4), Color("e0dccf"), Vector3(0.1 + i * 0.03, 1.48, -0.25), Vector3(0.3, 0, 0.2))
 
 
-## A low-poly horse. The rider sits on it.
+## The horse a cavalryman rides (horse.gd).
 func _build_horse() -> void:
 	_horse = Node3D.new()
 	_model.add_child(_horse)
-	var coat := Color("5b3a22") if randf() < 0.6 else Color("2f2620")
-	Art.part(_horse, Art.box(Vector3(0.46, 0.55, 1.35)), coat, Vector3(0, 1.1, 0))
-	var neck := Art.part(_horse, Art.box(Vector3(0.3, 0.75, 0.32)), coat, Vector3(0, 1.5, 0.68), Vector3(0.55, 0, 0))
-	neck.scale = Vector3(1, 1, 1)
-	Art.part(_horse, Art.box(Vector3(0.26, 0.28, 0.55)), coat, Vector3(0, 1.82, 0.98), Vector3(0.35, 0, 0))  # head
-	Art.part(_horse, Art.box(Vector3(0.06, 0.55, 0.12)), Color("1f1a16"), Vector3(0, 1.7, 0.55), Vector3(0.55, 0, 0))  # mane
-	Art.part(_horse, Art.box(Vector3(0.1, 0.55, 0.1)), Color("1f1a16"), Vector3(0, 1.0, -0.78), Vector3(-0.4, 0, 0))  # tail
-	Art.part(_horse, Art.box(Vector3(0.56, 0.08, 0.6)), Color("8b2e2e"), Vector3(0, 1.4, -0.05))  # saddle cloth
-	for x in [-0.17, 0.17]:
-		for z in [-0.5, 0.5]:
-			var hip := Node3D.new()
-			hip.position = Vector3(x, 0.92, z)
-			_horse.add_child(hip)
-			Art.part(hip, Art.box(Vector3(0.12, 0.9, 0.14)), coat.darkened(0.1), Vector3(0, -0.45, 0))
-			Art.part(hip, Art.box(Vector3(0.13, 0.08, 0.16)), Color("1f1a16"), Vector3(0, -0.88, 0))  # hoof
-			_legs.append(hip)
-	# Hips on the saddle: the legs hang down either side of the horse.
-	_body.position = Vector3(0, 0.55, -0.05)
+	_horse_look = Horse.build_model(_horse, Horse.COATS[randi() % Horse.COATS.size()], true)
+	_body.position = Vector3(0, 0.62, -0.05)
 
 
 func _piece() -> Node3D:
@@ -480,11 +466,8 @@ func _animate(delta: float) -> void:
 	_body.tick(delta)
 	if kind == "cavalry":
 		_body.play("idle")
-		_gait += delta * (11.0 if _moving else 0.0)
-		for i in _legs.size():
-			(_legs[i] as Node3D).rotation.x = sin(_gait + (PI if i % 3 == 0 else 0.0)) * (0.55 if _moving else 0.0)
-		if _horse:
-			_horse.position.y = absf(sin(_gait)) * 0.06 if _moving else 0.0
+		Horse.animate(_horse_look, delta, 1.0 if _moving else 0.0)
+		_body.position = Vector3(0, maxf(Horse.saddle_height(_horse_look) - 0.84, 0.2), -0.05)
 	else:
 		_body.play("run" if _moving else "idle")
 	_body.flash(_hurt > 0.0)

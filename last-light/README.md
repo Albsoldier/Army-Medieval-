@@ -85,7 +85,7 @@ last-light/
     sounds/               the synthesized sounds (OGG)
     scripts/art.gd        helpers for the low-poly models
     scripts/character_model.gd  loads, sizes and animates the rigged characters
-    models/               survivor and wolf models (CC0, by Quaternius: see models/CREDITS.md)
+    models/               survivor, raider, horse and wolf models (CC0, by Quaternius: see models/CREDITS.md)
     scripts/player.gd     stats, inventory, movement
     scripts/campfire.gd   warmth, light, cooking
     scripts/wolf.gd       night predators
