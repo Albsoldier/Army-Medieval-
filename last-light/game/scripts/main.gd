@@ -31,6 +31,9 @@ const SEASON_NEWS := {
 	"autumn": "Autumn. The leaves turn, and bushes are heavy with berries. Stock up before winter.",
 	"winter": "Winter. Snow falls, lakes freeze over and nothing grows. The nights are bitter: keep fires burning.",
 }
+const AXE_WOOD := 3  # wood per hit with an axe in hand (1 by hand)
+const PICK_STONE := 3  # stone per hit with a pickaxe in hand
+const PICK_ORE := 2  # iron ore or gold per hit with a pickaxe in hand
 const UNDO_SECONDS := 60.0  # take a building down this soon after building it: full refund
 const MAX_TORCH_POSTS := 24  # lights are expensive in the browser renderer
 
@@ -887,10 +890,21 @@ func _interact() -> void:
 		var gained := world.harvest(cell, day)
 		for item in gained:
 			var amount := int(gained[item])
-			if (item == "wood" and player.holding("axe")) or (item == "stone" and player.holding("pickaxe")):
-				amount *= 2
+			amount *= _tool_bonus(item)
 			player.add_item(item, amount)
 			hud.toast("+%d %s" % [amount, ITEM_NAMES[item]])
+
+
+## How much more you gather with the right tool in hand: an axe triples wood;
+## a pickaxe triples stone and doubles iron ore and gold.
+func _tool_bonus(item: String) -> int:
+	if item == "wood" and player.holding("axe"):
+		return AXE_WOOD
+	if item == "stone" and player.holding("pickaxe"):
+		return PICK_STONE
+	if (item == "ore" or item == "gold") and player.holding("pickaxe"):
+		return PICK_ORE
+	return 1
 
 
 func _use_fire(fire: Campfire) -> void:

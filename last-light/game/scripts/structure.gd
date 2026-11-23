@@ -36,9 +36,9 @@ const ORDER := ["wood_wall", "stone_wall", "gate", "torch_post", "chest", "tent"
 ## What each crafting station makes. "gives" is an item, or a tool you keep.
 const RECIPES := {
 	"workbench": [
-		{"id": "axe", "name": "Axe", "cost": {"wood": 4, "stone": 3}, "about": "2 wood for every hit on a tree."},
+		{"id": "axe", "name": "Axe", "cost": {"wood": 4, "stone": 3}, "about": "3 wood for every hit on a tree, while it's in your hand."},
 		{"id": "pickaxe", "name": "Pickaxe", "cost": {"wood": 4, "stone": 4},
-			"about": "2 stone for every hit on a rock, and it can mine iron ore."},
+			"about": "3 stone for every hit on a rock, and 2 iron ore or gold. Needed to mine ore."},
 		{"id": "salve", "name": "Healing salve", "cost": {"berries": 6}, "about": "Press Q to heal 30 health."},
 	],
 	"forge": [
