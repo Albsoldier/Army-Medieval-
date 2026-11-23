@@ -14,7 +14,7 @@ func _initialize() -> void:
 	if _dir == "":
 		_dir = OS.get_user_data_dir().path_join("shots")
 	DirAccess.make_dir_recursive_absolute(_dir)
-	create_timer(660.0).timeout.connect(_on_watchdog)
+	create_timer(1000.0).timeout.connect(_on_watchdog)
 	_run.call_deferred()
 
 
@@ -154,6 +154,84 @@ func _run() -> void:
 	main.zoom = 1.3
 	await _frames(30)
 	await _shot("8-base-night")
+
+	# The legion: all four kinds of soldier, a selection, and a shield wall.
+	main._try_build("barracks", c + Vector2i(3, 0))
+	main._try_build("barracks", c + Vector2i(-3, 0))
+	main.player.add_item("iron", 20)
+	main.player.add_item("gold", 4)
+	main.player.add_item("hide", 20)
+	main._recruit(6, "archer")
+	main._recruit(4, "cavalry")
+	main._recruit(2, "centurion")
+	main.soldiers[0].kills = 9  # an elite, to show the name label
+	main.player.pos = w.cell_center(c + Vector2i(0, 1))
+	main.player.facing = Vector2.DOWN
+	main.cam_yaw = 0.0
+	main.clock = DAY * 0.32
+	main.zoom = 0.85
+	for i in 120:
+		main._tick_army(0.1)
+	await _frames(30)
+	await _shot("14-legion-units")
+	main._set_selection(main.soldiers.slice(0, 14))
+	await _frames(10)
+	await _shot("15-selected")
+	main._set_selection([])
+	main._cycle_formation()  # shield wall
+	for i in 60:
+		main._tick_army(0.1)
+	await _frames(20)
+	await _shot("16-shield-wall")
+	main._cycle_formation()
+	main._cycle_formation()  # back to a line
+
+	# Winter and autumn.
+	main.day = 10
+	w.set_season("winter")
+	main._update_weather()
+	main.zoom = 1.4
+	await _frames(40)
+	await _shot("17-winter-base")
+	main.day = 7
+	w.set_season("autumn")
+	main._update_weather()
+	await _frames(40)
+	await _shot("18-autumn-base")
+	main.day = 1
+	w.set_season("spring")
+	main._update_weather()
+
+	# A galley at sea off an islet, then ashore at the treasure hoard.
+	if not w.islets.is_empty():
+		var isle: Dictionary = w.islets[0]
+		var ic: Vector2 = w.cell_center(isle["cell"])
+		var toward := (Vector2(1024, 1024) * 8.0 - ic).normalized()  # from the islet toward the main island
+		var sea := ic + toward * (float(isle["r"]) * 1.45 + 6.0) * 16.0
+		var galley = main._spawn_boat("galley", sea, -toward)
+		main._board(galley)
+		main.player.pos = sea
+		main.player.facing = -toward
+		main.cam_yaw = atan2(toward.x, toward.y)
+		main.zoom = 1.1
+		w.update_view(sea, true)
+		await _frames(40)
+		await _shot("19-galley-at-sea")
+		main._leave_boat()
+		for poi in w.pois:
+			if poi["type"] == "hoard" and poi["id"] == "hoard-0":
+				var stand: Vector2 = w.random_walkable_near(w.cell_center(poi["cell"]), 30.0, 50.0, main.rng)
+				if stand != Vector2.INF:
+					main.player.pos = stand
+					main.player.facing = (w.cell_center(poi["cell"]) - stand).normalized()
+					main.cam_yaw = atan2(-main.player.facing.x, -main.player.facing.y)
+					main.zoom = 0.7
+					w.update_view(stand, true)
+					main._update_pois(0.0, true)
+					await _frames(40)
+					await _shot("20-islet-hoard")
+		main.player.pos = w.cell_center(c + Vector2i(0, 1))
+		w.update_view(main.player.pos, true)
 
 	# Places to discover: a lighthouse at night and a shipwreck by day, then the map.
 	for kind in ["lighthouse", "shipwreck"]:

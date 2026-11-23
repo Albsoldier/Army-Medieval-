@@ -14,14 +14,17 @@ C                    campfire   R   torch
 M                    island map
 N / G              leave a note / a stash
 Mouse wheel     zoom       V   first person
-B                    build (1–0 to choose)
+B                    build (1–0, – to choose)
 X                    take down a building
 T                    army: follow me / guard here
+Drag / right-click  select soldiers / send them
+Y  whole army    Z  formation
 Esc                 pause: save, account, sound
 H                    show / hide this help
 
 Build a workbench, forge and smokehouse
 for tools, iron gear and smoked meat.
+A dock (in build mode, –) builds boats.
 
 Wolves fear fire. Explore to find ruins,
 wrecks, caves, shrines and a lighthouse."""
@@ -76,6 +79,8 @@ var _on_hotbar := Callable()
 var _inv_center: CenterContainer
 var _inv_columns: HBoxContainer
 var _inv_footer: Label
+var _inv_title: Label
+var _select_box: Panel
 var _on_inv_action := Callable()
 
 
@@ -405,9 +410,9 @@ func _build_inventory() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 10)
 	panel.add_child(box)
-	var title := _label(22, Color(1.0, 0.85, 0.6))
-	title.text = "Inventory"
-	box.add_child(title)
+	_inv_title = _label(22, Color(1.0, 0.85, 0.6))
+	_inv_title.text = "Inventory"
+	box.add_child(_inv_title)
 	_inv_columns = HBoxContainer.new()
 	_inv_columns.add_theme_constant_override("separation", 28)
 	box.add_child(_inv_columns)
@@ -420,6 +425,13 @@ func _build_inventory() -> void:
 ## is an Array of sections {"title": String, "rows": [{"name", "detail", "button", "action", "enabled", "dim"}]}.
 ## `on_action` is called with a row's "action" when its button is pressed.
 func show_inventory(columns: Array, on_action: Callable) -> void:
+	show_panel("Inventory", "Click to use, equip or craft.   1–4 hotbar   ·   I, Tab or Esc to close", columns, on_action)
+
+
+## The same panel with another title (the barracks uses it).
+func show_panel(title: String, footer: String, columns: Array, on_action: Callable) -> void:
+	_inv_title.text = title
+	_inv_footer.text = footer
 	_on_inv_action = on_action
 	for child in _inv_columns.get_children():
 		_inv_columns.remove_child(child)
@@ -466,6 +478,22 @@ func show_inventory(columns: Array, on_action: Callable) -> void:
 				none.text = "Nothing yet."
 				col.add_child(none)
 	_inv_center.visible = true
+
+
+## The box you drag to select soldiers. An empty rect hides it.
+func set_selection_box(rect: Rect2) -> void:
+	if _select_box == null:
+		_select_box = Panel.new()
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.45, 1.0, 0.45, 0.12)
+		sb.border_color = Color(0.55, 1.0, 0.55, 0.85)
+		sb.set_border_width_all(1)
+		_select_box.add_theme_stylebox_override("panel", sb)
+		_select_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_root.add_child(_select_box)
+	_select_box.visible = rect.size.x > 2.0 and rect.size.y > 2.0
+	_select_box.position = rect.position
+	_select_box.size = rect.size
 
 
 func close_inventory() -> void:

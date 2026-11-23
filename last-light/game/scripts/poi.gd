@@ -8,7 +8,7 @@ const Art = preload("res://scripts/art.gd")
 
 const TITLES := {
 	"lighthouse": "Lighthouse", "shipwreck": "Shipwreck", "ruins": "Ruins",
-	"cave": "Cave", "shrine": "Shrine", "camp": "Abandoned camp",
+	"cave": "Cave", "shrine": "Shrine", "camp": "Abandoned camp", "hoard": "Treasure hoard",
 }
 ## What each kind of place holds, once.
 const LOOT := {
@@ -18,6 +18,7 @@ const LOOT := {
 	"cave": {"ore": 4, "iron": 1, "stone": 5},
 	"shrine": {},
 	"camp": {"wood": 6, "berries": 5, "hide": 1, "cooked_meat": 1},
+	"hoard": {"gold": 6, "iron": 6, "hide": 3, "smoked_meat": 3},
 }
 const LORE := {
 	"lighthouse": [
@@ -44,6 +45,11 @@ const LORE := {
 		"Moss-covered stones in a ring. Sitting here, the island feels quieter. Your thoughts settle.",
 		"The centre stone is warm to the touch, as if a fire burned under it. You feel steadier.",
 		"Someone has left small offerings: shells, a button, a carved wolf. You add a pebble and feel better for it.",
+	],
+	"hoard": [
+		"Under a cairn of stones, an iron-bound chest. The Island Company's seal is on the lid: they hid their pay chest out here, where no wolf could follow.",
+		"A smugglers' cache, wrapped in tarred sailcloth. Gold, tools and salted meat. A scrap of paper: \"For whoever has a boat and the nerve.\"",
+		"Buried in the sand above the tideline: a chest of gold and good iron, and a carving of a ship with a red sail.",
 	],
 	"camp": [
 		"A cold fire, a torn tent, and a note pinned under a cup: \"Gone to find the lighthouse. Back by dark.\" The note is weathered. They didn't come back.",
@@ -106,6 +112,8 @@ func _ready() -> void:
 			_build_shrine()
 		"camp":
 			_build_camp()
+		"hoard":
+			_build_hoard()
 	_marker = Art.part(self, Art.sphere(0.12, 3, 6), Color(1.0, 0.85, 0.4), Vector3(0, 3.2, 0), Vector3.ZERO, 3.0, true)
 	refresh()
 
@@ -238,3 +246,15 @@ func _build_camp() -> void:
 	Art.part(self, Art.box(Vector3(0.5, 0.4, 0.5)), Color("8a6a43"), Vector3(-0.2, 0.2, 1.1), Vector3(0, 0.3, 0))
 	Art.part(self, Art.cylinder(0.07, 0.07, 1.2, 5), Color("5a3d22"), Vector3(0.2, 0.08, -1.2), Vector3(0, 0.5, PI / 2))
 	_chest(Vector3(0.0, 0, -0.3))
+
+
+func _build_hoard() -> void:
+	# A cairn of stones beside a gold-banded chest, and a broken oar.
+	for i in 6:
+		var a := TAU * i / 6.0
+		Art.part(self, Art.sphere(0.28, 4, 7), Color("77736b"), Vector3(-0.9 + cos(a) * 0.35, 0.18, sin(a) * 0.35))
+	Art.part(self, Art.sphere(0.3, 4, 7), Color("858177"), Vector3(-0.9, 0.5, 0))
+	Art.part(self, Art.box(Vector3(0.08, 0.08, 1.6)), Color("6b4a2b"), Vector3(0.9, 0.05, 0.4), Vector3(0, 0.6, 0))
+	_chest(Vector3(0.2, 0, -0.2))
+	for i in 4:
+		Art.part(self, Art.cylinder(0.06, 0.06, 0.02, 8), Color("e5b844"), Vector3(0.55 + i * 0.09, 0.01 + i * 0.022, 0.25), Vector3.ZERO, 0.8)

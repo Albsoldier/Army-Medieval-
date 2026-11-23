@@ -14,6 +14,9 @@ uniform vec3 sand_a : source_color = vec3(0.66, 0.59, 0.45);
 uniform vec3 sand_b : source_color = vec3(0.56, 0.50, 0.38);
 uniform vec3 rock_a : source_color = vec3(0.45, 0.43, 0.40);
 uniform vec3 rock_b : source_color = vec3(0.58, 0.56, 0.51);
+uniform float snow = 0.0;    // winter
+uniform float autumn = 0.0;
+uniform float summer = 0.0;
 
 varying vec3 world_pos;
 varying vec3 world_normal;
@@ -58,7 +61,12 @@ void fragment() {
 	grass *= 0.86 + 0.24 * mid + 0.08 * fine;
 	grass = mix(grass, dirt, smoothstep(0.66, 0.82, fbm(p * 0.18 + 7.0)) * 0.55);
 
+	// Seasons: golden summer meadows, russet autumn.
+	grass = mix(grass, dry_grass * 1.05, summer * 0.3);
+	grass = mix(grass, vec3(0.50, 0.38, 0.20) * (0.9 + 0.2 * mid), autumn * 0.45);
+
 	vec3 forest = mix(forest_a, forest_b, mid) * (0.9 + 0.15 * fine);
+	forest = mix(forest, vec3(0.38, 0.25, 0.13) * (0.9 + 0.2 * mid), autumn * 0.4);
 	vec3 sand = mix(sand_a, sand_b, mid * 0.7 + fine * 0.3);
 	vec3 rock = mix(rock_a, rock_b, mid) * (0.82 + 0.3 * fine);
 
@@ -69,6 +77,11 @@ void fragment() {
 	col = mix(col, forest, smoothstep(0.1, 0.9, COLOR.g + (mid - 0.5) * 0.3));
 	col = mix(col, sand, smoothstep(0.15, 0.85, COLOR.r + (mid - 0.5) * 0.25));
 	col = mix(col, rock, rock_w);
+
+	// Winter: snow settles on flat ground above the waterline.
+	float flat_ground = smoothstep(0.55, 0.85, world_normal.y);
+	float snow_w = snow * flat_ground * smoothstep(-0.2, 0.3, world_pos.y) * (0.82 + 0.18 * fine);
+	col = mix(col, vec3(0.90, 0.92, 0.96) * (0.94 + 0.06 * mid), snow_w);
 
 	// Darker, wet ground at and below the waterline.
 	float wet = smoothstep(0.35, -0.15, world_pos.y);

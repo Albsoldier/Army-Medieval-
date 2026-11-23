@@ -17,6 +17,7 @@ const COLORS := {
 	"bag": Color(0.7, 0.5, 0.3),
 	"poi": Color(0.45, 0.85, 1.0),
 	"poi_looted": Color(0.45, 0.6, 0.7),
+	"boat": Color(0.55, 0.32, 0.16),
 }
 
 var world: World
@@ -78,6 +79,9 @@ func _draw() -> void:
 				_draw_house(p, c)
 			"fire":
 				draw_circle(p, 3.0, c)
+			"boat":
+				draw_colored_polygon(PackedVector2Array([p + Vector2(-4, -1), p + Vector2(4, -1), p + Vector2(2.5, 2), p + Vector2(-2.5, 2)]), c)
+				draw_line(p + Vector2(0, -1), p + Vector2(0, -6), c, 1.2)
 			"soldiers":
 				draw_circle(p, 2.0, c)
 			"grave":

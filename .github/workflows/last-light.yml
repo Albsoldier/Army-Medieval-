@@ -96,7 +96,7 @@ jobs:
     # and to a workflow artifact. Never blocks a merge.
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     continue-on-error: true
     permissions:
       contents: write
@@ -122,7 +122,7 @@ jobs:
         env:
           SHOT_DIR: ${{ github.workspace }}/shots
         run: |
-          timeout 720 xvfb-run -a -s "-screen 0 1280x720x24" \
+          timeout 1080 xvfb-run -a -s "-screen 0 1280x720x24" \
             godot --path last-light/game --rendering-driver opengl3 --resolution 1280x720 \
             --script res://tools/screenshot.gd 2>&1 | tee shots.log
           ls -la shots
