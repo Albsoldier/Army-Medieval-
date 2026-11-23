@@ -9,7 +9,7 @@ const CharacterModel = preload("res://scripts/character_model.gd")
 const HORSE_MODEL := preload("res://models/horse.glb")
 
 ## Horse coats: bay, black, chestnut, grey, dark brown.
-const COATS := [Color("6b3f22"), Color("221c19"), Color("8c4a24"), Color("9c968e"), Color("4a3220")]
+const COATS := [Color("6b3f22"), Color("221c19"), Color("6e3d22"), Color("9c968e"), Color("4a3220")]
 ## Reshaping the deer-family model into a horse: (bone, scale along x, along
 ## the bone, along z). A thicker neck and bigger head, small ears, a deeper
 ## chest and sturdy legs. The animations only rotate bones, so this sticks.
@@ -112,8 +112,9 @@ static func animate(look: Dictionary, delta: float, pace: float, grazing: bool =
 	if neck and head:
 		var mane: Node3D = look["mane"]
 		var along := (neck.global_position - head.global_position)
-		mane.global_transform = Transform3D(yaw * Basis(Vector3.RIGHT, -atan2(along.y, maxf(Vector2(along.x, along.z).length(), 0.001))),
-			head.global_position.lerp(neck.global_position, 0.25) + Vector3(0, 0.12, 0))
+		# Lying along the top of the neck, from behind the ears back towards the withers.
+		mane.global_transform = Transform3D(yaw * Basis(Vector3.RIGHT, atan2(along.y, maxf(Vector2(along.x, along.z).length(), 0.001))),
+			head.global_position.lerp(neck.global_position, 0.2) + Vector3(0, 0.07, 0))
 	var tail_root: Node3D = look.get("tail_root")
 	if tail_root and look.has("tail"):
 		# It hangs down from the rump, swaying a little as the horse moves.
