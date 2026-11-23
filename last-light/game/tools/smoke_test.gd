@@ -616,6 +616,37 @@ func _run_game() -> void:
 			w.queue_free()
 	main._camp_guards.clear()
 	main.player.pos = home_pos
+	# Wild horses: find a herd, win a horse's trust with berries, then ride it.
+	var Horse = load("res://scripts/horse.gd")
+	_check(main.herds.size() >= 5, "herds of wild horses graze around the island (%d)" % main.herds.size())
+	var herd0: Dictionary = main.herds[0]
+	_check((herd0["pos"] as Vector2).distance_to(world.cell_center(world.spawn_cell)) < 70.0 * 16.0, "one herd grazes near the start")
+	main.player.pos = (herd0["pos"] as Vector2) + Vector2(0, 60)
+	main._tick_horses(0.1)
+	_check(main._wild_horses.size() >= 2, "wild horses appear in their meadow (%d)" % main._wild_horses.size())
+	var wild = main._wild_horses.values()[0]
+	var spare_berries: int = main.player.count("berries")
+	main.player.add_item("berries", -spare_berries)
+	main._use_horse(wild)
+	_check(wild.trust == 0 and wild.wild, "a wild horse won't trust you without berries")
+	main.player.add_item("berries", 20)
+	for k in Horse.FEEDS_TO_TAME:
+		main._use_horse(wild)
+	_check(not wild.wild and main.tame_horses.has(wild) and main.horses_taken.has(wild.herd_id),
+		"%d feeds of berries tame a horse" % Horse.FEEDS_TO_TAME)
+	main.player.pos = wild.pos + Vector2(10, 0)
+	main.action_cooldown = 0.0
+	main._interact()
+	_check(main.riding_horse == wild and main.player.riding and main.player.ride_height() > 0.0, "E by your horse: you ride it")
+	var start: Vector2 = main.player.pos
+	main.player.move(Vector2.RIGHT, 0.05)
+	var ridden: float = main.player.pos.distance_to(start)
+	_check(ridden == 0.0 or ridden > main.player.SPEED * 0.05 * 1.5, "riding is faster than walking")
+	main.action_cooldown = 0.0
+	main._interact()
+	_check(main.riding_horse == null and not main.player.riding and wild.visible, "E again: you get off, and the horse waits")
+	main._mount(wild)
+	main.player.pos = home_pos
 	main.save_game()
 	var saved: Dictionary = load("res://scripts/save_game.gd").read()
 	_check(saved.get("props", {}).has("%d,%d" % [tree_cell.x, tree_cell.y]), "save remembers the felled tree")
@@ -639,6 +670,8 @@ func _run_game() -> void:
 	_check(copy_main.soldiers[0].soldier_name == main.soldiers[0].soldier_name and copy_main._count_kind("archer") == main._count_kind("archer")
 		and copy_main.soldiers[1].kills == main.soldiers[1].kills, "names, kinds and kills survive a reload")
 	_check(copy_main.boats.size() == 2 and copy_main.formation == main.formation, "boats and the formation survive a reload")
+	_check(copy_main.tame_horses.size() == main.tame_horses.size() and copy_main.riding_horse != null
+		and copy_main.horses_taken.has(wild.herd_id), "your horses, and riding one, survive a reload")
 	_check(copy_main.camps_cleared.has("islet-0") and copy_main.camps_found.has(camp0["id"]), "found and cleared raider camps are remembered")
 	_check(not copy_main.world.is_walkable(world.cell_center(cells[0])), "walls still block after reload")
 	_check(copy_main.player.has_axe and copy_main.player.armour and copy_main.player.lantern, "tools are still yours after reload")
