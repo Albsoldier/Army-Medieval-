@@ -241,6 +241,28 @@ func _run() -> void:
 		main._tick_army(0.1)
 	await _frames(20)
 	await _shot("16-shield-wall")
+	# A raider camp out on the island, with its chief and guards.
+	var rc: Dictionary = main.camps[0]
+	var base_pos: Vector2 = main.player.pos
+	for so in main.soldiers:  # the legion stays home for this one
+		so.mode = "guard"
+		so.guard_point = base_pos
+	main.player.pos = (rc["pos"] as Vector2) + Vector2(0, 150)
+	main.player.facing = Vector2.UP
+	w.update_view(main.player.pos, true)
+	main.zoom = 1.0
+	await _frames(40)
+	await _shot("16b-raider-camp")
+	for r in main.wolves.duplicate():
+		if r.is_raider():
+			main.wolves.erase(r)
+			r.queue_free()
+	main._camp_guards.clear()
+	main.player.pos = base_pos
+	w.update_view(base_pos, true)
+	for so in main.soldiers:
+		so.mode = "follow"
+	main.cam_yaw = 0.0
 	main._cycle_formation()
 	main._cycle_formation()  # back to a line
 

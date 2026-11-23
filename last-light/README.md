@@ -26,8 +26,8 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
 
   | Key | Structure | Cost | What it does |
   |---|---|---|---|
-  | 1 | Wooden wall | 4 wood | Blocks wolves; they gnaw through it slowly at night |
-  | 2 | Stone wall | 3 stone, 1 wood | 2.5× tougher, gnawed 3× slower |
+  | 1 | Wooden wall | 4 wood | Keeps wolves and raiders out |
+  | 2 | Stone wall | 3 stone, 1 wood | A sturdier-looking wall |
   | 3 | Gate | 6 wood | You and your soldiers pass, wolves don't |
   | 4 | Torch post | 2 wood, 1 stone | Permanent light; wolves keep away, eases your mind |
   | 5 | Storage chest | 8 wood | Store and take items |
@@ -50,6 +50,8 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
 
   Steel is folded from 2 iron and 2 wood at the forge. The sword goes on hotbar key 5; spears reach further, swords swing faster.
 - **Tougher wolves.** Grey wolves at first; from day 4 *timber wolves* (more health, harder bite) and from day 9 *dire wolves* (huge, red-eyed, with a deadly bite; more of them in winter). Bigger wolves drop more meat and hides.
+- **Raiders.** Human enemies with axes, round shields and iron helmets, led by chiefs in fur mantles. They live in their own camps: eight scattered over the main island (all far from where you start) and one beside each islet's hoard. A camp's chief and guards turn out when you come near and fight you by day or night, but they never leave their camp and never come for your base. Clear a main-island camp to win its war chest (iron, steel, gold); clear an islet camp to free its hoard. Raiders retake a cleared camp after 8 days. Camps you've found show on the map as a red ✕.
+- **Your base is safe.** Nothing ever damages your buildings, no camp is manned near anything you've built, and wolves never appear near your base.
 - **Sound and music.** Chopping, mining, footsteps, crackling fires, wolf howls, birds by day, crickets and wind at night, and a calm day theme that fades into a darker night theme. Turn sound or music off in Esc → Settings. Every sound is synthesized by `tools/make_sounds.py`, so there are no recordings or licences involved.
 - **Raise a legion.** At a barracks, recruit up to 10 soldiers per barracks and 100 in all, of four kinds:
   - *Legionaries* (3 wood, 2 stone, 5 berries): shield and spear.
