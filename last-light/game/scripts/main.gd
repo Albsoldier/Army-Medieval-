@@ -14,6 +14,10 @@ const Soldier = preload("res://scripts/soldier.gd")
 const Boat = preload("res://scripts/boat.gd")
 const Gear = preload("res://scripts/gear.gd")
 const Raider = preload("res://scripts/raider.gd")
+const Horse = preload("res://scripts/horse.gd")
+const HERDS := 7  # herds of wild horses around the main island
+const HERD_SIZE := 3
+const MAX_TAME_HORSES := 10
 const Art = preload("res://scripts/art.gd")
 const CAMP_NAMES := ["the Ashfang camp", "the Blackmoor camp", "the Redhand camp", "the Wolfstone camp",
 	"the Ironbrook camp", "the Crowhill camp", "the Saltmarsh camp", "the Gallows Oak camp"]
@@ -123,6 +127,12 @@ var _resume_sailing := -1  # boat to put the player back on after loading
 var army_mode := "follow"
 ## Raider camps: [{"id", "pos", "name", "islet"}], the same on every visit (from the seed).
 ## Raiders live in them and only ever defend them; they never come for your base.
+var herds: Array = []  # [{"id", "pos"}]: where wild horses graze (from the seed)
+var horses_taken := {}  # wild horse id -> true once tamed, so it doesn't reappear wild
+var tame_horses: Array = []  # Horse nodes that trust you
+var riding_horse: Horse = null  # the one you're on
+var _wild_horses := {}  # id -> Horse grazing near you now
+var _resume_riding := -1
 var camps: Array = []
 var camps_cleared := {}  # camp id -> the day you cleared it
 var camps_found := {}  # camp id -> true once you've seen it
@@ -162,6 +172,7 @@ func _ready() -> void:
 	add_child(world)
 	world.generate(world_seed)
 	_make_camps()
+	_make_herds()
 
 	entities = Node3D.new()
 	add_child(entities)
@@ -196,6 +207,8 @@ func _ready() -> void:
 	hud.setup_maps(world, _map_markers)
 	hud.setup_hotbar(_on_hotbar_slot)
 	hud.set_crosshair(first_person)
+	if _resume_riding >= 0 and _resume_riding < tame_horses.size():
+		_mount(tame_horses[_resume_riding])  # you saved in the saddle
 	if _resume_sailing >= 0 and _resume_sailing < boats.size():
 		_board(boats[_resume_sailing])  # you saved while afloat
 	_update_pois(0.0, true)
@@ -382,6 +395,8 @@ func _process(delta: float) -> void:
 		var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down").rotated(-cam_yaw)
 		player.move(dir, delta)
 		_tick_boat()
+		_tick_riding()
+		_tick_horses(delta)
 		if first_person:
 			player.facing = _look_2d()  # you face where you look, even when stepping sideways
 		if dir != Vector2.ZERO and sailing == null:
@@ -655,7 +670,7 @@ func _update_camera(delta: float) -> void:
 	if first_person:
 		var look := _look_2d()
 		var forward := Vector3(look.x * cos(fp_pitch), sin(fp_pitch), look.y * cos(fp_pitch))
-		camera.position = player.position + Vector3(0, EYE_HEIGHT + player.head_bob(), 0) + Vector3(look.x, 0, look.y) * 0.12
+		camera.position = player.position + Vector3(0, EYE_HEIGHT + player.ride_height() + player.head_bob(), 0) + Vector3(look.x, 0, look.y) * 0.12
 		camera.look_at(camera.position + forward)
 		return
 	# A strategy-game camera: it looks down more steeply the further out you zoom.
@@ -1030,6 +1045,9 @@ func _interact() -> void:
 		return
 	action_cooldown = 0.3
 	var pos := player.pos
+	if riding_horse != null:
+		_dismount()
+		return
 	if sailing != null:
 		_go_ashore()
 		return
@@ -1052,6 +1070,10 @@ func _interact() -> void:
 	var place := _nearest(poi_nodes.values(), pos, 48.0)
 	if place != null:
 		_use_poi(place)
+		return
+	var horse := _nearest(tame_horses + _wild_horses.values(), pos, 30.0)
+	if horse != null:
+		_use_horse(horse)
 		return
 	var building := _nearest(buildings.values(), pos, 24.0)
 	if building != null:
@@ -1356,8 +1378,14 @@ func _update_hint() -> void:
 	if build_mode:
 		return  # the build bar uses the hint line
 	var boat := _nearest(boats, pos, 36.0)
-	if sailing != null:
+	var horse_near := _nearest(tame_horses + _wild_horses.values(), pos, 30.0)
+	if riding_horse != null:
+		hint = "On horseback · E: dismount"
+	elif sailing != null:
 		hint = "Sailing the %s · E: go ashore" % sailing.display_name().to_lower()
+	elif horse_near != null:
+		var hn: Horse = horse_near
+		hint = "E: ride your horse" if not hn.wild else "E: offer %d berries to the wild horse (trust %d / %d)" % [Horse.BERRIES_PER_FEED, hn.trust, Horse.FEEDS_TO_TAME]
 	elif _nearest(buildings.values().filter(func(b): return b.kind == "dock"), pos, 24.0) != null:
 		hint = "E: use the dock (boats)"
 	elif boat != null:
@@ -1718,6 +1746,9 @@ func _map_markers() -> Dictionary:
 		items.append(["home", home])
 	for b in boats:
 		items.append(["boat", b.pos])
+	for h in tame_horses:
+		if h != riding_horse:
+			items.append(["horse", h.pos])
 	# Raider camps on the islets you've found.
 	for c in camps:
 		if camps_found.has(c["id"]) and _camp_holds(c["id"]):
@@ -2183,6 +2214,145 @@ func _chest_take(b: Structure) -> void:
 	b.items = {}
 
 
+# ---------- Horses ----------
+
+## Where wild herds graze: meadows around the island, one near the start so
+## you meet horses early. Worked out from the island's seed.
+func _make_herds() -> void:
+	herds.clear()
+	var fixed := RandomNumberGenerator.new()
+	fixed.seed = world.seed_value * 29 + 11
+	var half := World.SIZE / 2
+	var tries := 0
+	while herds.size() < HERDS and tries < 4000:
+		tries += 1
+		var near_start := herds.is_empty() and tries < 1500
+		var cell: Vector2i
+		if near_start:
+			var a := fixed.randf() * TAU
+			var d := fixed.randf_range(30.0, 60.0)
+			cell = world.spawn_cell + Vector2i(int(cos(a) * d), int(sin(a) * d))
+		else:
+			var r := sqrt(fixed.randf()) * half * 0.85
+			var a2 := fixed.randf() * TAU
+			cell = Vector2i(half + int(cos(a2) * r), half + int(sin(a2) * r))
+		if world.terrain_at(cell) != World.GRASS:
+			continue
+		var spot := world.cell_center(cell)
+		if not world.is_walkable(spot):
+			continue
+		var crowded := false
+		for h in herds:
+			if (h["pos"] as Vector2).distance_to(spot) < 1200.0:
+				crowded = true
+		for c in camps:
+			if (c["pos"] as Vector2).distance_to(spot) < 700.0:
+				crowded = true
+		if not crowded:
+			herds.append({"id": "herd-%d" % herds.size(), "pos": spot})
+
+
+## Wild horses appear as you come near their meadow; tame ones are always there.
+func _tick_horses(delta: float) -> void:
+	for h in herds:
+		var at: Vector2 = h["pos"]
+		var dist := at.distance_to(player.pos)
+		for j in HERD_SIZE:
+			var id := "%s:%d" % [h["id"], j]
+			if dist < 800.0 and not _wild_horses.has(id) and not horses_taken.has(id):
+				var spot := world.random_walkable_near(at, 4.0, 50.0, rng)
+				if spot != Vector2.INF:
+					_wild_horses[id] = _spawn_horse(spot, abs(hash(id)) % Horse.COATS.size(), true, id, at)
+			elif dist > 1300.0 and _wild_horses.has(id):
+				_wild_horses[id].queue_free()
+				_wild_horses.erase(id)
+	for horse in _wild_horses.values():
+		horse.tick(delta)
+	for horse in tame_horses:
+		if horse != riding_horse:
+			horse.tick(delta)
+
+
+func _spawn_horse(at: Vector2, coat: int, wild: bool, id: String = "", home_pos: Vector2 = Vector2.ZERO) -> Horse:
+	var horse: Horse = Horse.new()
+	horse.world = world
+	horse.pos = at
+	horse.coat = coat
+	horse.wild = wild
+	horse.herd_id = id
+	horse.home = home_pos if wild else at
+	horse.facing = Vector2.from_angle(float(abs(hash(id + str(at))) % 628) / 100.0)
+	entities.add_child(horse)
+	return horse
+
+
+## E by a horse: feed a wild one (berries win its trust), or ride a tame one.
+func _use_horse(horse: Horse) -> void:
+	if not horse.wild:
+		_mount(horse)
+		return
+	if tame_horses.size() >= MAX_TAME_HORSES:
+		hud.toast("You have all the horses you can look after (%d)." % MAX_TAME_HORSES)
+		return
+	if player.count("berries") < Horse.BERRIES_PER_FEED:
+		hud.toast("The horse eyes you warily. Offer it %d berries to win its trust." % Horse.BERRIES_PER_FEED)
+		return
+	player.add_item("berries", -Horse.BERRIES_PER_FEED)
+	audio.play("eat", horse.position, -4.0)
+	if horse.feed():
+		_wild_horses.erase(horse.herd_id)
+		horses_taken[horse.herd_id] = true
+		tame_horses.append(horse)
+		audio.play("discover")
+		hud.toast("The horse trusts you now. Press E by it to ride.")
+		_save_timer = SAVE_INTERVAL - 1.0
+	else:
+		hud.toast("It eats from your hand. (Trust %d / %d)" % [horse.trust, Horse.FEEDS_TO_TAME])
+
+
+func _mount(horse: Horse) -> void:
+	if sailing != null or riding_horse != null:
+		return
+	riding_horse = horse
+	horse.visible = false
+	player.pos = horse.pos
+	player.facing = horse.facing
+	player.mount(true, Horse.COATS[horse.coat % Horse.COATS.size()])
+	hud.toast("You swing into the saddle. You ride almost twice as fast. E to dismount.")
+
+
+func _dismount() -> void:
+	if riding_horse == null:
+		return
+	var horse := riding_horse
+	riding_horse = null
+	player.mount(false)
+	horse.pos = player.pos
+	horse.facing = player.facing
+	horse.visible = true
+	# Step off beside the horse.
+	for side in [Vector2(14, 0), Vector2(-14, 0), Vector2(0, 14), Vector2(0, -14)]:
+		var off: Vector2 = player.facing.orthogonal() * side.x + player.facing * side.y
+		if world.is_walkable(player.pos + off):
+			player.pos += off
+			break
+	_save_timer = SAVE_INTERVAL - 1.0
+
+
+func _export_horses() -> Array:
+	var out := []
+	for h in tame_horses:
+		var at: Vector2 = player.pos if h == riding_horse else h.pos  # the one you ride is where you are
+		out.append([snappedf(at.x, 0.1), snappedf(at.y, 0.1), h.coat])
+	return out
+
+
+func _tick_riding() -> void:
+	if riding_horse != null:
+		riding_horse.pos = player.pos
+		riding_horse.facing = player.facing
+
+
 # ---------- Boats ----------
 
 func _next_to_water(cell: Vector2i) -> bool:
@@ -2279,6 +2449,8 @@ func _spawn_boat(kind: String, at: Vector2, facing: Vector2) -> Boat:
 func _board(boat: Boat) -> void:
 	if sailing != null:
 		return
+	if riding_horse != null:
+		_dismount()  # the horse waits on the shore
 	if not world.is_sailable(boat.pos, boat.can_cross_deep()) and world.is_ice(world.cell_of(boat.pos)):
 		hud.toast("Your %s is frozen in the ice until spring." % boat.display_name().to_lower())
 		return
@@ -2654,6 +2826,8 @@ func _export_soldiers() -> Array:
 
 func _die() -> void:
 	_leave_boat()
+	if riding_horse != null:
+		_dismount()
 	alive = false
 	player.die()
 	hud.set_hint("")
@@ -2992,6 +3166,8 @@ func save_game(respawn: bool = false, upload: bool = false) -> void:
 		"formation": formation,
 		"raids": {"cleared": camps_cleared.duplicate(), "found": camps_found.keys()},
 		"boats": _export_boats(),
+		"horses": {"tame": _export_horses(),
+			"riding": tame_horses.find(riding_horse) if riding_horse != null else -1, "taken": horses_taken.keys()},
 		"sailing": boats.find(sailing) if sailing != null else -1,
 		"player": {
 			"pos": [player.pos.x, player.pos.y],
@@ -3150,6 +3326,14 @@ func _apply_save(save: Dictionary) -> bool:
 	for bo in save.get("boats", []):
 		if typeof(bo) == TYPE_ARRAY and bo.size() >= 5 and _boat_of(str(bo[0])) == null:
 			_spawn_boat(str(bo[0]), Vector2(float(bo[1]), float(bo[2])), Vector2(float(bo[3]), float(bo[4])))
+	var hs: Variant = save.get("horses", {})
+	if typeof(hs) == TYPE_DICTIONARY:
+		for t in hs.get("taken", []):
+			horses_taken[str(t)] = true
+		for row in hs.get("tame", []):
+			if typeof(row) == TYPE_ARRAY and row.size() >= 3 and tame_horses.size() < MAX_TAME_HORSES:
+				tame_horses.append(_spawn_horse(Vector2(float(row[0]), float(row[1])), int(row[2]), false))
+		_resume_riding = int(hs.get("riding", -1))
 	var aboard := int(save.get("sailing", -1))
 	if aboard >= 0 and aboard < boats.size():
 		_resume_sailing = aboard

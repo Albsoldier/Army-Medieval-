@@ -19,6 +19,7 @@ const COLORS := {
 	"poi_looted": Color(0.45, 0.6, 0.7),
 	"boat": Color(0.55, 0.32, 0.16),
 	"raiders": Color(0.85, 0.15, 0.12),
+	"horse": Color(0.62, 0.42, 0.24),
 }
 
 var world: World

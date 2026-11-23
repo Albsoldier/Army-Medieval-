@@ -5,6 +5,9 @@ extends Node3D
 const World = preload("res://scripts/world.gd")
 const Art = preload("res://scripts/art.gd")
 const Gear = preload("res://scripts/gear.gd")
+const Horse = preload("res://scripts/horse.gd")
+const RIDE_SPEED := 1.9  # how much faster you go on horseback
+const SADDLE := 0.55  # how much higher you sit on a horse
 
 const SPEED := 95.0
 const TORCH_RADIUS := 85.0
@@ -49,6 +52,10 @@ var torch_time := 0.0
 var first_person := false
 ## Afloat: set by main.gd while you're on a boat.
 var on_boat := false
+var riding := false  # on horseback (set with mount())
+var _mount: Node3D
+var _mount_legs: Array = []
+var _gait := 0.0
 var boat_deep := false  # a galley can cross the deep sea
 var boat_speed := 1.0
 var deck_height := 0.2  # set with set_first_person()
@@ -177,13 +184,37 @@ func move(dir: Vector2, delta: float) -> void:
 	if not _moving:
 		return
 	facing = dir.normalized()
-	var step := facing * SPEED * (boat_speed if on_boat else 1.0) * delta
+	var pace := boat_speed if on_boat else (RIDE_SPEED if riding else 1.0)
+	var step := facing * SPEED * pace * delta
 	var next_x := pos + Vector2(step.x, 0)
 	if _can_be_at(next_x):
 		pos = next_x
 	var next_y := pos + Vector2(0, step.y)
 	if _can_be_at(next_y):
 		pos = next_y
+
+
+## Gets on a horse of the given coat colour, or off it (coat ignored).
+func mount(on: bool, coat_color: Color = Color.BLACK) -> void:
+	riding = on
+	if _mount:
+		_mount.queue_free()
+		_mount = null
+		_mount_legs = []
+	if on:
+		_mount = Node3D.new()
+		_model.add_child(_mount)
+		_mount_legs = Horse.build_model(_mount, coat_color, true)
+		if first_person:
+			for mi in _mount.find_children("*", "MeshInstance3D", true, false):
+				(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+	# Hips on the saddle: the legs hang down either side.
+	_body.position = Vector3(0, SADDLE, -0.05) if on else Vector3.ZERO
+
+
+## How far above the ground your eyes are lifted (by a horse).
+func ride_height() -> float:
+	return SADDLE if riding else 0.0
 
 
 func _can_be_at(p: Vector2) -> bool:
@@ -204,7 +235,11 @@ func tick_visuals(delta: float) -> void:
 	_model.rotation.y = lerp_angle(_model.rotation.y, atan2(facing.x, facing.y), minf(delta * 12.0, 1.0))
 	_body.tick(delta)
 	if not dead:
-		_body.play("run" if _moving else "idle")
+		_body.play("idle" if riding else ("run" if _moving else "idle"))
+	if riding:
+		_gait += delta * (12.0 if _moving else 0.0)
+		Horse.animate_legs(_mount_legs, _gait, 1.0 if _moving else 0.0)
+		_mount.position.y = absf(sin(_gait)) * 0.05 if _moving else 0.0
 	_moving_last = _moving
 	_moving = false
 	_body.flash(hurt_flash > 0.0)

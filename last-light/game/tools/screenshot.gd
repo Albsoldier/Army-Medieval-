@@ -14,7 +14,7 @@ func _initialize() -> void:
 	if _dir == "":
 		_dir = OS.get_user_data_dir().path_join("shots")
 	DirAccess.make_dir_recursive_absolute(_dir)
-	create_timer(1000.0).timeout.connect(_on_watchdog)
+	create_timer(1300.0).timeout.connect(_on_watchdog)
 	_run.call_deferred()
 
 
@@ -250,9 +250,31 @@ func _run() -> void:
 	main.player.pos = (rc["pos"] as Vector2) + Vector2(0, 150)
 	main.player.facing = Vector2.UP
 	w.update_view(main.player.pos, true)
-	main.zoom = 1.0
+	main.zoom = 1.9  # high enough to see over the trees around the meadow
 	await _frames(40)
 	await _shot("16b-raider-camp")
+	# Wild horses in their meadow, then riding one.
+	var herd: Dictionary = main.herds[0]
+	main.player.pos = (herd["pos"] as Vector2) + Vector2(0, 90)
+	main.player.facing = Vector2.UP
+	w.update_view(main.player.pos, true)
+	main._tick_horses(0.1)
+	main.zoom = 1.5
+	await _frames(30)
+	await _shot("16c-wild-horses")
+	if not main._wild_horses.is_empty():
+		var mare = main._wild_horses.values()[0]
+		main.player.add_item("berries", 10)
+		for k in 3:
+			main._use_horse(mare)
+		main._mount(mare)
+		main.player.facing = Vector2(1, 0.3).normalized()
+		main.cam_yaw = 0.6
+		main.zoom = 0.6
+		await _frames(25)
+		await _shot("16d-riding")
+		main._dismount()
+		main.cam_yaw = 0.0
 	for r in main.wolves.duplicate():
 		if r.is_raider():
 			main.wolves.erase(r)
