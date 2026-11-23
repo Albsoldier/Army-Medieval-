@@ -1,4 +1,4 @@
-# 🔥 Last Light
+# 🏝️ Islander
 
 A low-poly 3D survival game made with Godot, set on one big, permanent island (about a kilometre across) that every player shares. You never meet other survivors, but you find what they left: graves with epitaphs, notes, abandoned campfires and stashes of supplies. When you die, your grave stays on the island for good.
 
@@ -139,7 +139,7 @@ After that, every push to `main` that changes `last-light/` runs the tests, expo
 
 ## Develop locally
 
-- **Game:** open `last-light/game/project.godot` in Godot 4.4 or newer and press F5. To use a server, set **Project Settings → Last Light → Api → Base Url**. A web build also accepts `?api=https://...` in the page URL. Run with `-- --seed=20261119` to load a specific island.
+- **Game:** open `last-light/game/project.godot` in Godot 4.4 or newer and press F5. To use a server, set **Project Settings → Last Light → Api → Base Url** (the settings section keeps the game's old name). A web build also accepts `?api=https://...` in the page URL. Run with `-- --seed=20261119` to load a specific island.
 - **Server:** run `npm test` in `last-light/server`. For a live local server, put `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in `last-light/server/.dev.vars` and run `npm run dev`.
 
 ## Fair play

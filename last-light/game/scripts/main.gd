@@ -1,4 +1,4 @@
-## Last Light: game loop, rules and the link between the island and the server.
+## Islander: game loop, rules and the link between the island and the server.
 extends Node3D
 
 const World = preload("res://scripts/world.gd")
@@ -195,7 +195,7 @@ func _show_welcome() -> void:
 	var buttons := PackedStringArray(["Begin"])
 	if api.is_online():
 		buttons.append("I have an account")
-	hud.open_dialog("Last Light",
+	hud.open_dialog("Islander",
 		"You wake on the cold sand of %s. Others have washed up here before you, and some never left.\n\nWhat should the island remember you as?" % island_name,
 		buttons, _on_name_chosen, "Your name", 20, false)
 

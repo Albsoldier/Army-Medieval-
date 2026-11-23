@@ -1,4 +1,4 @@
--- Last Light island server schema (Turso / libSQL).
+-- Islander island server schema (Turso / libSQL).
 -- Apply with:  turso db shell <your-db> < schema.sql
 
 CREATE TABLE IF NOT EXISTS players (
