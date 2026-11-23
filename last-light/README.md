@@ -6,7 +6,8 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
 
 ## How it plays
 
-- **Survive.** Keep **health, hunger, warmth and sanity** above zero. One in-game day lasts 16 minutes: about 9½ minutes of daylight, then dusk, a 4-minute night and dawn.
+- **Stamina.** Hold Shift to sprint (1.5× faster), which drains stamina; every attack costs a little too. Run out and you can't sprint (and swing slower) until it recovers. It comes back after a moment's rest, fastest standing still and slower when you're starving.
+- **Survive.** Keep **health, hunger, warmth and sanity** above zero. The status card (top left) shows health and stamina as bars, and hunger, warmth and sanity as round gauges that flash red when low; click its backpack to open the inventory. One in-game day lasts 16 minutes: about 9½ minutes of daylight, then dusk, a 4-minute night and dawn.
 - **Gather.** Chop trees for wood, break rocks for stone and pick berries. Bushes grow back after two days.
 - **Craft.** `C` campfire (5 wood, 3 stone), `R` torch (2 wood); the spear (3 wood, 2 stone) and everything else from the inventory.
 - **Inventory (I or Tab).** Pauses the game and shows your supplies, weapons and tools, and what you can craft. Click to eat, heal, equip, take armour off or shutter the lantern.
@@ -64,7 +65,7 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
 - **Seasons.** Three days each of spring, summer, autumn and winter. Summer nights are mild, and autumn bushes give extra berries. In winter snow covers the island, lakes and shallow sea freeze so you can walk on the ice, nothing grows, and the cold bites even by day.
 - **Boats and islets.** Build a dock at the water's edge (build mode, `-`). It makes a raft (12 wood) for lakes and the shallows, or a galley (40 wood, 4 iron, 4 hides) that crosses the open sea, carrying your legion with you. Five islets lie offshore, each with a treasure hoard and rich iron and gold ore. E by a boat boards it; E at sea goes ashore.
 
-Controls: WASD/arrows to move, mouse wheel to zoom, `E` (hold) to gather or use, `Space`/click to attack, `1`–`5` hotbar, `I`/`Tab` inventory, `V` first person, `F` to eat, `X` to take down a building, `H` to show or hide help.
+Controls: WASD/arrows to move, mouse wheel to zoom, `E` (hold) to gather or use, `Space`/click to attack, `1`–`5` hotbar, `I`/`Tab` inventory, `V` first person, `Shift` sprint, `F` to eat, `X` to take down a building, `H` to show or hide help.
 
 Without a server configured, the game runs offline: the island and survival work, but there are no traces and no leaderboard.
 

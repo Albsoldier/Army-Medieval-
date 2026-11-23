@@ -207,6 +207,7 @@ func _ready() -> void:
 	hud.set_island(island_name, "a permanent island")
 	hud.setup_maps(world, _map_markers)
 	hud.setup_hotbar(_on_hotbar_slot)
+	hud.set_backpack_action(_open_inventory)
 	hud.set_crosshair(first_person)
 	if _resume_riding >= 0 and _resume_riding < tame_horses.size():
 		_mount(tame_horses[_resume_riding])  # you saved in the saddle
@@ -265,6 +266,7 @@ func _setup_input() -> void:
 	_bind("craft_torch", [KEY_R])
 	_bind("inventory", [KEY_I, KEY_TAB])
 	_bind("view", [KEY_V])
+	_bind("sprint", [KEY_SHIFT])
 	_bind("formation", [KEY_Z])
 	_bind("select_army", [KEY_Y])
 	_bind("write_note", [KEY_N])
@@ -394,7 +396,9 @@ func _process(delta: float) -> void:
 		_advance_clock(delta)
 		# Up on the keyboard always means away from the camera, however it's turned.
 		var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down").rotated(-cam_yaw)
-		player.move(dir, delta)
+		player.move(dir, delta, Input.is_action_pressed("sprint"))
+		if not player.sprinting:
+			player.recover_stamina(delta)
 		_tick_boat()
 		_tick_riding()
 		_tick_horses(delta)
@@ -1211,6 +1215,10 @@ func _attack() -> void:
 	if attack_cooldown > 0.0:
 		return
 	attack_cooldown = player.attack_cooldown()
+	# Tired arms swing slower.
+	if player.stamina < Player.SWING_COST:
+		attack_cooldown *= 2.0
+	player.spend_stamina(Player.SWING_COST)
 	player.swing()
 	audio.play("swing", player.position, -6.0)
 	var damage := player.attack_damage()
@@ -1451,7 +1459,8 @@ func _refresh_hud() -> void:
 			"following" if army_mode == "follow" else "guarding", formation]
 	hud.update_hotbar(_hotbar_slots(), HOTBAR.find(player.equipped if player.owns(player.equipped) else "hands"))
 	hud.set_hotbar_visible(started)
-	hud.update_stats([player.health, player.hunger, player.warmth, player.sanity], day, time_label(), inv)
+	hud.update_stats([player.health, player.stamina, player.hunger, player.warmth, player.sanity], day, time_label(), inv,
+		[100.0, Player.MAX_STAMINA])
 
 
 # ---------- Campfires, tools, stations ----------
