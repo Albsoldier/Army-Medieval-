@@ -538,7 +538,7 @@ func _run_game() -> void:
 	var wolves_before: int = main.wolves.size()
 	main.day = 5
 	main._start_raid()
-	var band := main.wolves.filter(func(w): return w.is_raider())
+	var band: Array = main.wolves.filter(func(w): return w.is_raider())
 	_check(band.size() >= 2 and main.wolves.size() > wolves_before, "a war band comes ashore (%d raiders)" % band.size())
 	_check(main._count_wolves() == wolves_before, "raiders don't count as wolves")
 	var raider = band[0]

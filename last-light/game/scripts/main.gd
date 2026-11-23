@@ -832,7 +832,7 @@ func _tick_wolves(delta: float) -> void:
 			if b.damage(rate * delta):
 				hud.toast("%s broke through your %s!" % ["Raiders" if raider else "Wolves", b.display_name().to_lower()])
 				_remove_structure(b.cell)
-		var far := wolf.pos.distance_to(player.pos)
+		var far: float = wolf.pos.distance_to(player.pos)
 		if (not raider and not night and far > 450.0) or (raider and wolf.home == Vector2.INF and not night and far > 900.0):
 			wolves.erase(wolf)
 			wolf.queue_free()
