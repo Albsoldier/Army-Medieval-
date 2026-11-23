@@ -5,6 +5,8 @@ extends Node3D
 
 const World = preload("res://scripts/world.gd")
 const Art = preload("res://scripts/art.gd")
+const CharacterModel = preload("res://scripts/character_model.gd")
+const HORSE_MODEL := preload("res://models/horse.glb")
 
 const COATS := [Color("5b3a22"), Color("2f2620"), Color("8a6a48"), Color("c9b8a0"), Color("6e4e32")]
 const FEEDS_TO_TAME := 3  # berries are offered this many times before a horse trusts you
@@ -24,10 +26,9 @@ var home := Vector2.ZERO  # where the herd grazes
 var items: Dictionary = {}  # what's in the saddlebags (tame horses)
 
 var _model: Node3D
-var _legs: Array = []
+var _look: Dictionary = {}
 var _goal := Vector2.INF
 var _rest := 0.0
-var _gait := 0.0
 var _rng := RandomNumberGenerator.new()
 
 
@@ -35,37 +36,80 @@ func _ready() -> void:
 	_rng.seed = hash(herd_id) + int(pos.x) * 7 + int(pos.y)
 	_model = Node3D.new()
 	add_child(_model)
-	_legs = build_model(_model, COATS[coat % COATS.size()], not wild)
+	_look = build_model(_model, COATS[coat % COATS.size()], not wild)
 	position = world.to_3d(pos)
 	_model.rotation.y = atan2(facing.x, facing.y)
 
 
-## A low-poly horse on `parent`. Returns the four leg pivots to swing.
-## With `saddled`, it wears a red saddle cloth.
-static func build_model(parent: Node3D, coat_color: Color, saddled: bool) -> Array:
-	var legs := []
-	Art.part(parent, Art.box(Vector3(0.46, 0.55, 1.35)), coat_color, Vector3(0, 1.1, 0))
-	Art.part(parent, Art.box(Vector3(0.3, 0.75, 0.32)), coat_color, Vector3(0, 1.5, 0.68), Vector3(0.55, 0, 0))  # neck
-	Art.part(parent, Art.box(Vector3(0.26, 0.28, 0.55)), coat_color, Vector3(0, 1.82, 0.98), Vector3(0.35, 0, 0))  # head
-	Art.part(parent, Art.box(Vector3(0.06, 0.55, 0.12)), Color("1f1a16"), Vector3(0, 1.7, 0.55), Vector3(0.55, 0, 0))  # mane
-	Art.part(parent, Art.box(Vector3(0.1, 0.55, 0.1)), Color("1f1a16"), Vector3(0, 1.0, -0.78), Vector3(-0.4, 0, 0))  # tail
+## A horse on `parent`: the animated deer-family model, recoloured to a horse
+## coat, built stockier, with a dark mane (and a saddle cloth when tame).
+## Returns a "look" to pass to animate().
+static func build_model(parent: Node3D, coat_color: Color, saddled: bool) -> Dictionary:
+	var body: CharacterModel = CharacterModel.new()
+	parent.add_child(body)
+	body.build(HORSE_MODEL, 2.25, true, {
+		"idle": ["Idle"], "walk": ["Walk"], "run": ["Gallop"], "graze": ["Eating"], "death": ["Death"],
+	}, {"Main": {"color": coat_color}, "Main_Light": {"color": coat_color.lightened(0.22)},
+		"Main_Dark": {"color": coat_color.darkened(0.35)}, "Hooves": {"color": Color("2a2420")}})
+	body.scale = Vector3(1.35, 1.0, 1.0)  # a horse is broader than a deer
+	var look := {"body": body, "torso": body.bone_follower("Torso"), "neck": body.bone_follower("Neck2"),
+		"head": body.bone_follower("Head")}
+	var mane := Node3D.new()
+	mane.top_level = true
+	parent.add_child(mane)
+	for k in 4:
+		Art.part(mane, Art.box(Vector3(0.07, 0.16, 0.18)), Color("1f1a16"), Vector3(0, 0.1 - k * 0.02, -0.16 * k))
+	look["mane"] = mane
 	if saddled:
-		Art.part(parent, Art.box(Vector3(0.52, 0.08, 0.6)), Color("8b2e2e"), Vector3(0, 1.4, -0.05))
-	for x in [-0.17, 0.17]:
-		for z in [-0.5, 0.5]:
-			var hip := Node3D.new()
-			hip.position = Vector3(x, 0.92, z)
-			parent.add_child(hip)
-			Art.part(hip, Art.box(Vector3(0.12, 0.9, 0.14)), coat_color.darkened(0.1), Vector3(0, -0.45, 0))
-			Art.part(hip, Art.box(Vector3(0.13, 0.08, 0.16)), Color("1f1a16"), Vector3(0, -0.88, 0))
-			legs.append(hip)
-	return legs
+		var saddle := Node3D.new()
+		saddle.top_level = true
+		parent.add_child(saddle)
+		Art.part(saddle, Art.box(Vector3(0.62, 0.05, 0.62)), Color("8b2e2e"), Vector3(0, 0, 0))
+		Art.part(saddle, Art.box(Vector3(0.64, 0.02, 0.06)), Color("c9a24a"), Vector3(0, 0.03, 0.29))
+		Art.part(saddle, Art.box(Vector3(0.64, 0.02, 0.06)), Color("c9a24a"), Vector3(0, 0.03, -0.29))
+		Art.part(saddle, Art.box(Vector3(0.34, 0.1, 0.4)), Color("5a3d22"), Vector3(0, 0.07, 0))
+		look["saddle"] = saddle
+	return look
 
 
-## Swings the legs; `pace` 0 stands still.
-static func animate_legs(legs: Array, gait: float, pace: float) -> void:
-	for i in legs.size():
-		(legs[i] as Node3D).rotation.x = sin(gait + (PI if i % 3 == 0 else 0.0)) * 0.55 * pace
+## Plays the right gait (pace 0 still, ~0.5 walking, 1 galloping) and keeps the
+## mane and saddle on the horse.
+static func animate(look: Dictionary, delta: float, pace: float, grazing: bool = false) -> void:
+	var body: CharacterModel = look["body"]
+	body.tick(delta)
+	if pace > 0.7:
+		body.play("run", 1.0)
+	elif pace > 0.05:
+		body.play("walk", 1.2)
+	else:
+		body.play("graze" if grazing else "idle")
+	var yaw := Basis(Vector3.UP, body.get_parent_node_3d().global_rotation.y) if body.get_parent_node_3d() else Basis()
+	var neck: Node3D = look.get("neck")
+	var head: Node3D = look.get("head")
+	if neck and head:
+		var mane: Node3D = look["mane"]
+		var along := (neck.global_position - head.global_position)
+		mane.global_transform = Transform3D(yaw * Basis(Vector3.RIGHT, -atan2(along.y, maxf(Vector2(along.x, along.z).length(), 0.001))),
+			head.global_position.lerp(neck.global_position, 0.25) + Vector3(0, 0.12, 0))
+	var torso: Node3D = look.get("torso")
+	if torso and look.has("saddle"):
+		(look["saddle"] as Node3D).global_transform = Transform3D(yaw, torso.global_position + Vector3(0, 0.2, 0))
+
+
+## How high the saddle sits above the horse's feet, in metres.
+static func saddle_height(look: Dictionary) -> float:
+	var torso: Node3D = look.get("torso")
+	var body: CharacterModel = look["body"]
+	if torso == null or not torso.is_inside_tree():
+		return 1.2
+	return torso.global_position.y - body.global_position.y + 0.2
+
+
+static func set_visible_look(look: Dictionary, shown: bool) -> void:
+	(look["body"] as Node3D).visible = shown
+	for key in ["mane", "saddle"]:
+		if look.has(key):
+			(look[key] as Node3D).visible = shown
 
 
 ## Wild horses wander and graze near their herd; tame ones stand and wait.
@@ -91,12 +135,7 @@ func tick(delta: float) -> void:
 					_rest = 1.0
 	position = world.to_3d(pos)
 	_model.rotation.y = lerp_angle(_model.rotation.y, atan2(facing.x, facing.y), minf(delta * 4.0, 1.0))
-	_gait += delta * (6.0 if moving else 0.0)
-	animate_legs(_legs, _gait, 0.6 if moving else 0.0)
-	# Grazing: the head dips while resting.
-	if _model.get_child_count() > 2:
-		var head := _model.get_child(2) as Node3D
-		head.position.y = 1.82 - (0.35 if wild and not moving and _rest > 0.0 else 0.0)
+	animate(_look, delta, 0.5 if moving else 0.0, wild and not moving and _rest > 0.0)
 
 
 ## Offers berries. Returns true when this feeding tames the horse.
@@ -106,7 +145,7 @@ func feed() -> bool:
 		wild = false
 		for child in _model.get_children():
 			child.queue_free()
-		_legs = build_model(_model, COATS[coat % COATS.size()], true)
+		_look = build_model(_model, COATS[coat % COATS.size()], true)
 		return true
 	return false
 

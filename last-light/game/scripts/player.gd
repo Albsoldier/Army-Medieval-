@@ -7,7 +7,7 @@ const Art = preload("res://scripts/art.gd")
 const Gear = preload("res://scripts/gear.gd")
 const Horse = preload("res://scripts/horse.gd")
 const RIDE_SPEED := 1.9  # how much faster you go on horseback
-const SADDLE := 0.55  # how much higher you sit on a horse
+const HIPS := 0.84  # how high a standing survivor's hips are (for sitting in a saddle)
 
 const SPEED := 95.0
 const SPRINT := 1.5  # how much faster you go sprinting (Shift)
@@ -62,8 +62,8 @@ var first_person := false
 var on_boat := false
 var riding := false  # on horseback (set with mount())
 var _mount: Node3D
-var _mount_legs: Array = []
-var _gait := 0.0
+var _mount_look: Dictionary = {}
+var _saddle := 0.0  # how much higher you sit on your horse
 var boat_deep := false  # a galley can cross the deep sea
 var boat_speed := 1.0
 var deck_height := 0.2  # set with set_first_person()
@@ -72,7 +72,7 @@ var hurt_flash := 0.0
 var swing_time := 0.0
 
 const CharacterModel = preload("res://scripts/character_model.gd")
-const SURVIVOR := preload("res://models/survivor.glb")
+const SURVIVOR := preload("res://models/adventurer.glb")
 
 var dead := false
 var _model: Node3D  # turns to face the walking direction
@@ -102,12 +102,12 @@ func _ready() -> void:
 	_body = CharacterModel.new()
 	_model.add_child(_body)
 	_body.build(SURVIVOR, 1.62, false, {
-		"idle": ["Man_Idle"],
-		"walk": ["Man_Walk"],
-		"run": ["Man_Run"],
-		"punch": ["Man_Punch"],
-		"slash": ["Man_SwordSlash"],
-		"death": ["Man_Death"],
+		"idle": ["Man_Idle", "Idle"],
+		"walk": ["Man_Walk", "Walk"],
+		"run": ["Man_Run", "Run"],
+		"punch": ["Man_Punch", "Punch_Right"],
+		"slash": ["Man_SwordSlash", "Sword_Slash"],
+		"death": ["Man_Death", "Death"],
 	}, {"Shirt": {"color": Color("3b4f35")}})  # a dark green field jacket
 	_right_hand = _body.bone_follower("Palm.R")
 	_left_hand = _body.bone_follower("Palm.L")
@@ -213,21 +213,22 @@ func mount(on: bool, coat_color: Color = Color.BLACK) -> void:
 	if _mount:
 		_mount.queue_free()
 		_mount = null
-		_mount_legs = []
+		_mount_look = {}
 	if on:
 		_mount = Node3D.new()
 		_model.add_child(_mount)
-		_mount_legs = Horse.build_model(_mount, coat_color, true)
+		_mount_look = Horse.build_model(_mount, coat_color, true)
 		if first_person:
 			for mi in _mount.find_children("*", "MeshInstance3D", true, false):
 				(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 	# Hips on the saddle: the legs hang down either side.
-	_body.position = Vector3(0, SADDLE, -0.05) if on else Vector3.ZERO
+	_saddle = 0.62 if on else 0.0  # refined from the horse's back each frame
+	_body.position = Vector3(0, _saddle, -0.05) if on else Vector3.ZERO
 
 
 ## How far above the ground your eyes are lifted (by a horse).
 func ride_height() -> float:
-	return SADDLE if riding else 0.0
+	return _saddle if riding else 0.0
 
 
 ## Uses up stamina. Running out leaves you winded until it recovers to 25.
@@ -276,9 +277,10 @@ func tick_visuals(delta: float) -> void:
 	if not dead:
 		_body.play("idle" if riding else ("run" if _moving else "idle"))
 	if riding:
-		_gait += delta * (12.0 if _moving else 0.0)
-		Horse.animate_legs(_mount_legs, _gait, 1.0 if _moving else 0.0)
-		_mount.position.y = absf(sin(_gait)) * 0.05 if _moving else 0.0
+		Horse.animate(_mount_look, delta, 1.0 if _moving else 0.0)
+		# Sit in the saddle, whatever the horse's gait.
+		_saddle = maxf(Horse.saddle_height(_mount_look) - HIPS, 0.2)
+		_body.position = Vector3(0, _saddle, -0.05)
 	_moving_last = _moving
 	_moving = false
 	_body.flash(hurt_flash > 0.0)

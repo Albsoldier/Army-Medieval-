@@ -1,9 +1,16 @@
 # Model credits
 
-Both models are by **Quaternius** (https://quaternius.com) and released under
-**CC0 1.0** (public domain). No attribution is required, but credit is given anyway.
+All models are by **Quaternius** (https://quaternius.com) and released under
+**CC0 1.0** (public domain). They come from the `@netforge/asset-library-files`
+CC0 bundle. No attribution is required, but credit is given anyway.
 
-| File | Original | Changes |
-|---|---|---|
-| `survivor.glb` | Quaternius animated "Man" (via the `@netforge/asset-library-files` CC0 bundle, `lowpoly/worker.glb`) | Decompressed (meshopt) and dequantized with glTF-Transform so Godot can import it. The shirt is recoloured in code. |
-| `wolf.glb` | Quaternius animated "Wolf" (same bundle, `lowpoly/wolf.glb`) | Decompressed and dequantized with glTF-Transform. The eyes are made to glow in code. |
+Each was decompressed (meshopt) and dequantized with glTF-Transform so Godot can import it.
+
+| File | Original | Used for | Changes in code |
+|---|---|---|---|
+| `adventurer.glb` | `lowpoly/adventurer.glb` (animated adventurer) | the survivor and your soldiers | soldiers' clothes are recoloured by unit type |
+| `raider.glb` | `lowpoly/hooded_adventurer.glb` | raiders and raider chiefs | leathers recoloured; chiefs get a helmet and mantle |
+| `horse.glb` | `lowpoly/deer.glb` (animated deer) | horses | recoloured to horse coats, built broader, with a mane and saddle |
+| `wolf.glb` | `lowpoly/wolf.glb` (animated wolf) | wolves | eyes glow; timber and dire wolves are recoloured and larger |
+
+All characters get softer, more natural materials in `scripts/character_model.gd` (rim light on skin and fur, shiny metal).

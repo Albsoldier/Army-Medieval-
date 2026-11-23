@@ -1076,7 +1076,10 @@ func _interact() -> void:
 	if place != null:
 		_use_poi(place)
 		return
-	var horse := _nearest(tame_horses + _wild_horses.values(), pos, 30.0)
+	# Your own horse comes first, even with wild ones grazing close by.
+	var horse := _nearest(tame_horses, pos, 30.0)
+	if horse == null:
+		horse = _nearest(_wild_horses.values(), pos, 30.0)
 	if horse != null:
 		_use_horse(horse)
 		return
@@ -1387,7 +1390,9 @@ func _update_hint() -> void:
 	if build_mode:
 		return  # the build bar uses the hint line
 	var boat := _nearest(boats, pos, 36.0)
-	var horse_near := _nearest(tame_horses + _wild_horses.values(), pos, 30.0)
+	var horse_near := _nearest(tame_horses, pos, 30.0)
+	if horse_near == null:
+		horse_near = _nearest(_wild_horses.values(), pos, 30.0)
 	if riding_horse != null:
 		hint = "On horseback · E: dismount"
 	elif sailing != null:

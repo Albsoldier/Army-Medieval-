@@ -5,7 +5,7 @@
 extends "res://scripts/wolf.gd"
 
 const Art = preload("res://scripts/art.gd")
-const SURVIVOR := preload("res://models/survivor.glb")
+const SURVIVOR := preload("res://models/raider.glb")  # a hooded fighter in leather and iron
 
 const RAIDERS := {
 	"raider": {"name": "raider", "hp": 14, "bite": 14.0, "speed": 80.0, "height": 1.66,
@@ -59,8 +59,10 @@ func _ready() -> void:
 	_body = CharacterModel.new()
 	_model.add_child(_body)
 	_body.build(SURVIVOR, float(stats["height"]), false, {
-		"idle": ["Man_Idle"], "run": ["Man_Run"], "attack": ["Man_SwordSlash"], "death": ["Man_Death"],
-	}, {"Shirt": {"color": stats["shirt"]}, "Pants": {"color": stats["pants"]}})
+		"idle": ["Man_Idle", "Idle"], "run": ["Man_Run", "Run"], "attack": ["Man_SwordSlash", "Sword_Slash"],
+		"death": ["Man_Death", "Death"],
+	}, {"Shirt": {"color": stats["shirt"]}, "Pants": {"color": stats["pants"]},
+		"LightBrown": {"color": stats["shirt"]}, "DarkBrown": {"color": stats["pants"]}})
 	_right_hand = _body.bone_follower("Palm.R")
 	_left_hand = _body.bone_follower("Palm.L")
 	_head = _body.bone_follower("Head")
@@ -70,10 +72,12 @@ func _ready() -> void:
 
 ## A conical iron helmet, a round shield and an axe. Chiefs wear a fur mantle.
 func _build_kit(stats: Dictionary) -> void:
-	_helmet = _piece()
-	Art.part(_helmet, Art.cylinder(0.0, 0.16, 0.22, 8), Color("6f7378"), Vector3(0, 0.14, 0))
-	Art.part(_helmet, Art.cylinder(0.165, 0.165, 0.04, 8), Color("55595e"), Vector3(0, 0.04, 0))
-	Art.part(_helmet, Art.box(Vector3(0.03, 0.12, 0.03)), Color("55595e"), Vector3(0, -0.02, 0.15))  # nose guard
+	# Raiders wear their hoods; a chief wears an iron helmet over his.
+	if kind == "raider_chief":
+		_helmet = _piece()
+		Art.part(_helmet, Art.cylinder(0.0, 0.17, 0.24, 8), Color("6f7378"), Vector3(0, 0.16, 0))
+		Art.part(_helmet, Art.cylinder(0.175, 0.175, 0.04, 8), Color("55595e"), Vector3(0, 0.05, 0))
+		Art.part(_helmet, Art.box(Vector3(0.03, 0.12, 0.03)), Color("55595e"), Vector3(0, -0.01, 0.16))  # nose guard
 	_shield = _piece()
 	Art.part(_shield, Art.cylinder(0.3, 0.3, 0.04, 12), stats["shield"], Vector3.ZERO, Vector3(PI / 2, 0, 0))
 	Art.part(_shield, Art.sphere(0.07, 4, 8), Color("8a8f95"), Vector3(0, 0, 0.03))
@@ -136,7 +140,7 @@ func _animate(delta: float) -> void:
 		_axe.global_transform = Transform3D(turn * Basis(Vector3.RIGHT, 0.6), _right_hand.global_position)
 	if _left_hand:
 		_shield.global_transform = Transform3D(turn, _left_hand.global_position + turn * Vector3(0.04, 0.05, 0.12))
-	if _head:
+	if _head and _helmet:
 		_helmet.global_transform = Transform3D(turn, _head.global_position + Vector3(0, 0.05, 0))
 
 
