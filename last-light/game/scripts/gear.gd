@@ -14,14 +14,14 @@ const SPEAR := [
 const SWORD := [
 	{"name": "Iron sword", "damage": 6, "cost": {"iron": 4, "hide": 1}, "station": "forge", "blade": Color("9ea2a8"), "hilt": Color("5a3d22")},
 	{"name": "Steel sword", "damage": 10, "cost": {"steel": 4, "hide": 1}, "station": "forge", "blade": Color("d4dae2"), "hilt": Color("3d2a18")},
-	{"name": "Gilded sword", "damage": 15, "cost": {"steel": 3, "gold": 3}, "station": "forge", "blade": Color("dfe4ea"), "hilt": Color("e0b43c")},
+	{"name": "Gilded sword", "damage": 15, "cost": {"steel": 3, "gold": 3}, "station": "forge", "blade": Color("e6d28a"), "hilt": Color("e0b43c")},
 ]
 ## reduce: the share of every bite the armour stops. warmth: how much it slows the cold.
 const ARMOUR := [
 	{"name": "Hide armour", "reduce": 0.2, "warmth": 0.2, "cost": {"hide": 4, "wood": 1}, "station": "workbench", "color": Color("6e4f33"), "trim": Color("4d3420")},
 	{"name": "Iron armour", "reduce": 0.45, "warmth": 0.0, "cost": {"iron": 5, "hide": 3}, "station": "forge", "color": Color("7d8186"), "trim": Color("5d6166")},
 	{"name": "Steel armour", "reduce": 0.6, "warmth": 0.0, "cost": {"steel": 5, "hide": 3}, "station": "forge", "color": Color("c4cad2"), "trim": Color("8a9098")},
-	{"name": "Gilded armour", "reduce": 0.75, "warmth": 0.1, "cost": {"steel": 4, "gold": 4, "hide": 2}, "station": "forge", "color": Color("d0d4da"), "trim": Color("e0b43c")},
+	{"name": "Gilded armour", "reduce": 0.75, "warmth": 0.1, "cost": {"steel": 4, "gold": 4, "hide": 2}, "station": "forge", "color": Color("d9bd6a"), "trim": Color("f0cf5a")},
 ]
 const SPEAR_REACH := 34.0
 const SWORD_REACH := 27.0

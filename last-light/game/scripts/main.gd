@@ -1430,8 +1430,10 @@ func _make_gear(kind: String, tier: int) -> bool:
 			player.armour_tier = tier
 			player.armour_on = true
 	audio.play("craft")
-	hud.toast("You make a %s (%s)%s." % [str(g["name"]).to_lower(), Gear.stat_text(kind, tier),
-		" and wear it" if kind == "armour" else " and take it in hand"])
+	if kind == "armour":
+		hud.toast("You put on your new %s (%s)." % [str(g["name"]).to_lower(), Gear.stat_text(kind, tier)])
+	else:
+		hud.toast("You make a %s (%s) and take it in hand." % [str(g["name"]).to_lower(), Gear.stat_text(kind, tier)])
 	_save_timer = SAVE_INTERVAL - 1.0
 	return true
 
