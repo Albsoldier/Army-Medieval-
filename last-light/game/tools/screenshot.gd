@@ -392,11 +392,17 @@ func _open_meadow(w, around: Vector2i) -> Vector2:
 				for oz in range(-9, 10):
 					for ox in range(-6, 7):
 						var c2: Vector2i = cell + Vector2i(ox, oz)
-						if not w.is_land(c2) or w.structures.has(c2) or w.prop_type(c2) in ["tree", "rock", "iron_rock", "gold_rock"]:
+						if not w.is_land(c2) or w.structures.has(c2) or w.terrain_at(c2) == 5:
 							clear = false
 							break
 					if not clear:
 						break
 				if clear:
+					# Clear the trees and rocks here, for the picture only.
+					for oz in range(-9, 10):
+						for ox in range(-6, 7):
+							if w.prop_type(cell + Vector2i(ox, oz)) != "":
+								w.prop_changes[cell + Vector2i(ox, oz)] = {"type": "cleared", "hp": 0, "regrow_day": 0}
+					w._props_dirty = true
 					return w.cell_center(cell) + Vector2(0, -48)  # the units stand north of centre, the camera to the south
 	return Vector2.INF
