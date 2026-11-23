@@ -28,9 +28,11 @@ const TYPES := {
 		"about": "Smelt iron ore, then forge an iron spear, armour and a lantern."},
 	"smokehouse": {"name": "Smokehouse", "cost": {"wood": 10, "stone": 4}, "hp": 150, "blocks": "all",
 		"about": "Smokes all your raw meat at once. Smoked meat is the best food."},
+	"dock": {"name": "Dock", "cost": {"wood": 12, "stone": 2}, "hp": 150, "blocks": "none",
+		"about": "Build at the water's edge. Builds and launches a raft or a galley."},
 }
 const ORDER := ["wood_wall", "stone_wall", "gate", "torch_post", "chest", "tent", "barracks",
-	"workbench", "forge", "smokehouse"]
+	"workbench", "forge", "smokehouse", "dock"]
 ## What each crafting station makes. "gives" is an item, or a tool you keep.
 const RECIPES := {
 	"workbench": [
@@ -92,6 +94,14 @@ func _ready() -> void:
 
 func is_lit() -> bool:
 	return kind == "torch_post"
+
+
+## Which way the open water lies from this tile (for docks).
+func water_direction() -> Vector2:
+	for d in [Vector2i(0, 1), Vector2i(1, 0), Vector2i(0, -1), Vector2i(-1, 0)]:
+		if not world.is_land(cell + d):
+			return Vector2(d)
+	return Vector2.DOWN
 
 
 func display_name() -> String:
@@ -233,6 +243,16 @@ func _build_model() -> void:
 			smoke.scale_amount_max = 2.0
 			smoke.position = Vector3(0.25, 1.95, 0.2)
 			add_child(smoke)
+		"dock":
+			# Planks on posts, reaching out over the water.
+			var out := water_direction()
+			rotation.y = atan2(out.x, out.y)
+			for i in 6:
+				_add(Art.box(Vector3(1.1, 0.07, 0.36)), Color("8f6239").darkened((i % 2) * 0.08), Vector3(0, 0.22, -0.3 + i * 0.37))
+			for x in [-0.5, 0.5]:
+				for z in [-0.3, 0.7, 1.6]:
+					_add(Art.cylinder(0.07, 0.08, 1.6, 6), Color("5a3d22"), Vector3(x, -0.5, z))
+			_add(Art.cylinder(0.09, 0.09, 0.5, 6), Color("4d3420"), Vector3(0.45, 0.45, 1.7))  # mooring post
 		"barracks":
 			_add(Art.box(Vector3(1.0, 1.1, 1.0)), Color("7a5634"), Vector3(0, 0.55, 0))
 			_add(Art.cylinder(0.0, 0.85, 0.8, 4), Color("8b2e2e"), Vector3(0, 1.5, 0), Vector3(0, PI / 4, 0))

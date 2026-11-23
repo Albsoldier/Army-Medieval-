@@ -39,7 +39,15 @@ Your progress is saved: your survivor, inventory, campfires and every tree you'v
 - **Map (M).** A minimap in the corner and a full island map fill in as you explore, showing your buildings, campfires, graves and the places you've found. What you've explored is saved.
 - **Crafting stations.** Build a *workbench* (axe: 2 wood per hit; pickaxe: 2 stone per hit and mines iron ore; healing salve, used with Q), a *forge* (smelt iron ore into iron; iron spear, iron armour that halves wolf bites, a lantern that never runs out) and a *smokehouse* (smokes all your raw meat; smoked meat fills 45 hunger). Wolves drop hides for armour, and iron ore is in the rust-veined rocks on the mountains.
 - **Sound and music.** Chopping, mining, footsteps, crackling fires, wolf howls, birds by day, crickets and wind at night, and a calm day theme that fades into a darker night theme. Turn sound or music off in Esc → Settings. Every sound is synthesized by `tools/make_sounds.py`, so there are no recordings or licences involved.
-- **Raise an army.** At a barracks, recruit soldiers for 3 wood, 2 stone and 5 berries each: up to 10 per barracks and 100 in all. Soldiers fight wolves (you get the meat), and wolves fight back. Press T to switch between *follow me* (rows behind you) and *guard here* (rings around the spot).
+- **Raise a legion.** At a barracks, recruit up to 10 soldiers per barracks and 100 in all, of four kinds:
+  - *Legionaries* (3 wood, 2 stone, 5 berries): shield and spear.
+  - *Archers* (6 wood, 5 berries): shoot wolves from a distance.
+  - *Cavalry* (6 wood, 12 berries, 2 hides): fast riders who run wolves down.
+  - *Centurions* (3 iron, 1 gold, 5 berries; one per barracks): soldiers near one hit harder and heal faster.
+- **Command it.** T: the whole army follows you or guards the spot. In the strategy view, drag a box to select soldiers and right-click the ground to send them there; they hold in formation. Y selects the whole army, Esc lets go, and Z switches the formation between a line, a shield wall and a wedge.
+- **Veterans.** Every soldier has a Roman name. Kills earn ranks: Veteran at 3, Elite at 8 and Hero at 15, each with more health; Elites and Heroes hit harder. The barracks lists your most decorated soldiers.
+- **Seasons.** Three days each of spring, summer, autumn and winter. Summer nights are mild, and autumn bushes give extra berries. In winter snow covers the island, lakes and shallow sea freeze so you can walk on the ice, nothing grows, and the cold bites even by day.
+- **Boats and islets.** Build a dock at the water's edge (build mode, `-`). It makes a raft (12 wood) for lakes and the shallows, or a galley (40 wood, 4 iron, 4 hides) that crosses the open sea, carrying your legion with you. Five islets lie offshore, each with a treasure hoard and rich iron and gold ore. E by a boat boards it; E at sea goes ashore.
 
 Controls: WASD/arrows to move, mouse wheel to zoom, `E` (hold) to gather or use, `Space`/click to attack, `1`–`4` hotbar, `I`/`Tab` inventory, `V` first person, `F` to eat, `X` to take down a building, `H` to show or hide help.
 

@@ -14,7 +14,7 @@ func _initialize() -> void:
 	if _dir == "":
 		_dir = OS.get_user_data_dir().path_join("shots")
 	DirAccess.make_dir_recursive_absolute(_dir)
-	create_timer(660.0).timeout.connect(_on_watchdog)
+	create_timer(1000.0).timeout.connect(_on_watchdog)
 	_run.call_deferred()
 
 
@@ -155,6 +155,124 @@ func _run() -> void:
 	await _frames(30)
 	await _shot("8-base-night")
 
+	# The legion: all four kinds of soldier, a selection, and a shield wall.
+	var extra := 0
+	for off in [Vector2i(3, 0), Vector2i(-3, 0), Vector2i(2, -1), Vector2i(-2, -1), Vector2i(3, -1), Vector2i(-3, -1),
+			Vector2i(2, 2), Vector2i(-2, 2), Vector2i(1, -2), Vector2i(-1, -2), Vector2i(4, 1), Vector2i(-4, 1)]:
+		if extra < 2 and main._try_build("barracks", c + off):
+			extra += 1
+	main.player.add_item("iron", 20)
+	main.player.add_item("gold", 4)
+	main.player.add_item("hide", 20)
+	main._recruit(6, "archer")
+	main._recruit(4, "cavalry")
+	main._recruit(2, "centurion")
+	main.soldiers[0].kills = 9  # an elite, to show the name label
+	main.player.pos = w.cell_center(c + Vector2i(0, 1))
+	main.player.facing = Vector2.DOWN
+	main.cam_yaw = 0.0
+	main.clock = DAY * 0.32
+	main.zoom = 0.85
+	for i in 120:
+		main._tick_army(0.1)
+	await _frames(30)
+	await _shot("14-legion-units")
+	# Close up, in open ground: a horseman, an archer and a centurion.
+	var field: Vector2 = _open_meadow(w, w.cell_of(main.player.pos))
+	if field != Vector2.INF:
+		for so in main.soldiers:  # the rest of the army stays at the fort
+			so.mode = "guard"
+			so.guard_point = w.cell_center(c)
+		var trio := []
+		var spots := [Vector2(-22, 0), Vector2(0, -4), Vector2(22, 0)]
+		var kinds := ["archer", "cavalry", "centurion"]
+		for k in 3:
+			var so = main._spawn_soldier(field + spots[k], -1.0, "hold", field + spots[k], kinds[k])
+			so.order_facing = Vector2.DOWN
+			so.group_size = 1
+			so.slot = 0
+			trio.append(so)
+		main.player.pos = field + Vector2(0, 45)
+		main.player.facing = Vector2.UP
+		main.cam_yaw = 0.0
+		main.zoom = 0.55
+		w.update_view(main.player.pos, true)
+		await _frames(40)
+		await _shot("14b-unit-types")
+		main.cam_yaw = 1.2
+		await _frames(20)
+		await _shot("14c-cavalry-side")
+		main.cam_yaw = 0.0
+		for so in trio:
+			main.soldiers.erase(so)
+			so.queue_free()
+		main._reassign_slots()
+		for so in main.soldiers:
+			so.mode = "follow"
+		main._reassign_slots()
+	main.player.pos = w.cell_center(c + Vector2i(0, 1))
+	main.player.facing = Vector2.DOWN
+	main.zoom = 0.85
+	await _frames(10)
+	main._set_selection(main.soldiers.slice(0, 14))
+	await _frames(10)
+	await _shot("15-selected")
+	main._set_selection([])
+	main._cycle_formation()  # shield wall
+	for i in 60:
+		main._tick_army(0.1)
+	await _frames(20)
+	await _shot("16-shield-wall")
+	main._cycle_formation()
+	main._cycle_formation()  # back to a line
+
+	# Winter and autumn.
+	main.day = 10
+	w.set_season("winter")
+	main._update_weather()
+	main.zoom = 1.4
+	await _frames(40)
+	await _shot("17-winter-base")
+	main.day = 7
+	w.set_season("autumn")
+	main._update_weather()
+	await _frames(40)
+	await _shot("18-autumn-base")
+	main.day = 1
+	w.set_season("spring")
+	main._update_weather()
+
+	# A galley at sea off an islet, then ashore at the treasure hoard.
+	if not w.islets.is_empty():
+		var isle: Dictionary = w.islets[0]
+		var ic: Vector2 = w.cell_center(isle["cell"])
+		var toward := (Vector2(1024, 1024) * 8.0 - ic).normalized()  # from the islet toward the main island
+		var sea := ic + toward * (float(isle["r"]) * 1.45 + 6.0) * 16.0
+		var galley = main._spawn_boat("galley", sea, -toward)
+		main._board(galley)
+		main.player.pos = sea
+		main.player.facing = -toward
+		main.cam_yaw = atan2(toward.x, toward.y)
+		main.zoom = 1.1
+		w.update_view(sea, true)
+		await _frames(40)
+		await _shot("19-galley-at-sea")
+		main._leave_boat()
+		for poi in w.pois:
+			if poi["type"] == "hoard" and poi["id"] == "hoard-0":
+				var stand: Vector2 = w.random_walkable_near(w.cell_center(poi["cell"]), 30.0, 50.0, main.rng)
+				if stand != Vector2.INF:
+					main.player.pos = stand
+					main.player.facing = (w.cell_center(poi["cell"]) - stand).normalized()
+					main.cam_yaw = atan2(-main.player.facing.x, -main.player.facing.y)
+					main.zoom = 0.7
+					w.update_view(stand, true)
+					main._update_pois(0.0, true)
+					await _frames(40)
+					await _shot("20-islet-hoard")
+		main.player.pos = w.cell_center(c + Vector2i(0, 1))
+		w.update_view(main.player.pos, true)
+
 	# Places to discover: a lighthouse at night and a shipwreck by day, then the map.
 	for kind in ["lighthouse", "shipwreck"]:
 		for poi in w.pois:
@@ -261,3 +379,31 @@ func _shot(label: String) -> void:
 	var path := _dir.path_join(label + ".png")
 	var err := img.save_png(path)
 	print("shot ", label, " -> ", path, " (", error_string(err), ")")
+
+
+## The centre of a treeless patch of land near `around`, or INF.
+func _open_meadow(w, around: Vector2i) -> Vector2:
+	for r in range(12, 160, 3):
+		for dz in range(-r, r + 1, 3):
+			for dx in range(-r, r + 1, 3):
+				if maxi(absi(dx), absi(dz)) < r - 2:
+					continue
+				var cell: Vector2i = around + Vector2i(dx, dz)
+				var clear := true
+				for oz in range(-9, 10):
+					for ox in range(-6, 7):
+						var c2: Vector2i = cell + Vector2i(ox, oz)
+						if not w.is_land(c2) or w.structures.has(c2) or w.terrain_at(c2) == 5:
+							clear = false
+							break
+					if not clear:
+						break
+				if clear:
+					# Clear the trees and rocks here, for the picture only.
+					for oz in range(-9, 10):
+						for ox in range(-6, 7):
+							if w.prop_type(cell + Vector2i(ox, oz)) != "":
+								w.prop_changes[cell + Vector2i(ox, oz)] = {"type": "cleared", "hp": 0, "regrow_day": 0}
+					w._props_dirty = true
+					return w.cell_center(cell) + Vector2(0, -48)  # the units stand north of centre, the camera to the south
+	return Vector2.INF

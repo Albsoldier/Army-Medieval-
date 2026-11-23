@@ -328,6 +328,173 @@ func _run_game() -> void:
 	var wood_mid: int = main.player.count("wood")
 	main._demolish(spot[0])
 	_check(main.player.count("wood") == wood_mid + 2, "an older building gives back half")
+
+	# The legion: unit types, centurions, names, ranks, formations and orders.
+	var Soldier = load("res://scripts/soldier.gd")
+	main.player.pos = home_pos
+	var more_room: Array = _free_cells(world, world.cell_of(main.player.pos), 12, [tree_cell] + cells)
+	main.player.add_item("wood", 120)
+	main.player.add_item("stone", 40)
+	main.player.add_item("berries", 120)
+	main.player.add_item("hide", 6)
+	main.player.add_item("iron", 10)
+	main.player.add_item("gold", 4)
+	_check(main._try_build("barracks", more_room[11]), "built a second barracks")
+	_check(main._recruit(2, "archer") == 2, "recruited archers")
+	_check(main._recruit(1, "cavalry") == 1, "recruited a horseman")
+	_check(main._recruit(5, "centurion") == 2 and main._count_kind("centurion") == 2, "one centurion per barracks")
+	var named := 0
+	for so in main.soldiers:
+		if so.soldier_name.split(" ").size() == 2:
+			named += 1
+	_check(named == main.soldiers.size(), "every soldier has a Roman name (%s)" % main.soldiers[0].soldier_name)
+	_check(Soldier.rank_for(0) == 0 and Soldier.rank_for(3) == 1 and Soldier.rank_for(8) == 2 and Soldier.rank_for(15) == 3, "kills make veterans, elites and heroes")
+	var killer = null
+	for so in main.soldiers:
+		if so.kills > 0:
+			killer = so
+	_check(killer != null, "the soldier who killed the wolf is credited")
+	var vet = main.soldiers[1]
+	var base_hp: float = vet.max_hp()
+	vet.kills = 8
+	_check(vet.rank_name() == "Elite" and vet.max_hp() > base_hp and vet.damage() >= 2, "an elite has more health and hits harder")
+	var archer_ok := false
+	for so in main.soldiers:
+		if so.kind == "archer" and Soldier.info("archer")["reach"] > 100.0:
+			archer_ok = true
+	_check(archer_ok, "archers shoot from a distance")
+	for i in 30:
+		main._tick_army(0.1)
+	var inspired := 0
+	for so in main.soldiers:
+		if so.inspired:
+			inspired += 1
+	_check(inspired > 0, "soldiers near a centurion are inspired (%d)" % inspired)
+	for shape in Soldier.FORMATIONS:
+		var spots := {}
+		for i in 30:
+			spots[Soldier.formation_offset(i, 30, shape)] = true
+		_check(spots.size() == 30, "the %s formation gives everyone their own place" % shape)
+	main._cycle_formation()
+	_check(main.formation == "shield wall" and main.soldiers[0].formation == "shield wall", "Z changes the formation")
+	main._set_selection(main.soldiers.slice(0, 5))
+	_check(main.selected.size() == 5 and main.soldiers[0].selected, "soldiers can be selected")
+	# Somewhere with an open straight path, so the check is about orders, not the terrain.
+	var march_to: Vector2 = main.player.pos
+	for k in 16:
+		var way := Vector2.from_angle(k * TAU / 16.0)
+		var open_path := true
+		for step in range(0, 150, 6):
+			for side in [-24.0, 0.0, 24.0]:
+				if not world.is_walkable(main.player.pos + way * step + way.orthogonal() * side):
+					open_path = false
+		if open_path:
+			march_to = main.player.pos + way * 140.0
+			break
+	main._order_to(march_to)
+	for i in 120:
+		main._tick_army(0.1)
+	var arrived := 0
+	for so in main.selected:
+		if so.mode == "hold" and so.pos.distance_to(march_to) < 70.0:
+			arrived += 1
+	_check(arrived >= 4, "selected soldiers march where you send them (%d of 5)" % arrived)
+	main._toggle_army_mode()
+	_check(main.soldiers.all(func(so): return so.mode == "follow") and main.selected.is_empty(), "T calls everyone back")
+
+	# Seasons.
+	var Main = load("res://scripts/main.gd")
+	_check(Main.season_of(1) == "spring" and Main.season_of(4) == "summer" and Main.season_of(7) == "autumn"
+		and Main.season_of(10) == "winter" and Main.season_of(13) == "spring", "the seasons turn every 3 days")
+	var lake := Vector2i(-1, -1)
+	for r in range(1, 400):
+		for dz in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if lake == Vector2i(-1, -1) and maxi(absi(dx), absi(dz)) == r and world.terrain_at(world.spawn_cell + Vector2i(dx, dz)) == 1:  # shallow water
+					lake = world.spawn_cell + Vector2i(dx, dz)
+		if lake != Vector2i(-1, -1):
+			break
+	_check(lake != Vector2i(-1, -1), "found shallow water (%d, %d)" % [lake.x, lake.y])
+	_check(lake != Vector2i(-1, -1) and not world.is_walkable(world.cell_center(lake)), "shallow water can't be walked on in spring")
+	world.set_season("winter")
+	_check(world.is_walkable(world.cell_center(lake)) and world.to_3d(world.cell_center(lake)).y > 0.0, "in winter the water freezes and you walk on the ice")
+	_check(not world.is_sailable(world.cell_center(lake), true), "boats can't sail on ice")
+	var bush := Vector2i(-1, -1)
+	for r in range(1, 60):
+		for dz in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if bush == Vector2i(-1, -1) and world.prop_type(world.spawn_cell + Vector2i(dx, dz)) == "bush":
+					bush = world.spawn_cell + Vector2i(dx, dz)
+		if bush != Vector2i(-1, -1):
+			break
+	_check(bush != Vector2i(-1, -1) and world.harvest(bush, main.day).is_empty(), "nothing grows in winter")
+	world.set_season(Main.season_of(main.day))
+	_check(not world.is_walkable(world.cell_center(lake)), "the ice melts in spring")
+
+	# Islets out at sea, and boats to reach them.
+	_check(world.islets.size() >= 3, "there are islets out at sea (%d)" % world.islets.size())
+	var hoards := 0
+	for poi in world.pois:
+		if poi["type"] == "hoard":
+			hoards += 1
+	_check(hoards == world.islets.size(), "every islet has a treasure hoard")
+	var gold := 0
+	for islet in world.islets:
+		var c: Vector2i = islet["cell"]
+		var rr := int(islet["r"])
+		for dz in range(-rr, rr + 1):
+			for dx in range(-rr, rr + 1):
+				if world.prop_type(c + Vector2i(dx, dz)) == "gold_rock":
+					gold += 1
+	_check(gold > 0, "gold ore grows on the islets (%d)" % gold)
+	# The islets must not change anything on the main island.
+	var unchanged := true
+	var check_rng := RandomNumberGenerator.new()
+	check_rng.seed = 5
+	for i in 400:
+		var x := check_rng.randi_range(100, 924)
+		var z := check_rng.randi_range(100, 924)
+		var with_islets: Array = world._sample(x, z)
+		world._islets_on = false
+		var without: Array = world._sample(x, z)
+		world._islets_on = true
+		if world.islet_at(Vector2i(x, z)) < 0 and (with_islets[0] != without[0] or not is_equal_approx(with_islets[1], without[1])):
+			unchanged = false
+	_check(unchanged, "the main island is exactly as it was before the islets")
+	var coast := Vector2i(-1, -1)
+	for r in range(2, 200):
+		for dz in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				var cc: Vector2i = world.spawn_cell + Vector2i(dx, dz)
+				if coast == Vector2i(-1, -1) and maxi(absi(dx), absi(dz)) == r and world.can_build(cc) and main._next_to_water(cc) and world.is_walkable(world.cell_center(cc)):
+					coast = cc
+		if coast != Vector2i(-1, -1):
+			break
+	_check(coast != Vector2i(-1, -1), "found a spot at the water's edge")
+	for d in [Vector2i(0, 1), Vector2i(1, 0), Vector2i(0, -1), Vector2i(-1, 0)]:
+		if world.is_walkable(world.cell_center(coast + d)):
+			main.player.pos = world.cell_center(coast + d)
+	main.player.add_item("wood", 80)
+	main.player.add_item("iron", 6)
+	main.player.add_item("hide", 6)
+	_check(main._try_build("dock", coast), "built a dock at the water's edge")
+	var inland: Vector2i = more_room[0]
+	_check(not main._next_to_water(inland) and main._build_problem("dock", inland) == "A dock must be at the water's edge.", "docks can't be built inland")
+	var dock = main.buildings[coast]
+	var raft = main._build_boat("raft", dock)
+	_check(raft != null and main.boats.size() == 1, "the dock builds a raft")
+	var galley = main._build_boat("galley", dock)
+	_check(galley != null and main.boats.size() == 2 and galley.can_cross_deep() and not raft.can_cross_deep(), "and a galley that crosses the open sea")
+	main._board(raft)
+	_check(main.sailing == raft and main.player.on_boat and world.is_sailable(main.player.pos, false), "you board the raft in shallow water")
+	var deep_spot := Vector2(40, 40) * 16.0
+	_check(world.is_sailable(deep_spot, true) and not world.is_sailable(deep_spot, false), "only a galley sails the deep sea")
+	_check(main._go_ashore() and not main.player.on_boat and world.is_walkable(main.player.pos) and main.sailing == null, "you go ashore and the boat stays moored")
+	main._board(galley)
+	main.save_game()
+	var afloat: Dictionary = load("res://scripts/save_game.gd").read()
+	_check(int(afloat.get("sailing", -1)) == 1 and afloat.get("boats", []).size() == 2, "the save remembers your boats and that you're aboard")
+	main._go_ashore()
 	main.player.pos = home_pos
 	main.save_game()
 	var saved: Dictionary = load("res://scripts/save_game.gd").read()
@@ -347,6 +514,9 @@ func _run_game() -> void:
 	_check(copy_main.campfires.size() == 1, "campfire is still there after reload")
 	_check(copy_main.buildings.size() == main.buildings.size(), "buildings are still there after reload (%d)" % copy_main.buildings.size())
 	_check(copy_main.soldiers.size() == main.soldiers.size(), "the army is still there after reload (%d)" % copy_main.soldiers.size())
+	_check(copy_main.soldiers[0].soldier_name == main.soldiers[0].soldier_name and copy_main._count_kind("archer") == main._count_kind("archer")
+		and copy_main.soldiers[1].kills == main.soldiers[1].kills, "names, kinds and kills survive a reload")
+	_check(copy_main.boats.size() == 2 and copy_main.formation == main.formation, "boats and the formation survive a reload")
 	_check(not copy_main.world.is_walkable(world.cell_center(cells[0])), "walls still block after reload")
 	_check(copy_main.player.has_axe and copy_main.player.armour and copy_main.player.lantern, "tools are still yours after reload")
 	_check(copy_main.poi_looted.has(first_camp["id"]) and copy_main.poi_found.has(shrine_data["id"]), "found and looted places are remembered")

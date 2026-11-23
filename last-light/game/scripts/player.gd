@@ -15,7 +15,7 @@ var hunger := 100.0
 var warmth := 100.0
 var sanity := 100.0
 var inventory := {"wood": 0, "stone": 0, "berries": 0, "raw_meat": 0, "cooked_meat": 0,
-	"smoked_meat": 0, "ore": 0, "iron": 0, "hide": 0, "salve": 0}
+	"smoked_meat": 0, "ore": 0, "iron": 0, "hide": 0, "salve": 0, "gold": 0}
 var has_spear := false
 var iron_spear := false
 var has_axe := false
@@ -27,7 +27,12 @@ var equipped := "hands"
 var armour_on := true  # armour can be taken off in the inventory
 var lantern_on := true  # and the lantern shuttered
 var torch_time := 0.0
-var first_person := false  # set with set_first_person()
+var first_person := false
+## Afloat: set by main.gd while you're on a boat.
+var on_boat := false
+var boat_deep := false  # a galley can cross the deep sea
+var boat_speed := 1.0
+var deck_height := 0.2  # set with set_first_person()
 var facing := Vector2.DOWN
 var hurt_flash := 0.0
 var swing_time := 0.0
@@ -132,7 +137,7 @@ func _ready() -> void:
 	var glow := Art.omni(Color(0.6, 0.7, 1.0), 2.6, 0.35)
 	glow.position = Vector3(0, 1.9, 0)
 	add_child(glow)
-	position = world.to_3d(pos)
+	position = ground_point()
 
 
 func move(dir: Vector2, delta: float) -> void:
@@ -140,19 +145,30 @@ func move(dir: Vector2, delta: float) -> void:
 	if not _moving:
 		return
 	facing = dir.normalized()
-	var step := facing * SPEED * delta
+	var step := facing * SPEED * (boat_speed if on_boat else 1.0) * delta
 	var next_x := pos + Vector2(step.x, 0)
-	if world.is_walkable(next_x):
+	if _can_be_at(next_x):
 		pos = next_x
 	var next_y := pos + Vector2(0, step.y)
-	if world.is_walkable(next_y):
+	if _can_be_at(next_y):
 		pos = next_y
+
+
+func _can_be_at(p: Vector2) -> bool:
+	return world.is_sailable(p, boat_deep) if on_boat else world.is_walkable(p)
+
+
+## Where the survivor stands in 3D: on the ground, or on the deck of a boat.
+func ground_point() -> Vector3:
+	if on_boat:
+		return Vector3(pos.x / World.TILE, World.WATER_LEVEL + deck_height, pos.y / World.TILE)
+	return world.to_3d(pos)
 
 
 func tick_visuals(delta: float) -> void:
 	hurt_flash = maxf(hurt_flash - delta, 0.0)
 	swing_time = maxf(swing_time - delta, 0.0)
-	position = world.to_3d(pos)
+	position = ground_point()
 	_model.rotation.y = lerp_angle(_model.rotation.y, atan2(facing.x, facing.y), minf(delta * 12.0, 1.0))
 	_body.tick(delta)
 	if not dead:

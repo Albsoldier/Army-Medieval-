@@ -34,9 +34,9 @@ const TERRAIN_COLORS := [
 ]
 
 ## Prop types that are drawn. "rubble" is what's left of a broken rock.
-const PROP_TYPES := ["tree", "stump", "rock", "iron_rock", "rubble", "bush", "bush_empty"]
+const PROP_TYPES := ["tree", "stump", "rock", "iron_rock", "rubble", "bush", "bush_empty", "gold_rock"]
 ## Saved prop changes may also be "cleared": the ground under a building.
-const CHANGE_TYPES := ["tree", "stump", "rock", "iron_rock", "rubble", "bush", "bush_empty", "cleared"]
+const CHANGE_TYPES := ["tree", "stump", "rock", "iron_rock", "rubble", "bush", "bush_empty", "cleared", "gold_rock"]
 ## Props you can build over (they are cleared for good).
 const BUILD_OVER := ["", "stump", "rubble", "bush_empty", "cleared"]
 ## Days before something you used grows back.
@@ -68,7 +68,13 @@ const MAP_COLORS := [
 	Color("9c9383"),  # rock
 ]
 ## What the props are drawn as. Trees come in two kinds.
-const DRAW_TYPES := ["tree_pine", "tree_oak", "stump", "rock", "iron_rock", "rubble", "bush", "bush_empty"]
+const DRAW_TYPES := ["tree_pine", "tree_oak", "stump", "rock", "iron_rock", "rubble", "bush", "bush_empty", "gold_rock"]
+## Rocks you can't walk through, and props you can hit for materials.
+const SOLID_PROPS := ["tree", "rock", "iron_rock", "gold_rock"]
+const HARVESTABLE := ["tree", "rock", "iron_rock", "gold_rock", "bush"]
+## Small islands out at sea, reached by galley. Each has a treasure hoard.
+const ISLET_COUNT := 5
+const ISLET_NAMES := ["Gull Rock", "Ember Isle", "The Black Teeth", "Saint Brine", "Hollow Key", "Far Holm"]
 const POI_COUNTS := {"lighthouse": 2, "shipwreck": 4, "ruins": 6, "cave": 4, "shrine": 4, "camp": 6}
 var _poi_cells: Dictionary = {}  # cells kept clear around places to discover
 var _poi_centers: Dictionary = {}  # Vector2i cell -> poi id (these tiles can't be walked through)
@@ -89,6 +95,10 @@ var _view_chunk := Vector2i(-999, -999)
 var _props_dirty := true
 var _layers: Dictionary = {}  # prop type -> Array of [MultiMeshInstance3D, part definition]
 var _terrain_mat: ShaderMaterial
+var islets: Array = []  # [{"cell": Vector2i, "r": float, "name": String}]
+var _islets_on := false
+var season := "spring"  # spring, summer, autumn or winter (main.gd sets it)
+var _ice_mat: StandardMaterial3D
 var _water: MeshInstance3D
 var _bed: MeshInstance3D
 
@@ -128,8 +138,21 @@ func generate(p_seed: int) -> void:
 	_terrain_mat = ShaderMaterial.new()
 	_terrain_mat.shader = preload("res://shaders/terrain.gdshader")
 
+	_islets_on = false
 	_find_spawn()
 	_place_pois()
+	# The islets came after the main island, so they must not move anything on it:
+	# they're only placed in open sea, and the caches are rebuilt with them included.
+	_place_islets()
+	_islets_on = true
+	_data.clear()
+	_corners.clear()
+	_base_props.clear()
+	_place_hoards()
+	_ice_mat = StandardMaterial3D.new()
+	_ice_mat.albedo_color = Color(0.78, 0.86, 0.92)
+	_ice_mat.roughness = 0.2
+	_ice_mat.metallic_specular = 0.8
 	map_image = Image.create(SIZE / MAP_SCALE, SIZE / MAP_SCALE, false, Image.FORMAT_RGBA8)
 	map_image.fill(UNEXPLORED)
 	map_texture = ImageTexture.create_from_image(map_image)
@@ -221,14 +244,39 @@ func is_land(cell: Vector2i) -> bool:
 ## Whether a creature can stand at `pos`. Gates let people through but not wolves.
 func is_walkable(pos: Vector2, wolf: bool = false) -> bool:
 	var cell := cell_of(pos)
-	if not is_land(cell):
+	if not is_land(cell) and not is_ice(cell):
 		return false
 	if structures.has(cell):
-		return structures[cell] == "gate" and not wolf
+		return (structures[cell] == "gate" and not wolf) or structures[cell] == "dock"
 	if _poi_centers.has(cell):
 		return false
-	var kind := prop_type(cell)
-	return kind != "tree" and kind != "rock" and kind != "iron_rock"
+	return not prop_type(cell) in SOLID_PROPS
+
+
+## In winter, lakes and shallow sea freeze over and can be walked on.
+func is_ice(cell: Vector2i) -> bool:
+	return season == "winter" and terrain_at(cell) == WATER
+
+
+## Whether a boat can be at `pos`. Rafts keep to shallow water; a galley can
+## cross the deep sea. Ice stops both.
+func is_sailable(pos: Vector2, deep_ok: bool) -> bool:
+	var cell := cell_of(pos)
+	if cell.x < 4 or cell.y < 4 or cell.x >= SIZE - 4 or cell.y >= SIZE - 4:
+		return false
+	var t := terrain_at(cell)
+	if t == DEEP:
+		return deep_ok
+	return t == WATER and season != "winter"
+
+
+## Which islet a cell is on, or -1.
+func islet_at(cell: Vector2i) -> int:
+	for i in islets.size():
+		var c: Vector2i = islets[i]["cell"]
+		if Vector2(cell - c).length() < float(islets[i]["r"]) * 1.3:
+			return i
+	return -1
 
 
 func can_build(cell: Vector2i) -> bool:
@@ -272,7 +320,10 @@ func height_at(pos: Vector2) -> float:
 
 ## Converts a game position (pixels on the grid) to a point on the 3D ground.
 func to_3d(pos: Vector2) -> Vector3:
-	return Vector3(pos.x / TILE, height_at(pos), pos.y / TILE)
+	var y := height_at(pos)
+	if season == "winter" and y < 0.05 and terrain_at(cell_of(pos)) == WATER:
+		y = 0.05  # standing on the ice
+	return Vector3(pos.x / TILE, y, pos.y / TILE)
 
 
 ## The prop on a cell as {"type", "hp", "regrow_day"}, or {} if there is none.
@@ -300,7 +351,7 @@ func find_prop_near(pos: Vector2, radius: float) -> Vector2i:
 		for dx in range(-2, 3):
 			var cell := base + Vector2i(dx, dy)
 			var kind := prop_type(cell)
-			if kind != "tree" and kind != "rock" and kind != "iron_rock" and kind != "bush":
+			if not kind in HARVESTABLE:
 				continue
 			var dist := pos.distance_to(cell_center(cell))
 			if dist < best_dist:
@@ -331,8 +382,15 @@ func harvest(cell: Vector2i, day: int) -> Dictionary:
 			prop["hp"] = int(prop["hp"]) - 1
 			if int(prop["hp"]) <= 0:
 				prop["type"] = "rubble"
+		"gold_rock":
+			gained = {"gold": 1}
+			prop["hp"] = int(prop["hp"]) - 1
+			if int(prop["hp"]) <= 0:
+				prop["type"] = "rubble"
 		"bush":
-			gained = {"berries": 3}
+			if season == "winter":
+				return {}  # nothing grows in winter
+			gained = {"berries": 5 if season == "autumn" else 3}
 			prop["type"] = "bush_empty"
 		_:
 			return {}
@@ -415,6 +473,13 @@ func _sample(x: int, z: int) -> Array:
 	var big := _continent.get_noise_2d(x, z) * 0.5 + 0.5
 	var detail := _noise.get_noise_2d(x, z) * 0.5 + 0.5
 	var e := big * 0.55 + detail * 0.45 + 0.3 - d * d * 1.25
+	if _islets_on:
+		for islet in islets:
+			var c: Vector2i = islet["cell"]
+			var r: float = islet["r"]
+			var dist := Vector2(x - c.x, z - c.y).length()
+			if dist < r * 1.3:
+				e = maxf(e, 0.06 + 0.95 * (1.0 - (dist / r) * (dist / r)) + (detail - 0.5) * 0.25)
 	var t := GRASS
 	if d > 0.97 or e < 0.12:
 		t = DEEP
@@ -525,6 +590,15 @@ func _chunk_props(ck: Vector2i) -> Dictionary:
 				continue
 			var roll := _hash01(cell.x, cell.y, 7)
 			var kind := ""
+			var on_islet := not islets.is_empty() and islet_at(cell) >= 0
+			if on_islet and (types[lz * CHUNK + lx] == ROCK or types[lz * CHUNK + lx] == GRASS):
+				# The islets hold the island's richest ore: gold, and plenty of iron.
+				if roll < 0.045:
+					props[cell] = "gold_rock"
+					continue
+				if roll < 0.09:
+					props[cell] = "iron_rock"
+					continue
 			match types[lz * CHUNK + lx]:
 				FOREST:
 					if roll < 0.3:
@@ -628,6 +702,39 @@ func _build_chunk_mesh(ck: Vector2i) -> void:
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	mi.mesh = mesh
 	mi.material_override = _terrain_mat
+	_build_ice(ck, mi)
+
+
+## A sheet of ice over the shallow water in a chunk, shown in winter.
+func _build_ice(ck: Vector2i, parent: Node3D) -> void:
+	var verts := PackedVector3Array()
+	for lz in CHUNK:
+		for lx in CHUNK:
+			var x := ck.x * CHUNK + lx
+			var z := ck.y * CHUNK + lz
+			if terrain_at(Vector2i(x, z)) != WATER:
+				continue
+			var y := 0.04
+			verts.append_array(PackedVector3Array([Vector3(x, y, z), Vector3(x + 1, y, z), Vector3(x + 1, y, z + 1),
+				Vector3(x, y, z), Vector3(x + 1, y, z + 1), Vector3(x, y, z + 1)]))
+	if verts.is_empty():
+		return
+	var normals := PackedVector3Array()
+	normals.resize(verts.size())
+	normals.fill(Vector3.UP)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var ice := MeshInstance3D.new()
+	ice.name = "Ice"
+	ice.mesh = mesh
+	ice.material_override = _ice_mat
+	ice.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	ice.visible = season == "winter"
+	parent.add_child(ice)
 
 
 func _build_water() -> void:
@@ -695,6 +802,12 @@ func _prop_parts() -> Dictionary:
 			_part(_sphere(0.17, 4, 6), Color("a4532a"), Vector3(0.38, 0.5, 0.25)),
 			_part(_sphere(0.14, 4, 6), Color("b9612e"), Vector3(-0.35, 0.44, -0.12)),
 			_part(_sphere(0.12, 4, 6), Color("944822"), Vector3(0.05, 0.6, -0.36)),
+		],
+		"gold_rock": [
+			_part(_sphere(0.72, 5, 9), Color("5f5a55"), Vector3(0, 0.14, 0), Vector3(1.2, 0.7, 1.0)),
+			_part(_sphere(0.16, 4, 6), Color("e0b43c"), Vector3(0.36, 0.5, 0.22)),
+			_part(_sphere(0.13, 4, 6), Color("f0c850"), Vector3(-0.32, 0.46, -0.1)),
+			_part(_sphere(0.11, 4, 6), Color("d4a434"), Vector3(0.05, 0.62, -0.34)),
 		],
 		"rubble": [
 			_part(_sphere(0.16, 4, 6), Color("7d7a72"), Vector3(0.18, 0.04, 0.05)),
@@ -840,13 +953,21 @@ func _refresh_props() -> void:
 				var cell: Vector2i = cells[i]
 				var turn: Basis = turns[i]
 				var origin: Vector3 = origins[i]
-				mm.set_instance_transform(i, Transform3D(turn * part_scale, origin + turn * offset))
 				var shade := (_hash01(cell.x, cell.y, 6) - 0.5) * 0.22
-				mm.set_instance_color(i, base_color.lightened(shade) if shade > 0.0 else base_color.darkened(-shade))
+				var c := _season_color(kind, p, base_color, cell)
+				if c.a <= 0.0:
+					mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * 0.001), origin))
+					mm.set_instance_color(i, base_color)
+					continue
+				mm.set_instance_transform(i, Transform3D(turn * part_scale, origin + turn * offset))
+				mm.set_instance_color(i, c.lightened(shade) if shade > 0.0 else c.darkened(-shade))
 	_refresh_grass()
 
 
 func _refresh_grass() -> void:
+	if season == "winter":
+		_grass.multimesh.instance_count = 0  # under the snow
+		return
 	var center := _view_chunk * CHUNK + Vector2i(CHUNK / 2, CHUNK / 2)
 	var xforms := []
 	var tints := []
@@ -870,6 +991,10 @@ func _refresh_grass() -> void:
 				xforms.append(Transform3D(Basis(Vector3.UP, jx * TAU) * Basis.from_scale(Vector3(s, s, s)), Vector3(p.x, y - 0.02, p.y)))
 				var g := _hash01(cell.x, cell.y, 50 + c)
 				var tint := Color("50652c").lerp(Color("7a7a42"), g * 0.8) if t == GRASS else Color("3b4c25")
+				if season == "autumn":
+					tint = tint.lerp(Color("8a6a34"), 0.45)
+				elif season == "summer":
+					tint = tint.lerp(Color("8a8040"), 0.2)
 				tints.append(tint)
 	var mm := _grass.multimesh
 	mm.instance_count = xforms.size()
@@ -1017,6 +1142,107 @@ func _place_pois() -> void:
 					_poi_cells[cell + Vector2i(dx, dz)] = true
 			_poi_centers[cell] = pois[-1]["id"]
 			made += 1
+
+
+## Small islands in the open sea around the main island. Only placed where the
+## sea is deep all around, so the main island never changes.
+func _place_islets() -> void:
+	islets.clear()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value * 131 + 17
+	var half := SIZE * 0.5
+	var tries := 0
+	while islets.size() < ISLET_COUNT and tries < 400:
+		tries += 1
+		var a := rng.randf() * TAU
+		var d := rng.randf_range(0.8, 0.9)
+		var r := rng.randf_range(12.0, 19.0)
+		var c := Vector2i(int(half + cos(a) * d * half), int(half + sin(a) * d * half))
+		var clear := true
+		for other in islets:
+			var oc: Vector2i = other["cell"]
+			if Vector2(c - oc).length() < r + float(other["r"]) + 60.0:
+				clear = false
+				break
+		if not clear:
+			continue
+		# Everything within reach of the islet must be open sea now.
+		var reach := int(r * 1.3) + 14
+		for dz in range(-reach, reach + 1, 3):
+			for dx in range(-reach, reach + 1, 3):
+				if dx * dx + dz * dz <= reach * reach and int(_sample(c.x + dx, c.y + dz)[0]) != DEEP:
+					clear = false
+					break
+			if not clear:
+				break
+		if clear:
+			islets.append({"cell": c, "r": r, "name": ISLET_NAMES[islets.size() % ISLET_NAMES.size()]})
+
+
+## A treasure hoard on every islet: the reason to build a galley.
+func _place_hoards() -> void:
+	for i in islets.size():
+		var c: Vector2i = islets[i]["cell"]
+		var spot := NO_CELL
+		for r in range(3, 14):
+			for dz in range(-r, r + 1):
+				for dx in range(-r, r + 1):
+					if spot == NO_CELL and maxi(absi(dx), absi(dz)) == r:
+						var t := terrain_at(c + Vector2i(dx, dz))
+						if t == GRASS or t == FOREST:
+							spot = c + Vector2i(dx, dz)
+		if spot == NO_CELL:
+			continue
+		var id := "hoard-%d" % i
+		pois.append({"id": id, "type": "hoard", "cell": spot, "name": "Hoard of %s" % islets[i]["name"],
+			"seed": int(_hash01(spot.x, spot.y, 61) * 100000.0)})
+		for dz in range(-2, 3):
+			for dx in range(-2, 3):
+				_poi_cells[spot + Vector2i(dx, dz)] = true
+		_poi_centers[spot] = id
+
+
+## Sets the season: terrain colours, snow, autumn leaves and ice.
+func set_season(p_season: String) -> void:
+	if p_season == season:
+		return
+	season = p_season
+	if _terrain_mat:
+		_terrain_mat.set_shader_parameter("snow", 1.0 if season == "winter" else 0.0)
+		_terrain_mat.set_shader_parameter("autumn", 1.0 if season == "autumn" else 0.0)
+		_terrain_mat.set_shader_parameter("summer", 1.0 if season == "summer" else 0.0)
+	for ck in _meshes:
+		var ice: Node = _meshes[ck].get_node_or_null("Ice")
+		if ice:
+			(ice as MeshInstance3D).visible = season == "winter"
+	_props_dirty = true
+
+
+## A prop part's colour this season, or a transparent colour to hide it.
+func _season_color(kind: String, p: Dictionary, base: Color, cell: Vector2i) -> Color:
+	var leafy := float(p["sway"]) > 0.0
+	var berry: bool = kind == "bush" and not leafy
+	match season:
+		"summer":
+			if leafy:
+				return base.lerp(Color("6f7d34"), 0.15)
+		"autumn":
+			if kind == "tree_oak" and leafy:
+				var turn := _hash01(cell.x, cell.y, 71)
+				var fall := Color("b4561e") if turn < 0.4 else (Color("c98a24") if turn < 0.75 else Color("8e3a1c"))
+				return base.lerp(fall, 0.75)
+			if kind == "bush" and leafy:
+				return base.lerp(Color("7a5a2a"), 0.45)
+		"winter":
+			if kind == "tree_oak" and leafy:
+				return Color(0, 0, 0, 0)  # bare branches
+			if berry:
+				return Color(0, 0, 0, 0)
+			if leafy:
+				return base.lerp(Color(0.9, 0.93, 0.96), 0.55)
+			if kind in ["rock", "iron_rock", "gold_rock", "stump"]:
+				return base.lerp(Color(0.88, 0.9, 0.94), 0.3)
+	return base
 
 
 func _poi_site_ok(kind: String, cell: Vector2i) -> bool:

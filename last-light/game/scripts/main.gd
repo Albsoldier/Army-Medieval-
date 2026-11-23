@@ -11,6 +11,7 @@ const Api = preload("res://scripts/api.gd")
 const SaveGame = preload("res://scripts/save_game.gd")
 const Structure = preload("res://scripts/structure.gd")
 const Soldier = preload("res://scripts/soldier.gd")
+const Boat = preload("res://scripts/boat.gd")
 const Audio = preload("res://scripts/audio.gd")
 const Poi = preload("res://scripts/poi.gd")
 
@@ -21,8 +22,15 @@ const TOOL_NAMES := {"spear": "spear", "iron_spear": "iron spear", "axe": "axe",
 	"armour": "iron armour", "lantern": "lantern"}
 const DISCOVER_RADIUS := 110.0  # game pixels
 
-const RECRUIT_COST := {"wood": 3, "stone": 2, "berries": 5}
 const BUILD_RANGE := 8  # tiles from the player
+const SEASONS := ["spring", "summer", "autumn", "winter"]
+const DAYS_PER_SEASON := 3  # a year is 12 days
+const SEASON_NEWS := {
+	"spring": "Spring. The ice breaks up and the island turns green again.",
+	"summer": "Summer. Warm nights, golden meadows.",
+	"autumn": "Autumn. The leaves turn, and bushes are heavy with berries. Stock up before winter.",
+	"winter": "Winter. Snow falls, lakes freeze over and nothing grows. The nights are bitter: keep fires burning.",
+}
 const UNDO_SECONDS := 60.0  # take a building down this soon after building it: full refund
 const MAX_TORCH_POSTS := 24  # lights are expensive in the browser renderer
 
@@ -39,7 +47,7 @@ const INTERACT_RADIUS := 26.0
 const ITEM_NAMES := {
 	"wood": "wood", "stone": "stone", "berries": "berries",
 	"raw_meat": "raw meat", "cooked_meat": "cooked meat", "smoked_meat": "smoked meat",
-	"ore": "iron ore", "iron": "iron", "hide": "wolf hide", "salve": "healing salve",
+	"ore": "iron ore", "iron": "iron", "hide": "wolf hide", "salve": "healing salve", "gold": "gold",
 }
 const RECIPES := {
 	"campfire": {"wood": 5, "stone": 3},
@@ -58,6 +66,7 @@ var sun: DirectionalLight3D
 var env: Environment
 var entities: Node3D
 var zoom := 1.0
+var weather: CPUParticles3D
 var cam_yaw := 0.0  # radians; hold the right mouse button and drag to turn the camera
 var first_person := false  # V switches between the strategy camera and first person
 var fp_pitch := -0.15  # first person: looking up (+) or down (-), in radians
@@ -97,7 +106,16 @@ var _login_name := ""
 var _new_username := ""
 var buildings: Dictionary = {}  # Vector2i cell -> Structure node
 var soldiers: Array = []
+var boats: Array = []  # Boat nodes, moored where you left them
+var sailing: Boat = null  # the boat you're on
+var _resume_sailing := -1  # boat to put the player back on after loading
 var army_mode := "follow"
+var formation := "line"  # Z cycles: line, shield wall, wedge
+var selected: Array = []  # soldiers picked with a drag box
+var _drag_from := Vector2.INF  # where a left-drag started (screen)
+var _dragging := false
+var _right_from := Vector2.INF  # where a right-click started, to tell a click from a camera turn
+var _right_moved := 0.0
 var build_mode := false
 var build_index := 0
 var _ghost: Structure
@@ -132,6 +150,7 @@ func _ready() -> void:
 	player.pos = world.cell_center(world.spawn_cell)
 	_resumed = _apply_save(SaveGame.read())
 	add_child(player)
+	world.set_season(season_of(day))
 	world.update_view(player.pos, true)
 
 	camera = Camera3D.new()
@@ -140,6 +159,8 @@ func _ready() -> void:
 	add_child(camera)
 	camera.make_current()
 	_setup_environment()
+	_make_weather()
+	_update_weather()
 	var cfg := ConfigFile.new()
 	if cfg.load(SETTINGS_PATH) == OK and bool(cfg.get_value("view", "first_person", false)):
 		set_first_person(true, false)
@@ -154,6 +175,8 @@ func _ready() -> void:
 	hud.setup_maps(world, _map_markers)
 	hud.setup_hotbar(_on_hotbar_slot)
 	hud.set_crosshair(first_person)
+	if _resume_sailing >= 0 and _resume_sailing < boats.size():
+		_board(boats[_resume_sailing])  # you saved while afloat
 	_update_pois(0.0, true)
 	_hook_page_unload()
 	_update_lighting()
@@ -206,6 +229,8 @@ func _setup_input() -> void:
 	_bind("craft_torch", [KEY_R])
 	_bind("inventory", [KEY_I, KEY_TAB])
 	_bind("view", [KEY_V])
+	_bind("formation", [KEY_Z])
+	_bind("select_army", [KEY_Y])
 	_bind("write_note", [KEY_N])
 	_bind("leave_stash", [KEY_G])
 	_bind("help", [KEY_H])
@@ -334,9 +359,10 @@ func _process(delta: float) -> void:
 		# Up on the keyboard always means away from the camera, however it's turned.
 		var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down").rotated(-cam_yaw)
 		player.move(dir, delta)
+		_tick_boat()
 		if first_person:
 			player.facing = _look_2d()  # you face where you look, even when stepping sideways
-		if dir != Vector2.ZERO:
+		if dir != Vector2.ZERO and sailing == null:
 			_step_timer -= delta
 			if _step_timer <= 0.0:
 				_step_timer = 0.3
@@ -353,6 +379,8 @@ func _process(delta: float) -> void:
 		if player.health <= 0.0:
 			_die()
 	_update_camera(delta)
+	if weather:
+		weather.global_position = camera.global_position + Vector3(0, 9, 0)
 	player.place_view_model(camera, delta)
 	_update_mouse_mode()
 	_refresh_hud()
@@ -366,6 +394,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if drag and drag.button_mask & MOUSE_BUTTON_MASK_RIGHT:
 		cam_yaw = wrapf(cam_yaw - drag.relative.x * 0.006, -PI, PI)
+		_right_moved += drag.relative.length()
 		return
 	var wheel := event as InputEventMouseButton
 	# First person: a click first grabs the mouse (browsers only allow that on a click).
@@ -382,6 +411,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not started or not alive or hud.is_modal():
 		return
 	if build_mode and _build_input(event):
+		return
+	if not first_person and not build_mode and _army_input(event):
 		return
 	if event.is_action_pressed("map"):
 		hud.toggle_map()
@@ -401,6 +432,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		_craft("campfire")
 	elif event.is_action_pressed("craft_torch"):
 		_craft("torch")
+	elif event.is_action_pressed("formation"):
+		_cycle_formation()
+	elif event.is_action_pressed("select_army"):
+		_set_selection(soldiers.duplicate())
+		hud.toast("Whole army selected (%d). Right-click the ground to send them." % selected.size() if not selected.is_empty() else "You have no soldiers yet.")
 	elif event.is_action_pressed("view"):
 		set_first_person(not first_person)
 	elif event.is_action_pressed("inventory"):
@@ -438,6 +474,10 @@ func is_night() -> bool:
 
 
 func time_label() -> String:
+	return "%s  ·  %s" % [_time_of_day(), world.season.capitalize()]
+
+
+func _time_of_day() -> String:
 	var t := clock / DAY_LENGTH
 	if t < 0.25:
 		return "Morning"
@@ -460,10 +500,69 @@ func _advance_clock(delta: float) -> void:
 		world.regrow(day)
 		player.sanity = minf(player.sanity + 10.0, 100.0)
 		hud.toast("Dawn of day %d. You made it through the night." % day)
+		var new_season := season_of(day)
+		if new_season != world.season:
+			world.set_season(new_season)
+			_update_weather()
+			hud.toast(SEASON_NEWS[new_season])
+			if new_season == "winter":
+				_leave_boat_if_frozen()
 		save_game(false, true)
 	if not was_night and is_night():
 		hud.toast("Night falls. Stay close to a fire.")
 	_update_lighting()
+
+
+## The season on a given day: three days each of spring, summer, autumn, winter.
+static func season_of(d: int) -> String:
+	return SEASONS[((maxi(d, 1) - 1) / DAYS_PER_SEASON) % SEASONS.size()]
+
+
+## Snowflakes in winter, falling leaves in autumn.
+func _update_weather() -> void:
+	if weather == null:
+		return
+	match world.season:
+		"winter":
+			weather.emitting = true
+			weather.amount = 700
+			weather.gravity = Vector3(0.4, -2.2, 0.2)
+			weather.color = Color(1, 1, 1, 0.9)
+			weather.scale_amount_min = 0.6
+			weather.scale_amount_max = 1.1
+		"autumn":
+			weather.emitting = true
+			weather.amount = 50
+			weather.gravity = Vector3(0.6, -1.0, 0.3)
+			weather.color = Color("c8722a")
+			weather.scale_amount_min = 1.2
+			weather.scale_amount_max = 2.0
+		_:
+			weather.emitting = false
+
+
+func _make_weather() -> void:
+	weather = CPUParticles3D.new()
+	weather.local_coords = false
+	weather.lifetime = 8.0
+	weather.preprocess = 8.0
+	weather.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	weather.emission_box_extents = Vector3(28, 1, 28)
+	weather.direction = Vector3(0, -1, 0)
+	weather.spread = 15.0
+	weather.initial_velocity_min = 0.3
+	weather.initial_velocity_max = 0.8
+	var flake := QuadMesh.new()
+	flake.size = Vector2(0.07, 0.07)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.vertex_color_use_as_albedo = true
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	flake.material = mat
+	weather.mesh = flake
+	weather.emitting = false
+	add_child(weather)
 
 
 func _setup_environment() -> void:
@@ -609,6 +708,13 @@ func _tick_survival(delta: float) -> void:
 		player.warmth = minf(player.warmth + 4.0 * delta, 100.0)
 	else:
 		var loss := lerpf(-0.6, 1.1, n)  # warm up by day, freeze by night
+		match world.season:
+			"summer":
+				loss = lerpf(-0.8, 0.6, n)  # mild nights
+			"autumn":
+				loss = lerpf(-0.4, 1.3, n)
+			"winter":
+				loss = lerpf(0.25, 1.8, n)  # cold even by day
 		if has_torch and loss > 0.0:
 			loss *= 0.4
 		player.warmth = clampf(player.warmth - loss * NIGHT_PACE * delta, 0.0, 100.0)
@@ -736,6 +842,17 @@ func _interact() -> void:
 		return
 	action_cooldown = 0.3
 	var pos := player.pos
+	if sailing != null:
+		_go_ashore()
+		return
+	var dock := _nearest(buildings.values().filter(func(b): return b.kind == "dock"), pos, 24.0)
+	if dock != null:
+		_open_dock(dock)
+		return
+	var boat := _nearest(boats, pos, 36.0)
+	if boat != null:
+		_board(boat)
+		return
 	var trace := _nearest(traces, pos, 22.0)
 	if trace != null:
 		_use_trace(trace)
@@ -755,11 +872,15 @@ func _interact() -> void:
 	var cell := world.find_prop_near(pos, INTERACT_RADIUS)
 	if cell != World.NO_CELL:
 		var kind := world.prop_type(cell)
-		if kind == "iron_rock" and not player.holding("pickaxe"):
+		if (kind == "iron_rock" or kind == "gold_rock") and not player.holding("pickaxe"):
+			var ore := "gold" if kind == "gold_rock" else "iron ore"
 			if player.has_pickaxe:
-				hud.toast("Take your pickaxe in hand (4) to mine iron ore.")
+				hud.toast("Take your pickaxe in hand (4) to mine %s." % ore)
 			else:
-				hud.toast("Iron ore needs a pickaxe. Make one at a workbench.")
+				hud.toast("%s needs a pickaxe. Make one at a workbench." % ore.capitalize())
+			return
+		if kind == "bush" and world.season == "winter":
+			hud.toast("The bush is bare. Nothing grows in winter.")
 			return
 		player.swing()
 		audio.play({"tree": "chop", "bush": "pick"}.get(kind, "mine"), world.to_3d(world.cell_center(cell)))
@@ -1037,7 +1158,14 @@ func _update_hint() -> void:
 	var place := _nearest(poi_nodes.values(), pos, 48.0)
 	if build_mode:
 		return  # the build bar uses the hint line
-	if trace != null:
+	var boat := _nearest(boats, pos, 36.0)
+	if sailing != null:
+		hint = "Sailing the %s · E: go ashore" % sailing.display_name().to_lower()
+	elif _nearest(buildings.values().filter(func(b): return b.kind == "dock"), pos, 24.0) != null:
+		hint = "E: use the dock (boats)"
+	elif boat != null:
+		hint = "E: board the %s" % (boat as Boat).display_name().to_lower()
+	elif trace != null:
 		var t: Trace = trace
 		hint = {"note": "E: read the note", "grave": "E: read the grave", "stash": "E: open the stash",
 			"bag": "E: pick up your belongings"}.get(t.kind, "")
@@ -1061,7 +1189,10 @@ func _update_hint() -> void:
 		hint = _building_hint(building)
 	elif cell != World.NO_CELL:
 		hint = {"tree": "E: chop tree", "rock": "E: break rock", "bush": "E: pick berries",
-			"iron_rock": "E: mine iron ore" if player.holding("pickaxe") else ("Iron ore: take your pickaxe in hand (4)" if player.has_pickaxe else "Iron ore: you need a pickaxe")}.get(world.prop_type(cell), "")
+			"iron_rock": "E: mine iron ore" if player.holding("pickaxe") else ("Iron ore: take your pickaxe in hand (4)" if player.has_pickaxe else "Iron ore: you need a pickaxe"),
+			"gold_rock": "E: mine gold" if player.holding("pickaxe") else ("Gold: take your pickaxe in hand (4)" if player.has_pickaxe else "Gold: you need a pickaxe")}.get(world.prop_type(cell), "")
+		if world.prop_type(cell) == "bush" and world.season == "winter":
+			hint = "A bare bush. Nothing grows in winter."
 	elif is_night() and not _near_lit_fire(pos) and player.torch_time <= 0.0:
 		hint = "It's dark and cold. Build a campfire (C) or light a torch (I)."
 	hud.set_hint(hint)
@@ -1073,7 +1204,7 @@ func _refresh_hud() -> void:
 		player.count("raw_meat"), player.count("cooked_meat"),
 	]
 	var extras := PackedStringArray()
-	for item in ["smoked_meat", "ore", "iron", "hide", "salve"]:
+	for item in ["smoked_meat", "ore", "iron", "hide", "salve", "gold"]:
 		if player.count(item) > 0:
 			extras.append("%s %d" % [ITEM_NAMES[item].capitalize(), player.count(item)])
 	if not extras.is_empty():
@@ -1087,8 +1218,8 @@ func _refresh_hud() -> void:
 	if not gear.is_empty():
 		inv += "\n" + "  ·  ".join(gear)
 	if not soldiers.is_empty() or _count("barracks") > 0:
-		inv += "\nArmy %d / %d  ·  %s (T)" % [soldiers.size(), _army_capacity(),
-			"following" if army_mode == "follow" else "guarding"]
+		inv += "\nArmy %d / %d  ·  %s  ·  %s (Z)" % [soldiers.size(), _army_capacity(),
+			"following" if army_mode == "follow" else "guarding", formation]
 	hud.update_hotbar(_hotbar_slots(), HOTBAR.find(player.equipped if player.owns(player.equipped) else "hands"))
 	hud.set_hotbar_visible(started)
 	hud.update_stats([player.health, player.hunger, player.warmth, player.sanity], day, time_label(), inv)
@@ -1297,8 +1428,14 @@ func _map_markers() -> Dictionary:
 			items.append(["poi_looted" if poi_looted.has(data["id"]) else "poi", world.cell_center(data["cell"]), data["name"]])
 	if home != Vector2.INF:
 		items.append(["home", home])
-	if not soldiers.is_empty() and army_mode == "guard":
-		items.append(["soldiers", soldiers[0].guard_point])
+	for b in boats:
+		items.append(["boat", b.pos])
+	var posts := {}
+	for so in soldiers:
+		if so.mode != "follow":
+			posts[Vector2i(so.guard_point / 8.0)] = so.guard_point
+	for p in posts.values():
+		items.append(["soldiers", p])
 	return {"player": player.pos, "facing": player.facing, "items": items}
 
 
@@ -1369,7 +1506,11 @@ func _set_build_mode(on: bool) -> void:
 func _build_input(event: InputEvent) -> bool:
 	var key := event as InputEventKey
 	if key and key.pressed and not key.echo:
-		var n: int = 9 if key.physical_keycode == KEY_0 else key.physical_keycode - KEY_1
+		var n: int = key.physical_keycode - KEY_1
+		if key.physical_keycode == KEY_0:
+			n = 9
+		elif key.physical_keycode == KEY_MINUS:
+			n = 10
 		if n >= 0 and n < Structure.ORDER.size():
 			build_index = n
 			return true
@@ -1411,6 +1552,8 @@ func _build_problem(kind: String, cell: Vector2i) -> String:
 		return "You're standing there."
 	if not world.can_build(cell):
 		return "You can't build there."
+	if kind == "dock" and not _next_to_water(cell):
+		return "A dock must be at the water's edge."
 	if kind == "torch_post" and _count("torch_post") >= MAX_TORCH_POSTS:
 		return "You have the most torch posts allowed (%d)." % MAX_TORCH_POSTS
 	if not player.can_afford(Structure.info(kind)["cost"]):
@@ -1475,7 +1618,8 @@ func _update_build_preview() -> void:
 	var names := PackedStringArray()
 	for i in Structure.ORDER.size():
 		var n: String = Structure.info(Structure.ORDER[i])["name"]
-		names.append(("[%d %s]" if i == build_index else "%d %s") % [i + 1, n])
+		var key_name := "0" if i == 9 else ("-" if i == 10 else str(i + 1))
+		names.append(("[%s %s]" if i == build_index else "%s %s") % [key_name, n])
 	var info: Dictionary = Structure.info(kind)
 	hud.set_hint("%s\n%s: %s. %s  %s" % [
 		"  ".join(names), info["name"], _items_text(info["cost"]), info["about"],
@@ -1565,7 +1709,7 @@ func _hotbar_slots() -> Array:
 
 func _open_inventory() -> void:
 	var supplies := []
-	for item in ["wood", "stone", "berries", "raw_meat", "cooked_meat", "smoked_meat", "ore", "iron", "hide", "salve"]:
+	for item in ["wood", "stone", "berries", "raw_meat", "cooked_meat", "smoked_meat", "ore", "iron", "hide", "salve", "gold"]:
 		var n: int = player.count(item)
 		var row := {"name": str(ITEM_NAMES[item]).capitalize(), "detail": "× %d" % n, "dim": n == 0}
 		if item in ["berries", "raw_meat", "cooked_meat", "smoked_meat"]:
@@ -1647,6 +1791,9 @@ func _building_hint(b: Structure) -> String:
 
 func _use_building(b: Structure) -> void:
 	match b.kind:
+		"dock":
+			_open_dock(b)
+			return
 		"chest":
 			_open_chest(b)
 			return
@@ -1724,89 +1871,448 @@ func _chest_take(b: Structure) -> void:
 	b.items = {}
 
 
+# ---------- Boats ----------
+
+func _next_to_water(cell: Vector2i) -> bool:
+	for d in [Vector2i(0, 1), Vector2i(1, 0), Vector2i(0, -1), Vector2i(-1, 0)]:
+		var t := world.terrain_at(cell + d)
+		if t == World.WATER or t == World.DEEP:
+			return true
+	return false
+
+
+func _boat_of(kind: String) -> Boat:
+	for b in boats:
+		if b.kind == kind:
+			return b
+	return null
+
+
+func _open_dock(dock: Structure) -> void:
+	var lines := PackedStringArray()
+	var actions := []
+	var buttons := PackedStringArray()
+	for kind in ["raft", "galley"]:
+		var info: Dictionary = Boat.info(kind)
+		var owned := _boat_of(kind)
+		if owned == null:
+			lines.append("%s (%s): %s" % [info["name"], _items_text(info["cost"]), info["about"]])
+			buttons.append("Build %s" % str(info["name"]).to_lower())
+			actions.append("build:" + kind)
+		else:
+			lines.append("%s: yours.%s" % [info["name"], "" if owned.pos.distance_to(dock.pos) < 60.0 else " Moored far away."])
+			buttons.append("Board %s" % str(info["name"]).to_lower())
+			actions.append("board:" + kind)
+	buttons.append("Close")
+	actions.append("")
+	hud.open_dialog("Dock", "\n\n".join(lines) + "\n\nA raft keeps to lakes and the shallows. Only a galley crosses the open sea to the islets.",
+		buttons, _on_dock_choice.bind(dock, actions))
+
+
+func _on_dock_choice(choice: int, _text: String, dock: Structure, actions: Array) -> void:
+	if choice < 0 or choice >= actions.size() or str(actions[choice]) == "":
+		return
+	var parts := str(actions[choice]).split(":")
+	if parts[0] == "build":
+		_build_boat(parts[1], dock)
+	else:
+		var boat := _boat_of(parts[1])
+		if boat:
+			boat.pos = _launch_point(dock, boat.can_cross_deep())  # boats come round to the dock when you call them
+			_board(boat)
+
+
+## The water beside a dock, where boats are launched.
+func _launch_point(dock: Structure, deep_ok: bool = true) -> Vector2:
+	var out := dock.water_direction()
+	for dist in [26.0, 34.0, 42.0, 50.0]:
+		var p: Vector2 = dock.pos + out * dist
+		if world.is_sailable(p, deep_ok):
+			return p
+	return dock.pos + out * 26.0
+
+
+func _build_boat(kind: String, dock: Structure) -> Boat:
+	var cost: Dictionary = Boat.info(kind)["cost"]
+	if _boat_of(kind) != null:
+		hud.toast("You already have a %s." % kind)
+		return null
+	if not player.can_afford(cost):
+		hud.toast("A %s needs %s." % [kind, _items_text(cost)])
+		return null
+	var deep_ok: bool = Boat.info(kind)["deep"]
+	var at := _launch_point(dock, deep_ok)
+	if not world.is_sailable(at, deep_ok):
+		hud.toast("The water by this dock is frozen. Wait for spring." if world.season == "winter" else "There's no open water by this dock.")
+		return null
+	player.pay(cost)
+	var boat := _spawn_boat(kind, at, dock.water_direction())
+	audio.play("build", world.to_3d(dock.pos))
+	hud.toast("Your %s is ready at the dock. Press E by it to go aboard." % boat.display_name().to_lower())
+	_save_timer = SAVE_INTERVAL - 1.0
+	return boat
+
+
+func _spawn_boat(kind: String, at: Vector2, facing: Vector2) -> Boat:
+	var boat: Boat = Boat.new()
+	boat.world = world
+	boat.kind = "galley" if kind == "galley" else "raft"
+	boat.pos = at
+	boat.facing = facing if facing.length() > 0.1 else Vector2.DOWN
+	entities.add_child(boat)
+	boats.append(boat)
+	return boat
+
+
+func _board(boat: Boat) -> void:
+	if sailing != null:
+		return
+	if not world.is_sailable(boat.pos, boat.can_cross_deep()) and world.is_ice(world.cell_of(boat.pos)):
+		hud.toast("Your %s is frozen in the ice until spring." % boat.display_name().to_lower())
+		return
+	sailing = boat
+	boat.crewed = true
+	player.on_boat = true
+	player.boat_deep = boat.can_cross_deep()
+	player.boat_speed = boat.speed_factor()
+	player.deck_height = boat.deck_height()
+	player.pos = boat.pos
+	player.facing = boat.facing
+	hud.toast("You push off in the %s. E to go ashore." % boat.display_name().to_lower())
+
+
+## Steps off the boat onto the nearest land. The boat stays moored there.
+func _go_ashore() -> bool:
+	if sailing == null:
+		return false
+	var landing := Vector2.INF
+	for r in [18.0, 26.0, 34.0, 42.0, 52.0]:
+		for i in 16:
+			var p: Vector2 = player.pos + Vector2.from_angle(i * TAU / 16.0) * r
+			if world.is_walkable(p):
+				landing = p
+				break
+		if landing != Vector2.INF:
+			break
+	if landing == Vector2.INF:
+		hud.toast("There's no shore close enough. Sail closer to land.")
+		return false
+	var boat := sailing
+	_leave_boat()
+	player.pos = landing
+	# The legion sails with you on a galley, and comes ashore behind you.
+	if boat.kind == "galley":
+		var landed := 0
+		for so in soldiers:
+			if so.mode == "follow" and so.pos.distance_to(landing) > 200.0:
+				var spot := world.random_walkable_near(landing, 12.0, 70.0, rng)
+				if spot != Vector2.INF:
+					so.pos = spot
+					landed += 1
+		if landed > 0:
+			hud.toast("Your legion comes ashore.")
+	var isle := world.islet_at(world.cell_of(landing))
+	if isle >= 0:
+		hud.toast("You land on %s." % world.islets[isle]["name"])
+	return true
+
+
+func _leave_boat() -> void:
+	if sailing == null:
+		return
+	sailing.pos = player.pos
+	sailing.facing = player.facing
+	sailing.crewed = false
+	sailing = null
+	player.on_boat = false
+
+
+func _leave_boat_if_frozen() -> void:
+	if sailing != null and world.is_ice(world.cell_of(player.pos)):
+		_leave_boat()
+		hud.toast("The water freezes around your boat. You climb out onto the ice.")
+
+
+func _tick_boat() -> void:
+	if sailing != null:
+		sailing.pos = player.pos
+		sailing.facing = player.facing
+
+
 # ---------- Army ----------
 
 func _army_capacity() -> int:
 	return mini(Soldier.MAX_ARMY, Soldier.PER_BARRACKS * _count("barracks"))
 
 
+func _count_kind(kind: String) -> int:
+	var n := 0
+	for s in soldiers:
+		if s.kind == kind:
+			n += 1
+	return n
+
+
+## The barracks: recruit each kind of soldier, and see your veterans.
 func _open_barracks() -> void:
-	hud.open_dialog("Barracks",
-		"Your army: %d of %d (each barracks houses %d, up to %d in all).\n\nRecruit a soldier for %s." % [
-			soldiers.size(), _army_capacity(), Soldier.PER_BARRACKS, Soldier.MAX_ARMY, _items_text(RECRUIT_COST)],
-		PackedStringArray(["Recruit 1", "Recruit 5", "Recruit 10", "Close"]), _on_barracks_choice)
+	var units := []
+	for kind in ["legionary", "archer", "cavalry", "centurion"]:
+		var info: Dictionary = Soldier.info(kind)
+		var cost: Dictionary = info["cost"]
+		var room := soldiers.size() < _army_capacity()
+		var allowed: bool = kind != "centurion" or _count_kind("centurion") < _count("barracks")
+		units.append({"name": str(info["name"]), "detail": _items_text(cost), "button": "Recruit 1",
+			"action": "recruit:%s:1" % kind, "enabled": room and allowed and player.can_afford(cost)})
+		if kind != "centurion":
+			var five := {}
+			for item in cost:
+				five[item] = int(cost[item]) * 5
+			units.append({"name": "", "detail": "", "button": "Recruit 5", "action": "recruit:%s:5" % kind,
+				"enabled": room and player.can_afford(five)})
+	var roster := []
+	for kind in ["legionary", "archer", "cavalry", "centurion"]:
+		roster.append({"name": str(Soldier.info(kind)["name"]) + "s", "detail": "× %d" % _count_kind(kind), "dim": _count_kind(kind) == 0})
+	roster.append({"name": "Army", "detail": "%d / %d" % [soldiers.size(), _army_capacity()]})
+	var veterans := soldiers.filter(func(so): return so.kills > 0)
+	veterans.sort_custom(func(a, b): return a.kills > b.kills)
+	var best := []
+	for so in veterans.slice(0, 6):
+		best.append({"name": so.soldier_name, "detail": "%s · %d kill%s" % [so.rank_name(), so.kills, "" if so.kills == 1 else "s"]})
+	var about := []
+	for kind in ["legionary", "archer", "cavalry", "centurion"]:
+		about.append({"name": str(Soldier.info(kind)["name"]), "detail": str(Soldier.info(kind)["about"]).left(34) + "…"})
+	hud.show_panel("Barracks", "Each barracks houses %d soldiers, and one centurion. Kills make veterans: Veteran at 3, Elite at 8, Hero at 15.   Esc to close" % Soldier.PER_BARRACKS,
+		[[{"title": "Recruit", "rows": units}], [{"title": "Your legion", "rows": roster}, {"title": "Most decorated", "rows": best}]],
+		_on_barracks_action)
 
 
-func _on_barracks_choice(choice: int, _text: String) -> void:
-	var wanted: int = [1, 5, 10, 0][clampi(choice, 0, 3)] if choice >= 0 else 0
-	if wanted > 0:
-		var got := _recruit(wanted)
+func _on_barracks_action(action: String) -> void:
+	var parts := action.split(":")
+	if parts.size() == 3 and parts[0] == "recruit":
+		var got := _recruit(parts[2].to_int(), parts[1])
 		if got > 0:
-			hud.toast("%d soldier%s joined your army." % [got, "" if got == 1 else "s"])
+			hud.toast("%d %s%s joined your army." % [got, str(Soldier.info(parts[1])["name"]).to_lower(), "" if got == 1 else "s"])
+	if hud.is_inventory_open():
+		_open_barracks()
 
 
-## Recruits up to `n` soldiers. Returns how many joined.
-func _recruit(n: int) -> int:
+## Recruits up to `n` soldiers of a kind. Returns how many joined.
+func _recruit(n: int, kind: String = "legionary") -> int:
 	var barracks: Structure = _nearest(buildings.values().filter(func(b): return b.kind == "barracks"), player.pos, 99999.0)
 	if barracks == null:
 		hud.toast("Build a barracks first.")
 		return 0
+	var cost: Dictionary = Soldier.info(kind)["cost"]
 	var joined := 0
 	for i in n:
 		if soldiers.size() >= _army_capacity():
 			hud.toast("No room: build another barracks (each houses %d)." % Soldier.PER_BARRACKS)
 			break
-		if not player.can_afford(RECRUIT_COST):
-			hud.toast("Each soldier needs %s." % _items_text(RECRUIT_COST))
+		if kind == "centurion" and _count_kind("centurion") >= _count("barracks"):
+			hud.toast("One centurion per barracks.")
 			break
-		player.pay(RECRUIT_COST)
+		if not player.can_afford(cost):
+			hud.toast("Each %s needs %s." % [str(Soldier.info(kind)["name"]).to_lower(), _items_text(cost)])
+			break
+		player.pay(cost)
 		var spot := world.random_walkable_near(barracks.pos, 16.0, 40.0, rng)
-		_spawn_soldier(spot if spot != Vector2.INF else player.pos, Soldier.MAX_HP, army_mode, player.pos)
+		_spawn_soldier(spot if spot != Vector2.INF else player.pos, -1.0, army_mode, player.pos, kind)
 		joined += 1
 	if joined > 0:
+		_reassign_slots()
 		_save_timer = SAVE_INTERVAL - 1.0
 	return joined
 
 
-func _spawn_soldier(pos: Vector2, hp: float, mode: String, guard_point: Vector2) -> Soldier:
+func _spawn_soldier(pos: Vector2, hp: float, mode: String, guard_point: Vector2, kind: String = "legionary",
+		soldier_name: String = "", kills: int = 0) -> Soldier:
 	var s: Soldier = Soldier.new()
 	s.world = world
+	s.kind = kind if Soldier.KINDS.has(kind) else "legionary"
+	s.soldier_name = soldier_name if soldier_name != "" else Soldier.random_name(rng)
+	s.kills = maxi(kills, 0)
 	s.pos = pos
-	s.hp = clampf(hp, 1.0, Soldier.MAX_HP)
-	s.mode = "guard" if mode == "guard" else "follow"
+	s.hp = s.max_hp() if hp <= 0.0 else clampf(hp, 1.0, s.max_hp())
+	s.mode = mode if mode in ["follow", "guard", "hold"] else "follow"
 	s.guard_point = guard_point
+	s.formation = formation
 	s.slot = soldiers.size()
 	entities.add_child(s)
 	soldiers.append(s)
 	return s
 
 
+## T: the whole army follows you, or (if it was following) guards this spot.
 func _toggle_army_mode() -> void:
 	if soldiers.is_empty():
 		hud.toast("You have no soldiers yet. Build a barracks (B, then 7) and recruit some.")
 		return
-	army_mode = "guard" if army_mode == "follow" else "follow"
+	var all_following := soldiers.all(func(so): return so.mode == "follow")
+	army_mode = "guard" if all_following else "follow"
 	for s in soldiers:
 		s.mode = army_mode
 		s.guard_point = player.pos
+	_set_selection([])
+	_reassign_slots()
 	hud.toast("Your army guards this spot." if army_mode == "guard" else "Your army follows you.")
 	_save_timer = SAVE_INTERVAL - 1.0
 
 
-func _tick_army(delta: float) -> void:
+## Puts each group in formation order: centurions in front, archers at the back.
+func _reassign_slots() -> void:
+	var groups := {}  # "follow", "guard", or "hold:x,y" -> soldiers
 	for s in soldiers:
+		var key: String = s.mode if s.mode != "hold" else "hold:%d,%d" % [int(s.guard_point.x), int(s.guard_point.y)]
+		if not groups.has(key):
+			groups[key] = []
+		groups[key].append(s)
+	for key in groups:
+		var group: Array = groups[key]
+		group.sort_custom(func(a, b): return Soldier.KIND_ORDER.find(a.kind) < Soldier.KIND_ORDER.find(b.kind))
+		for i in group.size():
+			group[i].slot = i
+			group[i].group_size = group.size()
+			group[i].formation = formation
+
+
+## Z: line, shield wall, wedge.
+func _cycle_formation() -> void:
+	formation = Soldier.FORMATIONS[(Soldier.FORMATIONS.find(formation) + 1) % Soldier.FORMATIONS.size()]
+	_reassign_slots()
+	hud.toast("Formation: %s." % formation)
+	_save_timer = SAVE_INTERVAL - 1.0
+
+
+func _set_selection(list: Array) -> void:
+	for s in selected:
+		if is_instance_valid(s):
+			s.set_selected(false)
+	selected = list.filter(func(so): return is_instance_valid(so) and not so.dead)
+	# A few soldiers show their names; in a big group only the veterans do.
+	for s in selected:
+		s.set_selected(true, selected.size() <= 5 or s.kills >= 3)
+
+
+## Sends the selected soldiers to `target`, where they hold in formation,
+## facing the way they marched.
+func _order_to(target: Vector2) -> void:
+	if selected.is_empty():
+		return
+	var centre := Vector2.ZERO
+	for s in selected:
+		centre += s.pos
+	centre /= selected.size()
+	var ahead := (target - centre).normalized() if target.distance_to(centre) > 8.0 else player.facing
+	for s in selected:
+		s.mode = "hold"
+		s.guard_point = target
+		s.order_facing = ahead
+	_reassign_slots()
+	hud.toast("%d soldier%s march%s there. T calls everyone back." % [selected.size(), "" if selected.size() == 1 else "s", "es" if selected.size() == 1 else ""])
+	_save_timer = SAVE_INTERVAL - 1.0
+
+
+func _select_in_rect(rect: Rect2) -> void:
+	var picked := []
+	for s in soldiers:
+		if s.dead or s.pos.distance_to(player.pos) > Soldier.DRAW_DISTANCE:
+			continue
+		var at: Vector3 = s.global_position + Vector3(0, 1.0, 0)
+		if camera.is_position_behind(at):
+			continue
+		if rect.has_point(camera.unproject_position(at)):
+			picked.append(s)
+	_set_selection(picked)
+	if picked.is_empty():
+		return
+	hud.toast("%d selected. Right-click the ground to send them · Z formation · Esc to deselect." % picked.size())
+
+
+## Strategy view: drag a box to select soldiers, right-click to send them,
+## Esc to let go. Returns true if the event was used.
+func _army_input(event: InputEvent) -> bool:
+	var mb := event as InputEventMouseButton
+	if mb and mb.button_index == MOUSE_BUTTON_LEFT:
+		if mb.pressed:
+			_drag_from = mb.position
+			_dragging = false
+			return false  # a plain click still attacks
+		var was_dragging := _dragging
+		_dragging = false
+		hud.set_selection_box(Rect2())
+		if was_dragging and _drag_from != Vector2.INF:
+			_select_in_rect(Rect2(_drag_from, Vector2.ZERO).expand(mb.position))
+			_drag_from = Vector2.INF
+			return true
+		_drag_from = Vector2.INF
+		return false
+	if mb and mb.button_index == MOUSE_BUTTON_RIGHT:
+		if mb.pressed:
+			_right_from = mb.position
+			_right_moved = 0.0
+			return false
+		var was_click := _right_from != Vector2.INF and _right_moved < 8.0
+		_right_from = Vector2.INF
+		if was_click and not selected.is_empty():
+			var target := _ground_under_mouse()
+			if target != Vector2.INF:
+				_order_to(target)
+				return true
+		return false
+	var mm := event as InputEventMouseMotion
+	if mm and _drag_from != Vector2.INF and mm.button_mask & MOUSE_BUTTON_MASK_LEFT:
+		if mm.position.distance_to(_drag_from) > 10.0:
+			_dragging = true
+		if _dragging:
+			hud.set_selection_box(Rect2(_drag_from, Vector2.ZERO).expand(mm.position))
+			return true
+	if event.is_action_pressed("menu") and not selected.is_empty():
+		_set_selection([])
+		return true
+	return false
+
+
+## The point on the ground under the mouse, in game pixels, or INF.
+func _ground_under_mouse() -> Vector2:
+	var mouse := get_viewport().get_mouse_position()
+	var origin := camera.project_ray_origin(mouse)
+	var dir := camera.project_ray_normal(mouse)
+	if absf(dir.y) < 0.001:
+		return Vector2.INF
+	var t := (player.position.y - origin.y) / dir.y
+	if t <= 0.0:
+		return Vector2.INF
+	var hit := origin + dir * t
+	return Vector2(hit.x, hit.z) * World.TILE
+
+
+func _tick_army(delta: float) -> void:
+	var centurions := soldiers.filter(func(so): return so.kind == "centurion" and not so.dead)
+	for s in soldiers:
+		s.inspired = false
+		if s.kind != "centurion":
+			for c in centurions:
+				if c.pos.distance_to(s.pos) < Soldier.INSPIRE_RADIUS:
+					s.inspired = true
+					break
 		var killed: Wolf = s.tick(delta, player.pos, player.facing, wolves)
 		if killed != null and wolves.has(killed):
 			_kill_wolf(killed, true)
+		if s.ranked_up != "":
+			hud.toast("%s is now %s %s! (%d kills)" % [s.soldier_name, "an" if s.ranked_up == "Elite" else "a", s.ranked_up, s.kills])
+			audio.play("discover", s.position, -6.0)
 		s.set_shown(s.pos.distance_to(player.pos) < Soldier.DRAW_DISTANCE)
 
 
 func _on_soldier_fallen(s: Soldier) -> void:
 	soldiers.erase(s)
-	for i in soldiers.size():
-		soldiers[i].slot = i
+	selected.erase(s)
+	_reassign_slots()
 	get_tree().create_timer(3.0).timeout.connect(s.queue_free)
-	hud.toast("One of your soldiers has fallen.")
+	if s.kills > 0:
+		hud.toast("%s has fallen. %s, %d kill%s." % [s.soldier_name, s.rank_name(), s.kills, "" if s.kills == 1 else "s"])
+	else:
+		hud.toast("%s has fallen." % s.soldier_name)
 
 
 func _export_structures() -> Array:
@@ -1816,17 +2322,26 @@ func _export_structures() -> Array:
 	return out
 
 
+func _export_boats() -> Array:
+	var out := []
+	for b in boats:
+		out.append([b.kind, snappedf(b.pos.x, 0.1), snappedf(b.pos.y, 0.1), snappedf(b.facing.x, 0.01), snappedf(b.facing.y, 0.01)])
+	return out
+
+
 func _export_soldiers() -> Array:
 	var out := []
 	for s in soldiers:
 		out.append([snappedf(s.pos.x, 0.1), snappedf(s.pos.y, 0.1), snappedf(s.hp, 0.1), s.mode,
-			snappedf(s.guard_point.x, 0.1), snappedf(s.guard_point.y, 0.1)])
+			snappedf(s.guard_point.x, 0.1), snappedf(s.guard_point.y, 0.1),
+			{"k": s.kind, "n": s.soldier_name, "x": s.kills, "f": [snappedf(s.order_facing.x, 0.01), snappedf(s.order_facing.y, 0.01)]}])
 	return out
 
 
 # ---------- Death ----------
 
 func _die() -> void:
+	_leave_boat()
 	alive = false
 	player.die()
 	hud.set_hint("")
@@ -2162,6 +2677,9 @@ func save_game(respawn: bool = false, upload: bool = false) -> void:
 		"structures": _export_structures(),
 		"soldiers": _export_soldiers(),
 		"army_mode": army_mode,
+		"formation": formation,
+		"boats": _export_boats(),
+		"sailing": boats.find(sailing) if sailing != null else -1,
 		"player": {
 			"pos": [player.pos.x, player.pos.y],
 			"facing": [player.facing.x, player.facing.y],
@@ -2201,6 +2719,7 @@ func save_game(respawn: bool = false, upload: bool = false) -> void:
 			"warmth": 100.0, "sanity": 100.0, "inventory": {}, "spear": false, "tools": [], "torch": 0.0,
 		}
 		data["run_id"] = ""
+		data["sailing"] = -1
 		data["life_start_day"] = day
 	SaveGame.write(data)
 	_last_save = data
@@ -2216,6 +2735,7 @@ func _apply_save(save: Dictionary) -> bool:
 	if int(save.get("world_seed", 0)) != world.seed_value:
 		return false
 	day = maxi(int(save.get("day", 1)), 1)
+	world.set_season(season_of(day))
 	clock = clampf(float(save.get("clock", clock)), 0.0, DAY_LENGTH - 0.01)
 	life_start_day = clampi(int(save.get("life_start_day", day)), 1, day)
 	run_id = str(save.get("run_id", ""))
@@ -2282,10 +2802,24 @@ func _apply_save(save: Dictionary) -> bool:
 				var items: Variant = st[4] if st.size() > 4 else {}
 				_add_structure(str(st[2]), cell, float(st[3]), items if typeof(items) == TYPE_DICTIONARY else {})
 	army_mode = "guard" if str(save.get("army_mode", "follow")) == "guard" else "follow"
+	formation = str(save.get("formation", "line"))
+	if not formation in Soldier.FORMATIONS:
+		formation = "line"
 	for so in save.get("soldiers", []):
 		if typeof(so) == TYPE_ARRAY and so.size() >= 6 and soldiers.size() < Soldier.MAX_ARMY:
-			_spawn_soldier(Vector2(float(so[0]), float(so[1])), float(so[2]), str(so[3]),
-				Vector2(float(so[4]), float(so[5])))
+			var extra: Dictionary = so[6] if so.size() > 6 and typeof(so[6]) == TYPE_DICTIONARY else {}
+			var s := _spawn_soldier(Vector2(float(so[0]), float(so[1])), float(so[2]), str(so[3]),
+				Vector2(float(so[4]), float(so[5])), str(extra.get("k", "legionary")), str(extra.get("n", "")), int(extra.get("x", 0)))
+			var f := _to_vec(extra.get("f", null))
+			if f != Vector2.INF and f.length() > 0.1:
+				s.order_facing = f
+	_reassign_slots()
+	for bo in save.get("boats", []):
+		if typeof(bo) == TYPE_ARRAY and bo.size() >= 5 and _boat_of(str(bo[0])) == null:
+			_spawn_boat(str(bo[0]), Vector2(float(bo[1]), float(bo[2])), Vector2(float(bo[3]), float(bo[4])))
+	var aboard := int(save.get("sailing", -1))
+	if aboard >= 0 and aboard < boats.size():
+		_resume_sailing = aboard
 	return true
 
 
