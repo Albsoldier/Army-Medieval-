@@ -267,6 +267,12 @@ func _run() -> void:
 		main.player.add_item("berries", 10)
 		for k in 3:
 			main._use_horse(mare)
+		main._store_in_horse(mare, "wood", 60)
+		main._store_in_horse(mare, "stone", 40)
+		main._open_horse(mare)
+		await _frames(8)
+		await _shot("16e-saddlebags")
+		main.hud.close_inventory()
 		main._mount(mare)
 		main.player.facing = Vector2(1, 0.3).normalized()
 		main.cam_yaw = 0.6

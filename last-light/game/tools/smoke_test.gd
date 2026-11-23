@@ -637,7 +637,21 @@ func _run_game() -> void:
 	main.player.pos = wild.pos + Vector2(10, 0)
 	main.action_cooldown = 0.0
 	main._interact()
-	_check(main.riding_horse == wild and main.player.riding and main.player.ride_height() > 0.0, "E by your horse: you ride it")
+	_check(main.hud.is_inventory_open() and main._horse_open == wild, "E by your horse opens its saddlebags")
+	# Saddlebags: store things on your horse and take them back.
+	var stone_carried: int = main.player.count("stone")
+	main._on_horse_action("store:stone")
+	_check(main.player.count("stone") == 0 and int(wild.items.get("stone", 0)) == mini(stone_carried, Horse.CAPACITY), "you can store things in its saddlebags")
+	main._on_horse_action("take:stone")
+	_check(main.player.count("stone") == stone_carried and not wild.items.has("stone"), "and take them back")
+	main.player.add_item("wood", Horse.CAPACITY + 50)
+	main._on_horse_action("store:wood")
+	_check(wild.load_count() == Horse.CAPACITY and wild.room() == 0, "saddlebags hold up to %d things" % Horse.CAPACITY)
+	main._on_horse_action("take_all")
+	main._on_horse_action("store:berries")
+	var bag_berries: int = int(wild.items.get("berries", 0))
+	main._on_horse_action("ride")
+	_check(main.riding_horse == wild and main.player.riding and main.player.ride_height() > 0.0 and not main.hud.is_inventory_open(), "Ride: you're in the saddle")
 	var start: Vector2 = main.player.pos
 	main.player.move(Vector2.RIGHT, 0.05)
 	var ridden: float = main.player.pos.distance_to(start)
@@ -670,6 +684,7 @@ func _run_game() -> void:
 	_check(copy_main.soldiers[0].soldier_name == main.soldiers[0].soldier_name and copy_main._count_kind("archer") == main._count_kind("archer")
 		and copy_main.soldiers[1].kills == main.soldiers[1].kills, "names, kinds and kills survive a reload")
 	_check(copy_main.boats.size() == 2 and copy_main.formation == main.formation, "boats and the formation survive a reload")
+	_check(int(copy_main.tame_horses[0].items.get("berries", 0)) == bag_berries and bag_berries > 0, "saddlebags keep their contents after a reload")
 	_check(copy_main.tame_horses.size() == main.tame_horses.size() and copy_main.riding_horse != null
 		and copy_main.horses_taken.has(wild.herd_id), "your horses, and riding one, survive a reload")
 	_check(copy_main.camps_cleared.has("islet-0") and copy_main.camps_found.has(camp0["id"]), "found and cleared raider camps are remembered")

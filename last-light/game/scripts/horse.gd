@@ -11,6 +11,7 @@ const FEEDS_TO_TAME := 3  # berries are offered this many times before a horse t
 const BERRIES_PER_FEED := 2
 const WANDER := 70.0  # how far a wild horse strays from its herd
 const SPEED := 28.0  # grazing pace
+const CAPACITY := 300  # how much a tame horse's saddlebags hold
 
 var world: World
 var pos := Vector2.ZERO
@@ -20,6 +21,7 @@ var wild := true
 var trust := 0  # feeds so far
 var herd_id := ""  # "herd-3:1" for wild horses, so a tamed one doesn't come back
 var home := Vector2.ZERO  # where the herd grazes
+var items: Dictionary = {}  # what's in the saddlebags (tame horses)
 
 var _model: Node3D
 var _legs: Array = []
@@ -107,3 +109,16 @@ func feed() -> bool:
 		_legs = build_model(_model, COATS[coat % COATS.size()], true)
 		return true
 	return false
+
+
+## How many things are in the saddlebags.
+func load_count() -> int:
+	var n := 0
+	for item in items:
+		n += int(items[item])
+	return n
+
+
+## Room left in the saddlebags.
+func room() -> int:
+	return maxi(CAPACITY - load_count(), 0)
