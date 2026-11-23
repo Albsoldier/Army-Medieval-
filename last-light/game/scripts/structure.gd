@@ -23,9 +23,9 @@ const TYPES := {
 	"barracks": {"name": "Barracks", "cost": {"wood": 20, "stone": 10}, "hp": 300, "blocks": "all",
 		"about": "Recruit soldiers here (10 per barracks)."},
 	"workbench": {"name": "Workbench", "cost": {"wood": 8, "stone": 4}, "hp": 120, "blocks": "all",
-		"about": "Make an axe, a pickaxe and healing salve."},
+		"about": "Make an axe, a pickaxe, healing salve and hide armour."},
 	"forge": {"name": "Forge", "cost": {"stone": 12, "wood": 6}, "hp": 200, "blocks": "all",
-		"about": "Smelt iron ore, then forge an iron spear, armour and a lantern."},
+		"about": "Smelt iron and steel; forge spears, swords, armour and a lantern."},
 	"smokehouse": {"name": "Smokehouse", "cost": {"wood": 10, "stone": 4}, "hp": 150, "blocks": "all",
 		"about": "Smokes all your raw meat at once. Smoked meat is the best food."},
 	"dock": {"name": "Dock", "cost": {"wood": 12, "stone": 2}, "hp": 150, "blocks": "none",
@@ -43,8 +43,7 @@ const RECIPES := {
 	],
 	"forge": [
 		{"id": "iron", "name": "Smelt iron", "cost": {"ore": 2, "wood": 1}, "about": "Turns 2 iron ore into 1 iron."},
-		{"id": "iron_spear", "name": "Iron spear", "cost": {"iron": 3, "wood": 2}, "about": "Hits wolves 3 times as hard as your fists."},
-		{"id": "armour", "name": "Iron armour", "cost": {"iron": 5, "hide": 3}, "about": "Wolf bites hurt half as much."},
+		{"id": "steel", "name": "Make steel", "cost": {"iron": 2, "wood": 2}, "about": "Folds 2 iron with charcoal into 1 steel."},
 		{"id": "lantern", "name": "Lantern", "cost": {"iron": 2, "wood": 1}, "about": "A light that never runs out."},
 	],
 	"smokehouse": [

@@ -6,7 +6,7 @@ const HELP_TEXT := """[ Controls ]
 WASD / arrows   move
 E (hold)          chop, mine, pick, use, read
 Space / click   attack
-1 – 4              hands, spear, axe, pickaxe
+1 – 5              hands, spear, axe, pickaxe, sword
                       (press again to put away)
 I / Tab            inventory and crafting
 F                    eat         Q   healing salve
@@ -308,7 +308,7 @@ func set_crosshair(on: bool) -> void:
 
 # ---------- Hotbar ----------
 
-const HOTBAR_SLOTS := ["Hands", "Spear", "Axe", "Pickaxe"]
+const HOTBAR_SLOTS := ["Hands", "Spear", "Axe", "Pickaxe", "Sword"]
 
 
 func _build_hotbar() -> void:
@@ -319,8 +319,8 @@ func _build_hotbar() -> void:
 	_hotbar.anchor_right = 0.5
 	_hotbar.anchor_top = 1.0
 	_hotbar.anchor_bottom = 1.0
-	_hotbar.offset_left = -190
-	_hotbar.offset_right = 190
+	_hotbar.offset_left = -240
+	_hotbar.offset_right = 240
 	_hotbar.offset_top = -72
 	_hotbar.offset_bottom = -14
 	_hotbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -417,7 +417,7 @@ func _build_inventory() -> void:
 	_inv_columns.add_theme_constant_override("separation", 28)
 	box.add_child(_inv_columns)
 	_inv_footer = _label(12, Color(0.75, 0.72, 0.66))
-	_inv_footer.text = "Click to use, equip or craft.   1–4 hotbar   ·   I, Tab or Esc to close"
+	_inv_footer.text = "Click to use, equip or craft.   1–5 hotbar   ·   I, Tab or Esc to close"
 	box.add_child(_inv_footer)
 
 
@@ -425,7 +425,7 @@ func _build_inventory() -> void:
 ## is an Array of sections {"title": String, "rows": [{"name", "detail", "button", "action", "enabled", "dim"}]}.
 ## `on_action` is called with a row's "action" when its button is pressed.
 func show_inventory(columns: Array, on_action: Callable) -> void:
-	show_panel("Inventory", "Click to use, equip or craft.   1–4 hotbar   ·   I, Tab or Esc to close", columns, on_action)
+	show_panel("Inventory", "Click to use, equip or craft.   1–5 hotbar   ·   I, Tab or Esc to close", columns, on_action)
 
 
 ## The same panel with another title (the barracks uses it).
@@ -631,7 +631,7 @@ func _input(event: InputEvent) -> void:
 			if inv_key.keycode == KEY_ESCAPE or inv_key.physical_keycode in [KEY_I, KEY_TAB]:
 				_inv_center.visible = false
 				get_viewport().set_input_as_handled()
-			elif inv_key.physical_keycode >= KEY_1 and inv_key.physical_keycode <= KEY_4:
+			elif inv_key.physical_keycode >= KEY_1 and inv_key.physical_keycode <= KEY_5:
 				_on_slot_pressed(inv_key.physical_keycode - KEY_1)
 				get_viewport().set_input_as_handled()
 		return

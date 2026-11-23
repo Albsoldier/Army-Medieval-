@@ -135,6 +135,24 @@ func _run() -> void:
 	await _frames(10)
 	await _shot("7e-take-down")
 	main.hud._choose(1)
+	# Gear by material: the forge, then a survivor in gilded armour with a gilded sword.
+	main.player.add_item("steel", 20)
+	main.player.add_item("gold", 10)
+	main.player.add_item("iron", 10)
+	main.player.add_item("hide", 10)
+	main._make_gear("spear", 3)
+	main._make_gear("armour", 2)
+	main._open_station("forge")
+	await _frames(10)
+	await _shot("7h-forge-gear")
+	main.hud.close_inventory()
+	main._make_gear("armour", 3)
+	main._make_gear("sword", 2)
+	main.player.facing = Vector2.DOWN
+	main.cam_yaw = 0.0
+	main.zoom = 0.55
+	await _frames(20)
+	await _shot("7i-gilded-gear")
 	# First person: the base by day with the axe in hand, then at night with a torch.
 	main.player.pos = w.cell_center(c + Vector2i(0, 2))
 	main._on_hotbar_slot(2)
