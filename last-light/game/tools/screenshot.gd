@@ -178,7 +178,7 @@ func _run() -> void:
 	await _frames(30)
 	await _shot("14-legion-units")
 	# Close up, in open ground: a horseman, an archer and a centurion.
-	var field: Vector2 = w.random_walkable_near(main.player.pos, 260.0, 340.0, main.rng)
+	var field: Vector2 = _open_meadow(w, w.cell_of(main.player.pos))
 	if field != Vector2.INF:
 		for so in main.soldiers:  # the rest of the army stays at the fort
 			so.mode = "guard"
@@ -191,7 +191,7 @@ func _run() -> void:
 			so.order_facing = Vector2.DOWN
 			so.group_size = 1
 			trio.append(so)
-		main.player.pos = field + Vector2(0, 70)
+		main.player.pos = field + Vector2(0, 45)
 		main.player.facing = Vector2.UP
 		main.cam_yaw = 0.0
 		main.zoom = 0.55
@@ -378,3 +378,25 @@ func _shot(label: String) -> void:
 	var path := _dir.path_join(label + ".png")
 	var err := img.save_png(path)
 	print("shot ", label, " -> ", path, " (", error_string(err), ")")
+
+
+## The centre of a treeless patch of land near `around`, or INF.
+func _open_meadow(w, around: Vector2i) -> Vector2:
+	for r in range(12, 160, 3):
+		for dz in range(-r, r + 1, 3):
+			for dx in range(-r, r + 1, 3):
+				if maxi(absi(dx), absi(dz)) < r - 2:
+					continue
+				var cell: Vector2i = around + Vector2i(dx, dz)
+				var clear := true
+				for oz in range(-9, 10):
+					for ox in range(-6, 7):
+						var c2: Vector2i = cell + Vector2i(ox, oz)
+						if not w.is_land(c2) or w.structures.has(c2) or w.prop_type(c2) in ["tree", "rock", "iron_rock", "gold_rock"]:
+							clear = false
+							break
+					if not clear:
+						break
+				if clear:
+					return w.cell_center(cell) + Vector2(0, -48)  # the units stand north of centre, the camera to the south
+	return Vector2.INF
