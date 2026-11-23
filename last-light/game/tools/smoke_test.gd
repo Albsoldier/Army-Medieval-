@@ -290,7 +290,11 @@ func _run_game() -> void:
 	main.action_cooldown = 0.0
 	var wood_axe: int = main.player.count("wood")
 	main._interact()
-	_check(main.player.count("wood") == wood_axe + 2, "with an axe in hand, each hit gives 2 wood")
+	_check(main.player.count("wood") == wood_axe + 20, "with an axe in hand, each hit gives 20 wood")
+	main._on_hotbar_slot(3)
+	_check(main._tool_bonus("stone") == 20 and main._tool_bonus("ore") == 20 and main._tool_bonus("gold") == 20 and main._tool_bonus("wood") == 1,
+		"with a pickaxe in hand: 20 stone, ore or gold per hit")
+	main._on_hotbar_slot(2)
 
 	# Inventory screen.
 	main.player.add_item("berries", 2)
