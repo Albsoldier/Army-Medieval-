@@ -10,6 +10,7 @@ Space / click   attack
                       (press again to put away)
 I / Tab            inventory and crafting
 F                    eat         Q   healing salve
+Shift              sprint (uses stamina)
 C                    campfire   R   torch
 M                    island map
 N / G              leave a note / a stash
@@ -31,28 +32,114 @@ wrecks, caves, shrines and a lighthouse."""
 const Minimap = preload("res://scripts/minimap.gd")
 
 
-class StatBars extends Control:
-	const NAMES := ["Health", "Hunger", "Warmth", "Sanity"]
-	const COLORS := [Color("d9534f"), Color("e0a040"), Color("e07a2f"), Color("8e7cc3")]
-	var values := [100.0, 100.0, 100.0, 100.0]
+## The status card: health and stamina as big bars, then the survival needs
+## (hunger, warmth, sanity) as round gauges, and a backpack that opens the inventory.
+class StatusCard extends Control:
+	const GOLD := Color(0.93, 0.8, 0.55)
+	const NEEDS := ["Hunger", "Warmth", "Sanity"]
+	## health, stamina, hunger, warmth, sanity (0–100 each)
+	var values := [100.0, 100.0, 100.0, 100.0, 100.0]
+	var max_values := [100.0, 100.0]
+	var on_backpack := Callable()
+	var _bar_bg: StyleBoxFlat
+	var _bar_fill: StyleBoxFlat
+	var _tips: Array = []
+
+	func _init() -> void:
+		_bar_bg = StyleBoxFlat.new()
+		_bar_bg.bg_color = Color(0.05, 0.04, 0.03, 0.9)
+		_bar_bg.set_corner_radius_all(4)
+		_bar_fill = StyleBoxFlat.new()
+		_bar_fill.set_corner_radius_all(4)
+		# Invisible hover areas for the round gauges (tooltips), and the backpack button.
+		for i in 4:
+			var spot: Control = Button.new() if i == 3 else Control.new()
+			spot.position = Vector2(i * 46, 116)
+			spot.size = Vector2(38, 38)
+			spot.mouse_filter = Control.MOUSE_FILTER_STOP if i == 3 else Control.MOUSE_FILTER_PASS
+			if spot is Button:
+				var b := spot as Button
+				b.flat = true
+				b.focus_mode = Control.FOCUS_NONE
+				b.tooltip_text = "Inventory (I)"
+				b.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+				b.add_theme_stylebox_override("hover", StyleBoxEmpty.new())
+				b.add_theme_stylebox_override("pressed", StyleBoxEmpty.new())
+				b.pressed.connect(_backpack_pressed)
+			add_child(spot)
+			_tips.append(spot)
+
+	func _backpack_pressed() -> void:
+		if on_backpack.is_valid():
+			on_backpack.call()
+
+	func _process(_delta: float) -> void:
+		queue_redraw()
 
 	func _draw() -> void:
 		var font := get_theme_default_font()
+		var w := size.x
+		_big_bar(font, 0.0, "HEALTH", values[0], max_values[0], Color("b8322a"))
+		_big_bar(font, 50.0, "STAMINA", values[1], max_values[1], Color("d9a53a"))
+		var status := (float(values[2]) + float(values[3]) + float(values[4])) / 3.0
+		draw_string(font, Vector2(0, 106), "SURVIVAL STATUS", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.75, 0.72, 0.66))
+		draw_string(font, Vector2(0, 106), "%d%%" % int(round(status)), HORIZONTAL_ALIGNMENT_RIGHT, w, 10, Color(0.75, 0.72, 0.66))
 		for i in 4:
-			var y := i * 22.0
-			draw_string(font, Vector2(0, y + 13), NAMES[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 1, 1, 0.9))
-			var r := Rect2(62, y + 3, 150, 12)
-			draw_rect(r, Color(0, 0, 0, 0.55))
-			var v := clampf(float(values[i]) / 100.0, 0.0, 1.0)
-			var col: Color = COLORS[i]
+			var c := Vector2(19 + i * 46, 135)
+			var v := 1.0 if i == 3 else clampf(float(values[2 + i]) / 100.0, 0.0, 1.0)
+			_gauge(c, v, i)
+			if i < 3:
+				(_tips[i] as Control).tooltip_text = "%s %d%%" % [NEEDS[i], int(round(v * 100.0))]
+
+	func _big_bar(font: Font, y: float, title: String, value: float, top: float, color: Color) -> void:
+		var w := size.x
+		draw_string(font, Vector2(0, y + 14), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, GOLD)
+		draw_string(font, Vector2(0, y + 14), "%d / %d" % [int(ceil(value)), int(top)], HORIZONTAL_ALIGNMENT_RIGHT, w, 13, Color(0.96, 0.94, 0.9))
+		var r := Rect2(0, y + 24, w, 14)
+		draw_style_box(_bar_bg, r)
+		var v := clampf(value / maxf(top, 1.0), 0.0, 1.0)
+		if v > 0.0:
+			var fill := color
 			if v < 0.25:
-				col = col.lerp(Color.WHITE, 0.35 + 0.35 * sin(Time.get_ticks_msec() / 120.0))
-			draw_rect(Rect2(r.position, Vector2(r.size.x * v, r.size.y)), col)
-			draw_rect(r, Color(1, 1, 1, 0.25), false, 1.0)
+				fill = color.lerp(Color.WHITE, 0.25 + 0.25 * sin(Time.get_ticks_msec() / 120.0))
+			_bar_fill.bg_color = fill
+			draw_style_box(_bar_fill, Rect2(r.position, Vector2(maxf(r.size.x * v, 8.0), r.size.y)))
+
+	## A round gauge: a dark coin with an icon, ringed by how full the need is.
+	func _gauge(c: Vector2, v: float, kind: int) -> void:
+		draw_circle(c, 18.0, Color(0.16, 0.13, 0.1))
+		draw_arc(c, 18.0, 0.0, TAU, 40, Color(0.55, 0.45, 0.3, 0.6), 1.2, true)
+		if kind < 3:
+			var ring := Color(0.85, 0.7, 0.4)
+			if v < 0.25:
+				ring = Color(0.9, 0.2, 0.15).lerp(Color.WHITE, 0.3 + 0.3 * sin(Time.get_ticks_msec() / 120.0))
+			if v > 0.0:
+				draw_arc(c, 18.5, -PI / 2.0, -PI / 2.0 + TAU * v, 40, ring, 2.6, true)
+		match kind:
+			0:  # hunger: a drumstick
+				draw_line(c + Vector2(1, 1), c + Vector2(8, 8), Color(0.94, 0.9, 0.82), 3.0)
+				draw_circle(c + Vector2(9, 7), 2.2, Color(0.94, 0.9, 0.82))
+				draw_circle(c + Vector2(7, 9), 2.2, Color(0.94, 0.9, 0.82))
+				draw_circle(c + Vector2(-3, -3), 7.5, Color("9a4b2a"))
+				draw_circle(c + Vector2(-5, -5), 3.0, Color("c06a3e"))
+			1:  # warmth: a thermometer
+				draw_rect(Rect2(c + Vector2(-2.5, -11), Vector2(5, 15)), Color(0.9, 0.9, 0.92))
+				var level := 13.0 * v
+				draw_rect(Rect2(c + Vector2(-1.2, 3 - level), Vector2(2.4, level)), Color("d9342b"))
+				draw_circle(c + Vector2(0, 6), 4.5, Color("d9342b"))
+				draw_circle(c + Vector2(0, 6), 4.5, Color(0.9, 0.9, 0.92), false, 1.0)
+			2:  # sanity: a crescent moon
+				draw_circle(c, 9.0, Color(0.96, 0.9, 0.65))
+				draw_circle(c + Vector2(4.5, -3.5), 8.0, Color(0.16, 0.13, 0.1))
+			3:  # inventory: a backpack
+				draw_rect(Rect2(c + Vector2(-8, -6), Vector2(16, 15)), Color("c2453a"))
+				draw_rect(Rect2(c + Vector2(-8, -6), Vector2(16, 5)), Color("a3362d"))
+				draw_rect(Rect2(c + Vector2(-5, 2), Vector2(10, 5)), Color("d65a4e"))
+				draw_arc(c + Vector2(0, -6), 4.0, PI, TAU, 10, Color("7a2a22"), 2.0)
 
 
 var _root: Control
-var _bars: StatBars
+var _bars: StatusCard
 var _island_label: Label
 var _day_label: Label
 var _inv_label: Label
@@ -108,28 +195,39 @@ func _ready() -> void:
 
 func _build_status_panel() -> void:
 	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", _panel_style())
+	var card := StyleBoxFlat.new()
+	card.bg_color = Color(0.085, 0.075, 0.065, 0.93)
+	card.border_color = Color(0.62, 0.48, 0.28, 0.75)
+	card.set_border_width_all(1)
+	card.set_corner_radius_all(10)
+	card.set_content_margin_all(14)
+	card.shadow_color = Color(0, 0, 0, 0.35)
+	card.shadow_size = 6
+	panel.add_theme_stylebox_override("panel", card)
 	panel.position = Vector2(12, 12)
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(panel)
 
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(box)
 
-	_island_label = _label(15, Color(1.0, 0.85, 0.6))
+	_island_label = _label(13, Color(0.93, 0.8, 0.55))
 	box.add_child(_island_label)
-	_day_label = _label(13, Color(0.9, 0.9, 0.9))
+	_day_label = _label(12, Color(0.78, 0.76, 0.72))
 	box.add_child(_day_label)
 
-	_bars = StatBars.new()
-	_bars.custom_minimum_size = Vector2(215, 88)
-	_bars.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_bars = StatusCard.new()
+	_bars.custom_minimum_size = Vector2(320, 158)
+	_bars.mouse_filter = Control.MOUSE_FILTER_PASS
 	box.add_child(_bars)
 
-	_inv_label = _label(13, Color(0.95, 0.92, 0.85))
+	_inv_label = _label(12, Color(0.9, 0.87, 0.8))
+	_inv_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_inv_label.custom_minimum_size = Vector2(320, 0)
 	box.add_child(_inv_label)
-	_conn_label = _label(11, Color(0.7, 0.75, 0.8))
+	_conn_label = _label(11, Color(0.6, 0.64, 0.68))
 	box.add_child(_conn_label)
 
 
@@ -232,6 +330,11 @@ func _panel_style() -> StyleBoxFlat:
 
 # ---------- Public API used by main.gd ----------
 
+## What the backpack on the status card opens.
+func set_backpack_action(action: Callable) -> void:
+	_bars.on_backpack = action
+
+
 func set_island(island_name: String, subtitle: String) -> void:
 	_island_label.text = "%s  ·  %s" % [island_name, subtitle]
 
@@ -248,9 +351,10 @@ func toggle_help() -> void:
 	_help.visible = not _help.visible
 
 
-func update_stats(stats: Array, day: int, time_label: String, inventory_text: String) -> void:
+## stats: [health, stamina, hunger, warmth, sanity]; maxima: [max health, max stamina].
+func update_stats(stats: Array, day: int, time_label: String, inventory_text: String, maxima: Array = [100.0, 100.0]) -> void:
 	_bars.values = stats
-	_bars.queue_redraw()
+	_bars.max_values = maxima
 	_day_label.text = "Day %d  ·  %s" % [day, time_label]
 	_inv_label.text = inventory_text
 

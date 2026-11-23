@@ -92,6 +92,23 @@ func _run_game() -> void:
 	_check(main.player.torch_time > 0.0, "torch crafted")
 	main._craft("spear")
 	_check(main.player.has_spear and main.player.equipped == "spear", "spear crafted and taken in hand")
+	# Stamina: sprinting and fighting use it; rest brings it back.
+	var P = load("res://scripts/player.gd")
+	main.player.stamina = P.MAX_STAMINA
+	main.player.move(Vector2.RIGHT, 0.5, true)
+	_check(main.player.sprinting and main.player.stamina < P.MAX_STAMINA, "sprinting uses stamina")
+	main.player.stamina = 1.0
+	main.player.move(Vector2.RIGHT, 0.5, true)
+	main.player.move(Vector2.RIGHT, 0.1, true)
+	_check(not main.player.sprinting and main.player.is_winded(), "out of stamina, you can't sprint")
+	for k in 30:
+		main.player.recover_stamina(0.1)
+	_check(main.player.stamina >= 25.0 and not main.player.is_winded(), "stamina comes back when you rest (%d)" % int(main.player.stamina))
+	main.player.stamina = P.MAX_STAMINA
+	main.attack_cooldown = 0.0
+	main._attack()
+	_check(main.player.stamina < P.MAX_STAMINA, "attacking uses stamina")
+	main.player.stamina = P.MAX_STAMINA
 	_check(main.player.spear_tier == 1 and main.player.attack_damage() == 3 and main.player.attack_reach() > 30.0, "a flint spear hits harder and further")
 	main._on_hotbar_slot(1)
 	_check(main.player.equipped == "hands" and main.player.attack_damage() == 1, "pressing 2 again puts the spear away")

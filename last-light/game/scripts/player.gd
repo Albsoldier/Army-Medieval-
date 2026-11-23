@@ -10,6 +10,10 @@ const RIDE_SPEED := 1.9  # how much faster you go on horseback
 const SADDLE := 0.55  # how much higher you sit on a horse
 
 const SPEED := 95.0
+const SPRINT := 1.5  # how much faster you go sprinting (Shift)
+const MAX_STAMINA := 100.0
+const SPRINT_COST := 20.0  # stamina per second of sprinting
+const SWING_COST := 6.0  # stamina per attack
 const TORCH_RADIUS := 85.0
 
 var world: World
@@ -18,6 +22,10 @@ var health := 100.0
 var hunger := 100.0
 var warmth := 100.0
 var sanity := 100.0
+var stamina := MAX_STAMINA
+var sprinting := false  # sprinting this frame
+var _winded := false  # ran out: no sprinting until stamina recovers a little
+var _rest_time := 0.0  # seconds since stamina was last spent
 var inventory := {"wood": 0, "stone": 0, "berries": 0, "raw_meat": 0, "cooked_meat": 0,
 	"smoked_meat": 0, "ore": 0, "iron": 0, "hide": 0, "salve": 0, "gold": 0, "steel": 0}
 ## Your best spear, sword and armour, as tiers in gear.gd (-1: none).
@@ -179,12 +187,17 @@ func _ready() -> void:
 	position = ground_point()
 
 
-func move(dir: Vector2, delta: float) -> void:
+func move(dir: Vector2, delta: float, sprint: bool = false) -> void:
 	_moving = dir != Vector2.ZERO and not dead
+	sprinting = sprint and _moving and not on_boat and not _winded and stamina > 0.0
+	if sprinting:
+		spend_stamina(SPRINT_COST * delta)
 	if not _moving:
 		return
 	facing = dir.normalized()
 	var pace := boat_speed if on_boat else (RIDE_SPEED if riding else 1.0)
+	if sprinting:
+		pace *= SPRINT
 	var step := facing * SPEED * pace * delta
 	var next_x := pos + Vector2(step.x, 0)
 	if _can_be_at(next_x):
@@ -215,6 +228,32 @@ func mount(on: bool, coat_color: Color = Color.BLACK) -> void:
 ## How far above the ground your eyes are lifted (by a horse).
 func ride_height() -> float:
 	return SADDLE if riding else 0.0
+
+
+## Uses up stamina. Running out leaves you winded until it recovers to 25.
+func spend_stamina(amount: float) -> void:
+	stamina = maxf(stamina - amount, 0.0)
+	_rest_time = 0.0
+	if stamina <= 0.0:
+		_winded = true
+
+
+## Stamina comes back after a moment's rest: fastest standing still, slower
+## when you're starving.
+func recover_stamina(delta: float) -> void:
+	_rest_time += delta
+	if _rest_time < 0.8:
+		return
+	var rate := 22.0 if not _moving_last else 12.0
+	if hunger < 20.0:
+		rate *= 0.5
+	stamina = minf(stamina + rate * delta, MAX_STAMINA)
+	if _winded and stamina >= 25.0:
+		_winded = false
+
+
+func is_winded() -> bool:
+	return _winded
 
 
 func _can_be_at(p: Vector2) -> bool:
