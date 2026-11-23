@@ -2188,8 +2188,9 @@ func _set_selection(list: Array) -> void:
 		if is_instance_valid(s):
 			s.set_selected(false)
 	selected = list.filter(func(so): return is_instance_valid(so) and not so.dead)
+	# A few soldiers show their names; in a big group only the veterans do.
 	for s in selected:
-		s.set_selected(true)
+		s.set_selected(true, selected.size() <= 5 or s.kills >= 3)
 
 
 ## Sends the selected soldiers to `target`, where they hold in formation,

@@ -81,7 +81,7 @@ void fragment() {
 	// Winter: snow settles on flat ground above the waterline.
 	float flat_ground = smoothstep(0.55, 0.85, world_normal.y);
 	float snow_w = snow * flat_ground * smoothstep(-0.2, 0.3, world_pos.y) * (0.82 + 0.18 * fine);
-	col = mix(col, vec3(0.90, 0.92, 0.96) * (0.94 + 0.06 * mid), snow_w);
+	col = mix(col, vec3(0.74, 0.78, 0.85) * (0.9 + 0.12 * mid), snow_w);
 
 	// Darker, wet ground at and below the waterline.
 	float wet = smoothstep(0.35, -0.15, world_pos.y);

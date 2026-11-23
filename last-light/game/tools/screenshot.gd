@@ -156,8 +156,11 @@ func _run() -> void:
 	await _shot("8-base-night")
 
 	# The legion: all four kinds of soldier, a selection, and a shield wall.
-	main._try_build("barracks", c + Vector2i(3, 0))
-	main._try_build("barracks", c + Vector2i(-3, 0))
+	var extra := 0
+	for off in [Vector2i(3, 0), Vector2i(-3, 0), Vector2i(2, -1), Vector2i(-2, -1), Vector2i(3, -1), Vector2i(-3, -1),
+			Vector2i(2, 2), Vector2i(-2, 2), Vector2i(1, -2), Vector2i(-1, -2), Vector2i(4, 1), Vector2i(-4, 1)]:
+		if extra < 2 and main._try_build("barracks", c + off):
+			extra += 1
 	main.player.add_item("iron", 20)
 	main.player.add_item("gold", 4)
 	main.player.add_item("hide", 20)
@@ -174,6 +177,20 @@ func _run() -> void:
 		main._tick_army(0.1)
 	await _frames(30)
 	await _shot("14-legion-units")
+	# Close up: a horseman, an archer and a centurion.
+	for kind in ["cavalry", "archer", "centurion"]:
+		for so in main.soldiers:
+			if so.kind == kind:
+				main.zoom = 0.55
+				main.player.pos = so.pos + Vector2(0, 40)
+				main.player.facing = Vector2.UP
+				await _frames(12)
+				await _shot("14b-%s" % kind)
+				break
+	main.player.pos = w.cell_center(c + Vector2i(0, 1))
+	main.player.facing = Vector2.DOWN
+	main.zoom = 0.85
+	await _frames(10)
 	main._set_selection(main.soldiers.slice(0, 14))
 	await _frames(10)
 	await _shot("15-selected")

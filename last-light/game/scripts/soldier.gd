@@ -277,8 +277,12 @@ func hurt(amount: float) -> bool:
 	return false
 
 
-func set_selected(on: bool) -> void:
+var show_name := false  # name tags only when few are picked, or for veterans
+
+
+func set_selected(on: bool, with_name: bool = true) -> void:
 	selected = on and not dead
+	show_name = with_name
 	_ring.visible = selected and _shown
 	_update_label()
 
@@ -286,7 +290,7 @@ func set_selected(on: bool) -> void:
 func _update_label() -> void:
 	_label.text = "%s\n%s" % [soldier_name, rank_name()] if rank() > 0 else soldier_name
 	_label.modulate = Color(1.0, 0.85, 0.4) if rank() >= 2 else Color(1, 1, 1)
-	_label.visible = selected and _shown
+	_label.visible = selected and show_name and _shown
 
 
 ## Where this soldier should stand.
@@ -447,7 +451,7 @@ func set_shown(shown: bool) -> void:
 	for piece in _kit:
 		(piece as Node3D).visible = shown and not dead
 	_ring.visible = shown and selected
-	_label.visible = shown and selected
+	_label.visible = shown and selected and show_name
 	if _body.anim:
 		_body.anim.active = shown
 
