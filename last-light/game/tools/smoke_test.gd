@@ -436,7 +436,7 @@ func _run_game() -> void:
 					gold += 1
 	_check(gold > 0, "gold ore grows on the islets (%d)" % gold)
 	# The islets must not change anything on the main island.
-	var same := true
+	var unchanged := true
 	var check_rng := RandomNumberGenerator.new()
 	check_rng.seed = 5
 	for i in 400:
@@ -447,8 +447,8 @@ func _run_game() -> void:
 		var without: Array = world._sample(x, z)
 		world._islets_on = true
 		if world.islet_at(Vector2i(x, z)) < 0 and (with_islets[0] != without[0] or not is_equal_approx(with_islets[1], without[1])):
-			same = false
-	_check(same, "the main island is exactly as it was before the islets")
+			unchanged = false
+	_check(unchanged, "the main island is exactly as it was before the islets")
 	var coast := Vector2i(-1, -1)
 	for r in range(2, 200):
 		for dz in range(-r, r + 1):

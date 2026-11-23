@@ -2060,7 +2060,7 @@ func _open_barracks() -> void:
 		var info: Dictionary = Soldier.info(kind)
 		var cost: Dictionary = info["cost"]
 		var room := soldiers.size() < _army_capacity()
-		var allowed := kind != "centurion" or _count_kind("centurion") < _count("barracks")
+		var allowed: bool = kind != "centurion" or _count_kind("centurion") < _count("barracks")
 		units.append({"name": str(info["name"]), "detail": _items_text(cost), "button": "Recruit 1",
 			"action": "recruit:%s:1" % kind, "enabled": room and allowed and player.can_afford(cost)})
 		if kind != "centurion":
