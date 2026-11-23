@@ -291,8 +291,7 @@ func _run_game() -> void:
 		_check(Gear.ARMOUR[k + 1]["reduce"] > Gear.ARMOUR[k]["reduce"], "%s beats %s" % [Gear.ARMOUR[k + 1]["name"], Gear.ARMOUR[k]["name"]])
 	for k in Gear.SPEAR.size() - 1:
 		_check(Gear.SPEAR[k + 1]["damage"] > Gear.SPEAR[k]["damage"], "%s beats %s" % [Gear.SPEAR[k + 1]["name"], Gear.SPEAR[k]["name"]])
-	main._on_hotbar_slot(4)
-	main._on_hotbar_slot(4)
+	main._on_hotbar_slot(4)  # the new sword is already in hand
 	_check(main.player.equipped == "hands", "key 5 puts the sword away")
 	main._on_hotbar_slot(4)
 	_check(main.player.equipped == "sword", "key 5 takes the sword in hand")
