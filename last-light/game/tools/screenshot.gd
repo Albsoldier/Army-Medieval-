@@ -42,8 +42,8 @@ func _run() -> void:
 	# Close-up of the characters: you, a horse, a raider chief and a wolf.
 	var me: Vector2 = main.player.pos
 	main.player.facing = Vector2.DOWN
-	var mare = main._spawn_horse(me + Vector2(-34, 6), 2, false)
-	mare.facing = Vector2(1, 0.4).normalized()
+	var steed = main._spawn_horse(me + Vector2(-34, 6), 2, false)
+	steed.facing = Vector2(1, 0.4).normalized()
 	var chief = main._spawn_raider("raider_chief", me + Vector2(32, 2))
 	chief.home = chief.pos
 	chief.facing = Vector2(-1, 0.3).normalized()
@@ -57,7 +57,7 @@ func _run() -> void:
 	main.wolves.erase(chief)
 	chief.queue_free()
 	pup.queue_free()
-	mare.queue_free()
+	steed.queue_free()
 	main.player.pos = me
 	main.zoom = 1.0
 
