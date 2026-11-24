@@ -159,7 +159,7 @@ The smoke test also checks this with the camera: "only some prop chunks are in t
   Both change the shadow look or the models, so they're out of scope here.
 - **Draw calls are still slightly higher than before**: +97 to +157 in built-up scenes. Merging buildings and character kit (audit phase 5) is the bigger draw-call lever.
 - **Grass still rebuilds** its whole 34-tile patch when you cross a chunk. It's a separate system, unchanged here, and now the largest part of the crossing stall.
-- **Chunk crossing is cheaper but not free** **[M-cpu]**. The crossing frame was 140–209 ms in the baseline; with 32 m chunks it's 50–84 ms (first version, one chunk per frame). Most of the rest is the grass rebuild and new terrain chunks.
+- **Chunk crossing is cheaper but not free** **[M-cpu]**. Natively, the six crossing frames on the travel run took 110–187 ms on `main`. With 32 m grouped chunks they take 52–96 ms (16 m: 47–92 ms). Most of the rest is the grass rebuild and new terrain chunks.
 - **Frame times are from a software GPU.** Real-hardware numbers need the benchmark run in Chrome on a real machine (`?bench=1&perf=1`).
 
 ## 7. Testing
@@ -178,4 +178,13 @@ The smoke test also checks this with the camera: "only some prop chunks are in t
 
 ## 8. Before/after views
 
-*(Filled in below from the render comparison.)*
+Both `main` and this branch rendered the same 56 views, from the same seeded standing spots:
+- 8 camera turns at zoom 0.55, 1.6 and 3.2;
+- 4 first-person directions;
+- in the forest and the village.
+
+The result:
+- **No trees, rocks or bushes are missing or moved** in any view, including the fully zoomed-out ones that reach the edge of the view distance.
+- The pixel differences (median 12.7% of pixels) come from the camera settling to a slightly different spot and from moving grass and wind.
+- `perf/prop_chunks/before-after-close.jpg` holds the two views with the largest differences.
+- `perf/prop_chunks/before-after-far.jpg` holds two fully zoomed-out views.
