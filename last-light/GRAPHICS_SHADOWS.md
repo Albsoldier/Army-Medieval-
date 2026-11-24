@@ -162,4 +162,18 @@ The smoke test has a new check, "the sun casts shadows with 2 cascades on a 2048
 
 ### 6.1 Default build results
 
-*(Filled in below from the confirmation run.)*
+The default build reported preset **C** in every scene, and matched the `?shadows=C` run to within 0.2% **[M]**:
+
+| Scene | Preset reported | Draw calls | Primitives (default build) | Primitives (`?shadows=C`) |
+|---|---|---|---|---|
+| Empty area | C | 212 | 5,660,852 | 5,660,506 |
+| Forest | C | 218 | 6,575,780 | 6,577,135 |
+| Village | C | 1,465 | 6,425,153 | 6,432,666 |
+| Village + 10 soldiers | C | 1,652 | 6,490,428 | 6,501,182 |
+| Village + 30 soldiers | C | 2,166 | 6,688,001 | 6,696,274 |
+| Night (village + 30) | C | 2,260 | 6,722,202 | 6,737,344 |
+| Area transitions | C | 345 | 6,178,473 | 6,168,392 |
+
+### How this changes the baseline targets
+
+Against the targets in GRAPHICS_BASELINE.md §8, the forest falls from 10.9 M to 6.6 M primitives. The rest of the way to under 2 M is per-chunk prop culling, the audit's next phase, which is not part of this change.
