@@ -30,9 +30,11 @@ const TYPES := {
 		"about": "Smokes all your raw meat at once. Smoked meat is the best food."},
 	"dock": {"name": "Dock", "cost": {"wood": 12, "stone": 2}, "hp": 150, "blocks": "none",
 		"about": "Build at the water's edge. Builds and launches a raft or a galley."},
+	"vault": {"name": "Treasure vault", "cost": {"wood": 16, "iron": 6, "gold": 2}, "hp": 400, "blocks": "all",
+		"about": "Store gold. With 50 gold inside, start a purge: waves of raiders come for it."},
 }
 const ORDER := ["wood_wall", "stone_wall", "gate", "torch_post", "chest", "tent", "barracks",
-	"workbench", "forge", "smokehouse", "dock"]
+	"workbench", "forge", "smokehouse", "dock", "vault"]
 ## What each crafting station makes. "gives" is an item, or a tool you keep.
 const RECIPES := {
 	"workbench": [
@@ -252,6 +254,16 @@ func _build_model() -> void:
 				for z in [-0.3, 0.7, 1.6]:
 					_add(Art.cylinder(0.07, 0.08, 1.6, 6), Color("5a3d22"), Vector3(x, -0.5, z))
 			_add(Art.cylinder(0.09, 0.09, 0.5, 6), Color("4d3420"), Vector3(0.45, 0.45, 1.7))  # mooring post
+		"vault":
+			# A heavy iron-bound chest on a stone plinth, gold spilling from the lid.
+			_add(Art.box(Vector3(1.0, 0.18, 0.8)), Color("77736b"), Vector3(0, 0.09, 0))
+			_add(Art.box(Vector3(0.86, 0.5, 0.62)), Color("5a3d22"), Vector3(0, 0.43, 0))
+			_add(Art.box(Vector3(0.9, 0.16, 0.66)), Color("6b4a2b"), Vector3(0, 0.74, 0))
+			for x in [-0.32, 0.0, 0.32]:
+				_add(Art.box(Vector3(0.07, 0.68, 0.66)), Color("4a4846"), Vector3(x, 0.5, 0))
+			_add(Art.box(Vector3(0.14, 0.14, 0.04)), Color("d8b45a"), Vector3(0, 0.5, 0.33), Vector3.ZERO, 1.2)
+			for k in 5:
+				_add(Art.cylinder(0.07, 0.07, 0.02, 8), Color("e8c25a"), Vector3(-0.2 + k * 0.1, 0.83 + (k % 2) * 0.02, 0.05 * (k % 3)), Vector3.ZERO, 0.8)
 		"barracks":
 			_add(Art.box(Vector3(1.0, 1.1, 1.0)), Color("7a5634"), Vector3(0, 0.55, 0))
 			_add(Art.cylinder(0.0, 0.85, 0.8, 4), Color("8b2e2e"), Vector3(0, 1.5, 0), Vector3(0, PI / 4, 0))

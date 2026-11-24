@@ -238,6 +238,8 @@ func _run_game() -> void:
 	_check(not first_camp.is_empty() and Vector2(first_camp["cell"]).distance_to(Vector2(world.spawn_cell)) < 40.0,
 		"an abandoned camp waits near the start")
 	var home_pos: Vector2 = main.player.pos
+	var purge_gold := -1
+	var purge_cell := Vector2i(-1, -1)
 	main.player.pos = world.random_walkable_near(world.cell_center(first_camp["cell"]), 20.0, 40.0, main.rng)
 	main._update_pois(0.0, true)
 	_check(main.poi_found.has(first_camp["id"]), "walking up to a place discovers it")
@@ -633,6 +635,66 @@ func _run_game() -> void:
 			w.queue_free()
 	main._camp_guards.clear()
 	main.player.pos = home_pos
+	# The purge: fill a treasure vault with gold, then hold it against waves of raiders.
+	var row: Array = _free_row(world, world.cell_of(home_pos) + Vector2i(3, 3), 6)
+	main.player.add_item("wood", 20)
+	main.player.add_item("iron", 6)
+	main.player.add_item("gold", 2)
+	var vault_ok: bool = row.size() == 6 and main._try_build("vault", row[0])
+	_check(vault_ok, "a treasure vault can be built")
+	if vault_ok:
+		var vault = main.buildings[row[0]]
+		main.player.inventory["gold"] = 20
+		main._open_vault(vault)
+		main._on_vault_action("deposit")
+		_check(main._vault_gold(vault) == 20 and main.player.count("gold") == 0, "your gold goes into the vault")
+		_check(not main._start_purge(vault), "a purge needs %d gold in the vault" % main.PURGE_MIN_GOLD)
+		main.player.add_item("gold", 80)
+		main._on_vault_action("deposit")
+		main.hud.close_inventory()
+		var stake: int = main._vault_gold(vault)
+		_check(stake == 100 and main._start_purge(vault), "with enough gold you can start a purge")
+		_check(not main._start_purge(vault), "only one purge at a time")
+		# Only purge raiders hack through walls, and they steal from the vault.
+		var army: Array = main.soldiers.duplicate()
+		main.soldiers.clear()
+		main.player.pos = vault.pos + Vector2(0, 400)
+		var wall_up: bool = main._try_build("wood_wall", row[2])
+		var breaker = main._spawn_raider("raider", world.cell_center(row[5]))
+		breaker.purge = true
+		var stolen_before: int = main._vault_gold(vault)
+		for i in 400:
+			main._tick_wolves(0.1)
+			if not main.buildings.has(row[2]) and main._vault_gold(vault) < stolen_before:
+				break
+		_check(wall_up and not main.buildings.has(row[2]), "purge raiders break through your walls to reach the vault")
+		_check(main._vault_gold(vault) < stolen_before and int(main.purge.get("stolen", 0)) > 0, "a raider at the vault steals your gold")
+		main._kill_wolf(breaker, false)
+		# Waves come, bigger each time, and the purge is won when the last falls.
+		main._tick_purge(9.0)
+		var wave1: Array = main._purge_raiders()
+		_check(int(main.purge.get("wave", 0)) == 1 and wave1.size() >= 5, "the first wave arrives (%d raiders)" % wave1.size())
+		_check(wave1.all(func(r): return r.pos.distance_to(vault.pos) > 300.0 and r.home == Vector2.INF),
+			"waves gather out of sight and aren't tied to a camp")
+		var waves: int = int(main.purge.get("waves", 0))
+		var steel_before: int = main.player.count("steel")
+		var gold_left: int = main._vault_gold(vault)
+		var biggest: int = wave1.size()
+		for i in 30:
+			if main.purge.is_empty():
+				break
+			for r in main._purge_raiders():
+				main._kill_wolf(r, true)
+			main._tick_purge(13.0)
+			biggest = maxi(biggest, main._purge_raiders().size())
+		_check(main.purge.is_empty() and main._vault_gold(vault) == gold_left + stake / 2
+			and main.player.count("steel") > steel_before, "holding the vault through %d waves pays half again, and spoils" % waves)
+		_check(biggest > wave1.size(), "later waves are bigger (%d)" % biggest)
+		_check(not main._start_purge(vault), "one purge a day")
+		main.soldiers.append_array(army)
+		main.player.pos = home_pos
+		purge_gold = main._vault_gold(vault)
+		purge_cell = row[0]
 	# Wild horses: find a herd, win a horse's trust with berries, then ride it.
 	var Horse = load("res://scripts/horse.gd")
 	_check(main.herds.size() >= 5, "herds of wild horses graze around the island (%d)" % main.herds.size())
@@ -705,6 +767,8 @@ func _run_game() -> void:
 	_check(copy_main.tame_horses.size() == main.tame_horses.size() and copy_main.riding_horse != null
 		and copy_main.horses_taken.has(wild.herd_id), "your horses, and riding one, survive a reload")
 	_check(copy_main.camps_cleared.has("islet-0") and copy_main.camps_found.has(camp0["id"]), "found and cleared raider camps are remembered")
+	_check(purge_gold < 0 or (copy_main.buildings.has(purge_cell) and copy_main._vault_gold(copy_main.buildings[purge_cell]) == purge_gold
+		and copy_main.purged_day == main.purged_day), "the vault keeps its gold after reload, and you can't purge twice in a day")
 	_check(not copy_main.world.is_walkable(world.cell_center(cells[0])), "walls still block after reload")
 	_check(copy_main.player.has_axe and copy_main.player.armour and copy_main.player.lantern, "tools are still yours after reload")
 	_check(copy_main.poi_looted.has(first_camp["id"]) and copy_main.poi_found.has(shrine_data["id"]), "found and looted places are remembered")
@@ -766,6 +830,24 @@ func _free_cells(world, around: Vector2i, n: int, avoid: Array = []) -> Array:
 				if found.size() < n and maxi(absi(dx), absi(dz)) == r and world.can_build(c) and not c in avoid:
 					found.append(c)
 	return found
+
+
+## `n` free tiles in an east-west row, searching around `start`.
+func _free_row(world, start: Vector2i, n: int) -> Array:
+	for r in range(0, 14):
+		for dz in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if maxi(absi(dx), absi(dz)) != r:
+					continue
+				var line := []
+				for k in n:
+					var c := start + Vector2i(dx + k, dz)
+					if not world.can_build(c):
+						break
+					line.append(c)
+				if line.size() == n:
+					return line
+	return []
 
 
 ## Three free tiles in a north-south line, searching around `start`.

@@ -316,6 +316,37 @@ func _run() -> void:
 	main._cycle_formation()
 	main._cycle_formation()  # back to a line
 
+	# A purge: the vault full of gold, and a wave of raiders closing in on it.
+	var vault_cell := Vector2i(-1, -1)
+	for r in range(3, 14):
+		for dx in range(-r, r + 1):
+			var c: Vector2i = w.cell_of(base_pos) + Vector2i(dx, r)
+			if vault_cell.x < 0 and w.can_build(c):
+				vault_cell = c
+	if vault_cell.x >= 0:
+		main.player.add_item("wood", 16)
+		main.player.add_item("iron", 6)
+		main.player.add_item("gold", 2)
+		if main._try_build("vault", vault_cell):
+			var vault = main.buildings[vault_cell]
+			vault.items["gold"] = 180
+			main.purged_day = 0
+			main._start_purge(vault)
+			main._tick_purge(9.0)
+			main.player.pos = vault.pos + Vector2(0, 40)
+			main.player.facing = Vector2.UP
+			for i in 45:
+				main._tick_wolves(0.1)
+				main._tick_army(0.1)
+			w.update_view(main.player.pos, true)
+			main.zoom = 1.6
+			await _frames(30)
+			await _shot("16f-purge")
+			main._end_purge(false, "")
+			main._remove_structure(vault_cell)
+			main.player.pos = base_pos
+			w.update_view(base_pos, true)
+
 	# Winter and autumn.
 	main.day = 10
 	w.set_season("winter")

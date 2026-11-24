@@ -19,6 +19,7 @@ const GUARD_LEASH := 260.0  # guards don't chase further than this from camp
 
 ## The camp this raider guards.
 var home := Vector2.INF
+var purge := false  # one of a purge wave: comes for your vault and breaks walls on the way
 var camp := -1  # the islet a guard belongs to
 
 var _right_hand: Node3D
@@ -29,6 +30,8 @@ var _axe: Node3D
 var _shield: Node3D
 var _helmet: Node3D
 var _moving := false
+var _detour := 0.0  # purge raiders sidestep things in their way for this long
+var _detour_dir := Vector2.ZERO
 
 
 static func raider_info(k: String) -> Dictionary:
@@ -118,9 +121,19 @@ func tick(delta: float, target: Vector2, _fires: Array, _night: bool) -> bool:
 	_moving = to_goal.length() > (14.0 if hunting else 20.0)
 	if to_goal.length() > 1.0:
 		facing = to_goal.normalized()
-	var velocity := (facing * speed if _moving else Vector2.ZERO) + knock
+	var heading := facing
+	_detour = maxf(_detour - delta, 0.0)
+	if _detour > 0.0:
+		heading = (facing + _detour_dir * 1.6).normalized()
+	var velocity := (heading * speed if _moving else Vector2.ZERO) + knock
 	knock = knock.move_toward(Vector2.ZERO, 500.0 * delta)
+	var before := pos
 	_slide(velocity * delta)
+	# A purge raider stuck on a tree or rock (not a wall: walls get hacked) steps around it.
+	if purge and _moving and _detour <= 0.0 and blocked_cell == Vector2i(-1, -1) \
+			and pos.distance_to(before) < speed * delta * 0.3:
+		_detour = 0.8
+		_detour_dir = facing.orthogonal() * (1.0 if randf() < 0.5 else -1.0)
 	_animate(delta)
 	if hunting and bite_cooldown <= 0.0 and pos.distance_to(target) < 18.0:
 		bite_cooldown = 1.1
