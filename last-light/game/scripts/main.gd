@@ -16,6 +16,8 @@ const Gear = preload("res://scripts/gear.gd")
 const Raider = preload("res://scripts/raider.gd")
 const Horse = preload("res://scripts/horse.gd")
 const Settler = preload("res://scripts/settler.gd")
+const PerfOverlay = preload("res://scripts/perf_overlay.gd")
+const PerfBench = preload("res://scripts/perf_bench.gd")
 ## Jobs for soldiers who aren't needed in the field. They work near the barracks.
 const JOBS := {
 	"wood": {"name": "Woodcutters", "one": "woodcutter", "gives": {"wood": 3}},
@@ -164,6 +166,7 @@ var _defences: Array = []  # towers, traps and oil gates
 var _fields: Array = []  # farm fields
 var _village_spots: Array = []  # where settlers like to go
 var _village_timer := 0.0
+var bench_mode := false  # the developer benchmark is running: never save
 var camps: Array = []
 var camps_cleared := {}  # camp id -> the day you cleared it
 var camps_found := {}  # camp id -> true once you've seen it
@@ -247,6 +250,13 @@ func _ready() -> void:
 	_hook_page_unload()
 	_update_lighting()
 	_refresh_hud()
+	# Developer tools, off for players (see perf_overlay.gd).
+	if PerfOverlay.enabled():
+		var overlay: PerfOverlay = PerfOverlay.new()
+		overlay.shown = PerfOverlay.requested()
+		add_child(overlay)
+	if PerfBench.requested():
+		add_child(PerfBench.new())
 
 	if api.player_name == "":
 		_show_welcome()
@@ -3942,7 +3952,7 @@ func _reload_after(_a: Variant = null, _b: Variant = null) -> void:
 ## Writes the save file. With `respawn`, saves the state after death instead:
 ## a fresh survivor at the last campfire and a bag with what was carried.
 func save_game(respawn: bool = false, upload: bool = false) -> void:
-	if not started:
+	if not started or bench_mode:
 		return
 	_save_timer = 0.0
 	var fires := []
