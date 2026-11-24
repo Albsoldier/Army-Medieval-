@@ -19,6 +19,7 @@ const PROP_VIEW := 2  # trees, rocks and bushes are drawn a little closer in
 const GRASS_RADIUS := 34  # tiles of grass around the player
 const CHUNKS := SIZE / CHUNK
 const BUILDS_PER_FRAME := 2
+const PROP_CHUNK_DEFAULT := 32  # tiles (metres) per side of a prop chunk; see GRAPHICS_PROP_CHUNKS.md
 const PROP_BUILDS_PER_FRAME := 1  # prop chunks built per frame as you travel (they appear far out, in the fog)
 const NO_CELL := Vector2i(-1, -1)
 const WATER_LEVEL := 0.0
@@ -98,6 +99,11 @@ var _props_dirty := true  # every built prop chunk needs rebuilding (season, loa
 ## Props are drawn per chunk, so the camera and shadow passes can cull each one:
 ## chunk -> {"node": Node3D, "props": int}. See GRAPHICS_PROP_CHUNKS.md.
 var _prop_chunks: Dictionary = {}
+var prop_chunk := PROP_CHUNK_DEFAULT  # prop chunk size in tiles; set before the first update_view
+## One MultiMesh per prop type per chunk (each type's parts merged into one mesh),
+## rather than one per part. Set before the first update_view.
+var prop_grouping := true
+var _merged_props: Dictionary = {}  # kind -> ArrayMesh: every part of the type, rigid and leaf surfaces
 var _prop_queue: Array = []  # chunks in view that still need building, nearest first
 var _dirty_prop_chunks: Dictionary = {}  # chunk -> true: rebuild (something there changed)
 var _props_root: Node3D
@@ -880,6 +886,13 @@ func _build_prop_layers() -> void:
 			by_key[key] = layer
 			layers.append(layer)
 		_prop_defs[kind] = layers
+	_merged_props.clear()
+	var rigid_mat := ShaderMaterial.new()
+	rigid_mat.shader = preload("res://shaders/prop_rigid.gdshader")
+	var leaf_mat := ShaderMaterial.new()
+	leaf_mat.shader = preload("res://shaders/prop_leaves.gdshader")
+	for kind in DRAW_TYPES:
+		_merged_props[kind] = _merge_parts(kind, parts[kind], rigid_mat, leaf_mat)
 	# Grass clumps around the player.
 	_grass = MultiMeshInstance3D.new()
 	_grass.name = "Grass"
@@ -931,23 +944,152 @@ func _tree_kind(cell: Vector2i) -> String:
 	return "tree_pine" if _hash01(cell.x, cell.y, 9) < pine_share else "tree_oak"
 
 
+## Merges every part of a prop type into one mesh: a surface for the rigid
+## parts and one for the leaves. Each vertex carries its part's colour and sway
+## (see props.gdshaderinc), so one MultiMesh instance draws the whole prop.
+func _merge_parts(kind: String, kind_parts: Array, rigid_mat: Material, leaf_mat: Material) -> ArrayMesh:
+	var groups := {"rigid": [], "leaf": []}
+	for p in kind_parts:
+		groups["leaf" if float(p["sway"]) > 0.0 else "rigid"].append(p)
+	var mesh := ArrayMesh.new()
+	for group in ["rigid", "leaf"]:
+		if groups[group].is_empty():
+			continue
+		var verts := PackedVector3Array()
+		var normals := PackedVector3Array()
+		var uvs := PackedVector2Array()
+		var uv2s := PackedVector2Array()
+		var colors := PackedColorArray()
+		var indices := PackedInt32Array()
+		for p in groups[group]:
+			var arrays: Array = (p["mesh"] as PrimitiveMesh).get_mesh_arrays()
+			var pv: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var pn: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+			var pi: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			var scale: Vector3 = p["scale"]
+			var offset: Vector3 = p["offset"]
+			var base: Color = p["color"]
+			var sway := float(p["sway"])
+			var part := sway if sway > 0.0 else (-1.0 if kind == "bush" else 0.0)  # a bush's rigid parts are its berries
+			var first := verts.size()
+			for i in pv.size():
+				verts.append(pv[i] * scale + offset)
+				normals.append((pn[i] / scale).normalized())
+				uvs.append(Vector2(base.r, base.g))
+				uv2s.append(Vector2(base.b, part))
+				colors.append(Color.WHITE)
+			for i in pi:
+				indices.append(first + i)
+		var out := []
+		out.resize(Mesh.ARRAY_MAX)
+		out[Mesh.ARRAY_VERTEX] = verts
+		out[Mesh.ARRAY_NORMAL] = normals
+		out[Mesh.ARRAY_TEX_UV] = uvs
+		out[Mesh.ARRAY_TEX_UV2] = uv2s
+		out[Mesh.ARRAY_COLOR] = colors
+		out[Mesh.ARRAY_INDEX] = indices
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out)
+		mesh.surface_set_material(mesh.get_surface_count() - 1, leaf_mat if group == "leaf" else rigid_mat)
+	return mesh
+
+
+## A merged prop's per-instance colouring this season: [leaf tint (rgb, amount),
+## (shade, frost on rocks and stumps, hide leaves, hide berries)]. The same
+## rules as _season_color, worked out once per prop instead of once per part.
+func _prop_instance_params(kind: String, cell: Vector2i) -> Array:
+	var tint := Color(0, 0, 0, 0)
+	var frost := 0.0
+	var hide_leaves := 0.0
+	var hide_berries := 0.0
+	match season:
+		"summer":
+			tint = Color("6f7d34")
+			tint.a = 0.15
+		"autumn":
+			if kind == "tree_oak":
+				var turn := _hash01(cell.x, cell.y, 71)
+				tint = Color("b4561e") if turn < 0.4 else (Color("c98a24") if turn < 0.75 else Color("8e3a1c"))
+				tint.a = 0.75
+			elif kind == "bush":
+				tint = Color("7a5a2a")
+				tint.a = 0.45
+		"winter":
+			if kind == "tree_oak":
+				hide_leaves = 1.0
+			else:
+				tint = Color(0.9, 0.93, 0.96, 0.55)
+			if kind == "bush":
+				hide_berries = 1.0
+			if kind in ["rock", "iron_rock", "gold_rock", "stump"]:
+				frost = 0.3
+	var shade := (_hash01(cell.x, cell.y, 6) - 0.5) * 0.22
+	return [tint, Color(shade, frost, hide_leaves, hide_berries)]
+
+
 ## A change to the prop on `cell` (felled, picked, regrown, built over):
 ## only its chunk is rebuilt.
 func _mark_props_dirty(cell: Vector2i) -> void:
-	var ck := _chunk_of_cell(cell)
+	var ck := _prop_chunk_of_cell(cell)
 	if _prop_chunks.has(ck):
 		_dirty_prop_chunks[ck] = true
 
 
-## The chunks whose props are drawn: PROP_VIEW chunks each way from the player.
-func _prop_view_chunks() -> Array:
+func _prop_chunk_of_cell(cell: Vector2i) -> Vector2i:
+	return Vector2i(floori(float(cell.x) / prop_chunk), floori(float(cell.y) / prop_chunk))
+
+
+## The tiles a prop chunk covers.
+func _prop_chunk_rect(pck: Vector2i) -> Rect2i:
+	return Rect2i(pck * prop_chunk, Vector2i(prop_chunk, prop_chunk))
+
+
+## The area whose props are drawn: the same PROP_VIEW terrain chunks around the
+## player as always, plus `extra` more terrain chunks each way.
+func _prop_window(extra: int) -> Rect2i:
+	var r := PROP_VIEW + extra
+	return Rect2i((_view_chunk - Vector2i(r, r)) * CHUNK, Vector2i(2 * r + 1, 2 * r + 1) * CHUNK)
+
+
+## The prop chunks that overlap `area` (and the island).
+func _prop_chunks_over(area: Rect2i) -> Array:
+	area = area.intersection(Rect2i(0, 0, SIZE, SIZE))
 	var out := []
-	for dz in range(-PROP_VIEW, PROP_VIEW + 1):
-		for dx in range(-PROP_VIEW, PROP_VIEW + 1):
-			var ck := _view_chunk + Vector2i(dx, dz)
-			if _chunk_in_bounds(ck):
-				out.append(ck)
+	if area.size.x <= 0 or area.size.y <= 0:
+		return out
+	var a := _prop_chunk_of_cell(area.position)
+	var b := _prop_chunk_of_cell(area.end - Vector2i.ONE)
+	for z in range(a.y, b.y + 1):
+		for x in range(a.x, b.x + 1):
+			out.append(Vector2i(x, z))
 	return out
+
+
+## The props in one prop chunk, gathered from the terrain chunks under it.
+func _prop_chunk_cells(pck: Vector2i) -> Array:
+	var rect := _prop_chunk_rect(pck)
+	var a := _chunk_of_cell(rect.position)
+	var b := _chunk_of_cell(rect.end - Vector2i.ONE)
+	var out := []
+	for z in range(a.y, b.y + 1):
+		for x in range(a.x, b.x + 1):
+			var ck := Vector2i(x, z)
+			if not _chunk_in_bounds(ck):
+				continue
+			for cell in _chunk_props(ck):
+				if rect.has_point(cell):
+					out.append(cell)
+	return out
+
+
+func _nearer_prop_chunk(a: Vector2i, b: Vector2i) -> bool:
+	var centre := Vector2(_view_chunk * CHUNK) + Vector2(CHUNK, CHUNK) * 0.5
+	var half := Vector2(prop_chunk, prop_chunk) * 0.5
+	return (Vector2(a * prop_chunk) + half).distance_squared_to(centre) < (Vector2(b * prop_chunk) + half).distance_squared_to(centre)
+
+
+## The prop chunks that are drawn: those overlapping the view window.
+func _prop_view_chunks() -> Array:
+	return _prop_chunks_over(_prop_window(0))
 
 
 ## On entering a new chunk: queue the chunks that came into view (nearest
@@ -959,16 +1101,17 @@ func _queue_prop_chunks() -> void:
 	for ck in _prop_view_chunks():
 		if not _prop_chunks.has(ck):
 			_prop_queue.append(ck)
-	_prop_queue.sort_custom(_nearer_to_view)
+	_prop_queue.sort_custom(_nearer_prop_chunk)
+	var shown := _prop_window(0)
+	var kept := _prop_window(1)
 	for ck in _prop_chunks.keys():
-		var far: Vector2i = (ck - _view_chunk).abs()
-		var reach := maxi(far.x, far.y)
-		if reach > PROP_VIEW + 1:
+		var rect := _prop_chunk_rect(ck)
+		if not rect.intersects(kept):
 			(_prop_chunks[ck]["node"] as Node3D).queue_free()
 			_prop_chunks.erase(ck)
 			_dirty_prop_chunks.erase(ck)
 		else:
-			(_prop_chunks[ck]["node"] as Node3D).visible = reach <= PROP_VIEW
+			(_prop_chunks[ck]["node"] as Node3D).visible = rect.intersects(shown)
 
 
 ## Builds queued chunks (a couple per frame, or all of them when `immediate`)
@@ -1004,9 +1147,10 @@ func _build_prop_chunk(ck: Vector2i) -> void:
 	_props_root.add_child(node)
 	var cells_by_kind := {}
 	var total := 0
+	var tris := 0  # triangles in this chunk, for checking the renderer's culling
 	var bounds := AABB()  # every prop's footprint and height, for measuring what's in view
 	var has_bounds := false
-	for cell in _chunk_props(ck):
+	for cell in _prop_chunk_cells(ck):
 		var kind := prop_type(cell)
 		if kind == "tree":
 			kind = _tree_kind(cell)
@@ -1030,6 +1174,25 @@ func _build_prop_chunk(ck: Vector2i) -> void:
 			var box := AABB(origin - Vector3(2.0, 0.5, 2.0), Vector3(4.0, 7.0, 4.0))  # the tallest pine, scaled up
 			bounds = box if not has_bounds else bounds.merge(box)
 			has_bounds = true
+		if prop_grouping:
+			var gm := MultiMesh.new()
+			gm.transform_format = MultiMesh.TRANSFORM_3D
+			gm.use_colors = true
+			gm.use_custom_data = true
+			gm.mesh = _merged_props[kind]
+			gm.instance_count = cells.size()
+			for n in cells.size():
+				var params := _prop_instance_params(kind, cells[n])
+				gm.set_instance_transform(n, Transform3D(turns[n], origins[n]))
+				gm.set_instance_color(n, params[0])
+				gm.set_instance_custom_data(n, params[1])
+			tris += cells.size() * _mesh_triangles(gm.mesh)
+			var ginst := MultiMeshInstance3D.new()
+			ginst.name = kind
+			ginst.multimesh = gm
+			ginst.extra_cull_margin = 0.5  # leaves sway a little outside their resting bounds
+			node.add_child(ginst)
+			continue
 		for layer in _prop_defs[kind]:
 			var layer_parts: Array = layer["parts"]
 			var mm := MultiMesh.new()
@@ -1055,6 +1218,7 @@ func _build_prop_chunk(ck: Vector2i) -> void:
 						mm.set_instance_transform(i, Transform3D(turn * part_scale, origin + turn * offset))
 						mm.set_instance_color(i, c.lightened(shade) if shade > 0.0 else c.darkened(-shade))
 					i += 1
+			tris += mm.instance_count * _mesh_triangles(mm.mesh)
 			var inst := MultiMeshInstance3D.new()
 			inst.name = kind
 			inst.multimesh = mm
@@ -1062,9 +1226,23 @@ func _build_prop_chunk(ck: Vector2i) -> void:
 			if float(layer["sway"]) > 0.0:
 				inst.extra_cull_margin = 0.5  # leaves sway a little outside their resting bounds
 			node.add_child(inst)
-	var far: Vector2i = (ck - _view_chunk).abs()
-	node.visible = maxi(far.x, far.y) <= PROP_VIEW
-	_prop_chunks[ck] = {"node": node, "props": total, "bounds": bounds if has_bounds else null}
+	node.visible = _prop_chunk_rect(ck).intersects(_prop_window(0))
+	_prop_chunks[ck] = {"node": node, "props": total, "tris": tris, "bounds": bounds if has_bounds else null}
+
+
+var _mesh_tris: Dictionary = {}  # mesh instance id -> triangle count
+
+
+func _mesh_triangles(mesh: Mesh) -> int:
+	var id := mesh.get_instance_id()
+	if not _mesh_tris.has(id):
+		var n := 0
+		for i in mesh.get_surface_count():
+			var arrays: Array = mesh.surface_get_arrays(i)
+			var idx: Variant = arrays[Mesh.ARRAY_INDEX]
+			n += (idx as PackedInt32Array).size() / 3 if idx != null else (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size() / 3
+		_mesh_tris[id] = n
+	return _mesh_tris[id]
 
 
 ## Trees, rocks and bushes in the chunks being drawn (not the hidden spare ring).
@@ -1082,6 +1260,7 @@ func props_in_view(camera: Camera3D) -> Dictionary:
 	var planes := camera.get_frustum()
 	var chunks := 0
 	var props := 0
+	var tris_in_view := 0
 	for ck in _prop_chunks:
 		var node: Node3D = _prop_chunks[ck]["node"]
 		if not node.visible or _prop_chunks[ck]["bounds"] == null:
@@ -1095,12 +1274,20 @@ func props_in_view(camera: Camera3D) -> Dictionary:
 		if inside:
 			chunks += 1
 			props += int(_prop_chunks[ck]["props"])
+			tris_in_view += int(_prop_chunks[ck]["tris"])
 	var shown := 0
+	var tris_drawn := 0
+	var nodes := 0
+	var props_built := 0
 	for ck in _prop_chunks:
+		props_built += int(_prop_chunks[ck]["props"])
 		if (_prop_chunks[ck]["node"] as Node3D).visible:
 			shown += 1
+			tris_drawn += int(_prop_chunks[ck]["tris"])
+			nodes += (_prop_chunks[ck]["node"] as Node3D).get_child_count()
 	return {"chunks_built": _prop_chunks.size(), "chunks_drawn": shown, "chunks_in_view": chunks,
-		"props_drawn": drawn_prop_count(), "props_in_view": props}
+		"props_drawn": drawn_prop_count(), "props_in_view": props, "tris_drawn": tris_drawn, "tris_in_view": tris_in_view,
+		"multimeshes": nodes, "chunk_m": prop_chunk, "grouped": prop_grouping, "props_built": props_built}
 
 
 ## Camera3D.get_frustum() planes point outwards: a box is outside a plane when

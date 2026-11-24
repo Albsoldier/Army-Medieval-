@@ -32,7 +32,21 @@ func _run() -> void:
 	main.world.set_season("spring")
 	var bench = PerfBench.new()
 	bench.main = main
+	main.rng.seed = 12345  # the same standing spots every run, so before and after frame the same view
 	var spots: Dictionary = bench._find_spots()
+	if OS.get_environment("PROP_SHOTS_SEASONS") != "":
+		# Quick check of seasonal colours: one view of the forest in each season.
+		bench._go(spots["forest"])
+		main.zoom = 1.6
+		main.cam_yaw = 0.0
+		for season in ["spring", "summer", "autumn", "winter"]:
+			main.world.set_season(season)
+			main.world.update_view(main.player.pos, true)
+			await _hold(30)
+			_save("season-%s" % season)
+		print("PROP_SHOTS_DONE ", _dir)
+		quit(0)
+		return
 	for place in ["forest", "village"]:
 		bench._go(spots[place])
 		for zoom in [0.55, 1.6, 3.2]:
