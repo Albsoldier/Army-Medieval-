@@ -36,6 +36,7 @@ func _run() -> void:
 	main.hud.toggle_help()
 	main.world.set_season("spring")
 	_day()
+	main.rng.seed = 20261124  # the same standing spots and soldiers every run, so runs compare fairly
 	var spots := _find_spots()
 	_note("environment", {"adapter": RenderingServer.get_video_adapter_name(),
 		"vendor": RenderingServer.get_video_adapter_vendor(), "renderer": RenderingServer.get_current_rendering_method(),
