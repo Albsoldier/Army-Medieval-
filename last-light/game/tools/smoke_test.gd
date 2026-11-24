@@ -239,6 +239,8 @@ func _run_game() -> void:
 		"an abandoned camp waits near the start")
 	var home_pos: Vector2 = main.player.pos
 	var purge_gold := -1
+	var w_season_before := ""
+	var village_count := -1
 	var purge_cell := Vector2i(-1, -1)
 	main.player.pos = world.random_walkable_near(world.cell_center(first_camp["cell"]), 20.0, 40.0, main.rng)
 	main._update_pois(0.0, true)
@@ -695,6 +697,133 @@ func _run_game() -> void:
 		main.player.pos = home_pos
 		purge_gold = main._vault_gold(vault)
 		purge_cell = row[0]
+	# Defences fight back: an archer tower shoots, a spike trap stabs, an oil gate scalds.
+	w_season_before = world.season
+	world.set_season("spring")
+	var def_cells: Array = _free_cells(world, world.cell_of(home_pos) + Vector2i(-6, -6), 3, [world.cell_of(main.player.pos)])
+	main.player.add_item("wood", 60)
+	main.player.add_item("stone", 20)
+	main.player.add_item("iron", 10)
+	_check(def_cells.size() == 3, "found room for the defences")
+	if def_cells.size() == 3:
+		var tower_ok: bool = main._try_build("archer_tower", def_cells[0])
+		var tower = main.buildings.get(def_cells[0])
+		var target = main._spawn_raider("raider", tower.pos + Vector2(110, 0) if tower else home_pos)
+		for i in 120:
+			main._tick_defences(0.1)
+		_check(tower_ok and not main.wolves.has(target), "an archer tower shoots down a raider in range")
+		var far_foe = main._spawn_raider("raider", tower.pos + Vector2(400, 0) if tower else home_pos)
+		var far_hp: int = far_foe.hp
+		for i in 30:
+			main._tick_defences(0.1)
+		_check(far_foe.hp == far_hp, "but not one out of range")
+		main.wolves.erase(far_foe)
+		far_foe.queue_free()
+		main._demolish(def_cells[0])
+		var trap_ok: bool = main._try_build("spike_trap", def_cells[1])
+		var trap_pos: Vector2 = world.cell_center(def_cells[1])
+		_check(trap_ok and world.is_walkable(trap_pos, true) and world.is_walkable(trap_pos), "wolves, raiders and you can all step on a spike trap")
+		var stepper = main._spawn_raider("raider", trap_pos + Vector2(3, 0))
+		var hp0: int = stepper.hp
+		for i in 12:
+			main._tick_defences(0.1)
+		_check(stepper.hp < hp0, "a spike trap wounds a raider who steps on it (%d → %d)" % [hp0, stepper.hp])
+		if main.wolves.has(stepper):
+			main.wolves.erase(stepper)
+			stepper.queue_free()
+		main._demolish(def_cells[1])
+		var oil_ok: bool = main._try_build("oil_gate", def_cells[2])
+		var oil_pos: Vector2 = world.cell_center(def_cells[2])
+		_check(oil_ok and world.is_walkable(oil_pos) and not world.is_walkable(oil_pos, true), "an oil gate lets you through but not wolves")
+		var basher = main._spawn_raider("raider", oil_pos + Vector2(16, 0))
+		var hp1: int = basher.hp
+		for i in 20:
+			main._tick_defences(0.1)
+		_check(basher.hp < hp1 or not main.wolves.has(basher), "boiling oil scalds raiders at the gate")
+		if main.wolves.has(basher):
+			main.wolves.erase(basher)
+			basher.queue_free()
+		main._demolish(def_cells[2])
+	# Soldiers at work: woodcutters fill your chest, and T doesn't call them away.
+	var idle_before: int = main._idle_soldiers().size()
+	_check(main._set_job("wood", 1), "a soldier can be sent to cut wood")
+	var cutters: Array = main.soldiers.filter(func(so): return so.mode == "work" and so.job == "wood")
+	_check(cutters.size() == 1 and main._idle_soldiers().size() == idle_before - 1, "the woodcutter leaves the idle soldiers")
+	if cutters.size() == 1:
+		var cutter = cutters[0]
+		_check(world.prop_type(world.cell_of(cutter.work_at)) == "tree" and cutter.guard_point.distance_to(cutter.work_at) < 20.0,
+			"the woodcutter's place is next to a tree")
+		cutter.pos = cutter.guard_point
+		var wood_total: int = _wood_everywhere(main)
+		for i in 50:
+			main._tick_army(0.1)
+		_check(_wood_everywhere(main) >= wood_total + 3, "the woodcutter brings in wood (%d → %d)" % [wood_total, _wood_everywhere(main)])
+		main._toggle_army_mode()
+		_check(cutter.mode == "work", "T leaves workers at their jobs")
+		main._toggle_army_mode()
+		_check(main._set_job("wood", -1) and cutter.mode != "work", "a worker can be called back")
+	# Farming: sow a field, watch the wheat grow, harvest it, bake bread.
+	var farm_cells: Array = _free_cells(world, world.cell_of(home_pos) + Vector2i(7, -7), 3, [world.cell_of(main.player.pos)])
+	main.player.add_item("berries", 10)
+	main.player.add_item("wood", 40)
+	main.player.add_item("stone", 10)
+	var field_ok: bool = farm_cells.size() == 3 and main._try_build("field", farm_cells[0])
+	_check(field_ok, "a farm field can be built")
+	if field_ok:
+		var field = main.buildings[farm_cells[0]]
+		_check(world.is_walkable(field.pos), "you can walk across a field")
+		main._tick_village(main.Structure.GROW_TIME * 0.5)
+		_check(absf(field.growth - 0.5) < 0.05 and not field.is_ripe(), "wheat grows over half a day (%.2f)" % field.growth)
+		world.set_season("winter")
+		main._tick_village(main.Structure.GROW_TIME * 0.2)
+		_check(absf(field.growth - 0.5) < 0.05, "nothing grows in winter")
+		world.set_season("spring")
+		main._tick_village(main.Structure.GROW_TIME * 0.6)
+		_check(field.is_ripe(), "the wheat ripens")
+		var wheat0: int = main.player.count("wheat")
+		main._use_building(field)
+		_check(main.player.count("wheat") == wheat0 + main.Structure.FIELD_YIELD and field.growth == 0.0, "E harvests %d wheat and sows again" % main.Structure.FIELD_YIELD)
+		main._make({"id": "bread", "name": "Bread", "cost": {"wheat": 2}})
+		_check(main.player.count("bread") >= 1 and main.player.count("wheat") == wheat0 + main.Structure.FIELD_YIELD - 2, "the smokehouse bakes bread from wheat")
+		main.player.hunger = 40.0
+		main._eat_item("bread")
+		_check(main.player.hunger >= 69.0, "bread is filling")
+		_check(main._set_job("farm", 1), "a soldier can farm the field")
+		var farmer = main.soldiers.filter(func(so): return so.job == "farm")[0]
+		_check(farmer.work_at == field.pos, "the farmer goes to the field")
+		farmer.pos = farmer.guard_point
+		var g0: float = field.growth
+		for i in 50:
+			main._tick_army(0.1)
+		_check(field.growth > g0, "a farmer makes the wheat grow")
+		# The village: a cottage, food in a chest, and settlers come at dawn.
+		var house_ok: bool = main._try_build("house", farm_cells[1])
+		var pantry_ok: bool = main._try_build("chest", farm_cells[2])
+		_check(house_ok and pantry_ok, "a cottage and a pantry chest can be built")
+		if house_ok and pantry_ok:
+			var pantry = main.buildings[farm_cells[2]]
+			pantry.items["wheat"] = 30
+			main._village_dawn()
+			_check(main.settlers.size() == 2, "two settlers move into the cottage (%d)" % main.settlers.size())
+			var gold_before: int = main.player.count("gold") + _vault_gold_total(main)
+			var food_before: int = main._food_in_store()
+			main._village_dawn()
+			_check(main._food_in_store() == food_before - 4 and main.taxes_last == 4
+				and main.player.count("gold") + _vault_gold_total(main) == gold_before + 4, "each morning settlers eat from your chests and pay 2 gold each")
+			_check(main.settlers.size() == 2, "no more settlers than beds")
+			# They run home when danger comes, and wolves and raiders go for them.
+			var villager = main.settlers[0]
+			var threat = main._spawn_raider("raider", villager.pos + Vector2(80, 0))
+			for i in 40:
+				main._tick_village(0.1)
+			_check(villager.hidden, "a settler runs home and hides from a raider")
+			main.wolves.erase(threat)
+			threat.queue_free()
+			for i in 5:
+				main._tick_village(0.1)
+			_check(not villager.hidden, "and comes out when it's gone")
+			village_count = main.settlers.size()
+	world.set_season(w_season_before)
 	# Wild horses: find a herd, win a horse's trust with berries, then ride it.
 	var Horse = load("res://scripts/horse.gd")
 	_check(main.herds.size() >= 5, "herds of wild horses graze around the island (%d)" % main.herds.size())
@@ -767,7 +896,10 @@ func _run_game() -> void:
 	_check(copy_main.tame_horses.size() == main.tame_horses.size() and copy_main.riding_horse != null
 		and copy_main.horses_taken.has(wild.herd_id), "your horses, and riding one, survive a reload")
 	_check(copy_main.camps_cleared.has("islet-0") and copy_main.camps_found.has(camp0["id"]), "found and cleared raider camps are remembered")
-	_check(purge_gold < 0 or (copy_main.buildings.has(purge_cell) and copy_main._vault_gold(copy_main.buildings[purge_cell]) == purge_gold
+	_check(village_count < 0 or copy_main.settlers.size() == village_count, "settlers are still in the village after reload")
+	_check(copy_main._fields.size() == main._fields.size() and copy_main._count_job("farm") == main._count_job("farm"),
+		"fields and farmers survive a reload")
+	_check(purge_gold < 0 or (copy_main.buildings.has(purge_cell) and copy_main._vault_gold(copy_main.buildings[purge_cell]) == main._vault_gold(main.buildings[purge_cell])
 		and copy_main.purged_day == main.purged_day), "the vault keeps its gold after reload, and you can't purge twice in a day")
 	_check(not copy_main.world.is_walkable(world.cell_center(cells[0])), "walls still block after reload")
 	_check(copy_main.player.has_axe and copy_main.player.armour and copy_main.player.lantern, "tools are still yours after reload")
@@ -830,6 +962,23 @@ func _free_cells(world, around: Vector2i, n: int, avoid: Array = []) -> Array:
 				if found.size() < n and maxi(absi(dx), absi(dz)) == r and world.can_build(c) and not c in avoid:
 					found.append(c)
 	return found
+
+
+## Wood in your pack and all your chests.
+func _wood_everywhere(main) -> int:
+	var n: int = main.player.count("wood")
+	for b in main.buildings.values():
+		if b.kind == "chest":
+			n += int(b.items.get("wood", 0))
+	return n
+
+
+func _vault_gold_total(main) -> int:
+	var n := 0
+	for b in main.buildings.values():
+		if b.kind == "vault":
+			n += int(b.items.get("gold", 0))
+	return n
 
 
 ## `n` free tiles in an east-west row, searching around `start`.

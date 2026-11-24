@@ -15,6 +15,20 @@ const Boat = preload("res://scripts/boat.gd")
 const Gear = preload("res://scripts/gear.gd")
 const Raider = preload("res://scripts/raider.gd")
 const Horse = preload("res://scripts/horse.gd")
+const Settler = preload("res://scripts/settler.gd")
+## Jobs for soldiers who aren't needed in the field. They work near the barracks.
+const JOBS := {
+	"wood": {"name": "Woodcutters", "one": "woodcutter", "gives": {"wood": 3}},
+	"stone": {"name": "Quarrymen", "one": "quarryman", "gives": {"stone": 3}},
+	"farm": {"name": "Farmers", "one": "farmer", "gives": {}},
+}
+const WORK_RADIUS := 380.0  # workers find trees, rocks and fields this close to the barracks
+const FARMER_TEND := 2.0  # seconds of growth a farmer adds to a field with each stroke (doubles its pace)
+const HOUSE_BEDS := 2  # settlers per cottage
+const SETTLER_FOOD := 2  # food each settler eats every morning, from your chests
+const SETTLER_TAX := 2  # gold each fed settler pays every morning
+const SETTLER_FOODS := ["wheat", "bread", "berries", "cooked_meat", "smoked_meat"]
+const DEFENCES := ["archer_tower", "spike_trap", "oil_gate"]
 const HERDS := 7  # herds of wild horses around the main island
 const HERD_SIZE := 3
 const MAX_TAME_HORSES := 10
@@ -67,6 +81,7 @@ const ITEM_NAMES := {
 	"wood": "wood", "stone": "stone", "berries": "berries",
 	"raw_meat": "raw meat", "cooked_meat": "cooked meat", "smoked_meat": "smoked meat",
 	"ore": "iron ore", "iron": "iron", "hide": "wolf hide", "salve": "healing salve", "gold": "gold", "steel": "steel",
+	"wheat": "wheat", "bread": "bread",
 }
 const RECIPES := {
 	"campfire": {"wood": 5, "stone": 3},
@@ -143,6 +158,12 @@ var _horse_open: Horse = null  # the horse whose saddlebags are open
 var purge := {}
 var purged_day := 0  # one purge a day
 var _vault_open: Structure = null  # the vault whose screen is open
+var settlers: Array = []  # Settler nodes living in your cottages
+var taxes_last := 0  # gold the village paid at the last dawn
+var _defences: Array = []  # towers, traps and oil gates
+var _fields: Array = []  # farm fields
+var _village_spots: Array = []  # where settlers like to go
+var _village_timer := 0.0
 var camps: Array = []
 var camps_cleared := {}  # camp id -> the day you cleared it
 var camps_found := {}  # camp id -> true once you've seen it
@@ -425,6 +446,8 @@ func _process(delta: float) -> void:
 		_tick_survival(delta)
 		_tick_wolves(delta)
 		_tick_army(delta)
+		_tick_defences(delta)
+		_tick_village(delta)
 		_update_hint()
 		_update_build_preview()
 		if player.health <= 0.0:
@@ -551,6 +574,7 @@ func _advance_clock(delta: float) -> void:
 		world.regrow(day)
 		player.sanity = minf(player.sanity + 10.0, 100.0)
 		hud.toast("Dawn of day %d. You made it through the night." % day)
+		_village_dawn()
 		var new_season := season_of(day)
 		if new_season != world.season:
 			world.set_season(new_season)
@@ -851,16 +875,30 @@ func _tick_wolves(delta: float) -> void:
 					best = d
 					target_pos = soldier.pos
 					victim = soldier
+		var villager: Settler = null
+		for st in settlers:
+			if not st.dead and not st.hidden:
+				var d2: float = wolf.pos.distance_to(st.pos)
+				if d2 < best:
+					best = d2
+					target_pos = st.pos
+					victim = null
+					villager = st
 		var raider: bool = wolf.is_raider()
 		var at_vault := false
 		if raider and wolf.purge and not purge.is_empty() and best > PURGE_REACH:
 			# Purge raiders go for the vault, turning on you or your soldiers only up close.
 			target_pos = (purge["vault"] as Structure).pos
 			victim = null
+			villager = null
 			at_vault = true
 		if wolf.tick(delta, target_pos, lights, night):
 			if at_vault:
 				_purge_steal(wolf)
+			elif villager != null:
+				audio.play("hit" if raider else "wolf_bite", wolf.position, -2.0)
+				if villager.hurt(wolf.bite):
+					_on_settler_fallen(villager)
 			else:
 				audio.play("hit" if raider else "wolf_bite", wolf.position, -2.0)
 				if victim == null:
@@ -1048,7 +1086,7 @@ func wolf_3d(pos: Vector2) -> Vector3:
 	return world.to_3d(pos) + Vector3(0, 0.5, 0)
 
 
-func _kill_wolf(wolf: Wolf, by_army: bool) -> void:
+func _kill_wolf(wolf: Wolf, by_army: bool, by: String = "") -> void:
 	wolves.erase(wolf)
 	audio.play("hurt" if wolf.is_raider() else "wolf_yelp", wolf.position)
 	var loot: Dictionary = wolf.loot()
@@ -1056,7 +1094,8 @@ func _kill_wolf(wolf: Wolf, by_army: bool) -> void:
 		player.add_item(item, int(loot[item]))
 	var fall_time: float = wolf.die()
 	get_tree().create_timer(fall_time + 1.0).timeout.connect(wolf.queue_free)
-	hud.toast("%s the %s. +%s" % ["Your soldiers bring down" if by_army else "You bring down", wolf.display_name(), _items_text(loot)])
+	var who := by if by != "" else ("Your soldiers bring down" if by_army else "You bring down")
+	hud.toast("%s the %s. +%s" % [who, wolf.display_name(), _items_text(loot)])
 
 
 # ---------- Actions ----------
@@ -1262,7 +1301,7 @@ func _attack() -> void:
 
 
 func _eat() -> void:
-	for item in ["smoked_meat", "cooked_meat", "berries", "raw_meat"]:
+	for item in ["smoked_meat", "cooked_meat", "bread", "berries", "raw_meat"]:
 		if player.count(item) > 0:
 			_eat_item(item)
 			return
@@ -1283,6 +1322,10 @@ func _eat_item(item: String) -> void:
 			player.hunger = minf(player.hunger + 35.0, 100.0)
 			player.sanity = minf(player.sanity + 3.0, 100.0)
 			hud.toast("You eat cooked meat. Warm and filling.")
+		"bread":
+			player.hunger = minf(player.hunger + 30.0, 100.0)
+			player.sanity = minf(player.sanity + 2.0, 100.0)
+			hud.toast("You eat a loaf of fresh bread.")
 		"berries":
 			player.hunger = minf(player.hunger + 8.0, 100.0)
 			hud.toast("You eat a handful of berries.")
@@ -1470,7 +1513,7 @@ func _refresh_hud() -> void:
 		player.count("raw_meat"), player.count("cooked_meat"),
 	]
 	var extras := PackedStringArray()
-	for item in ["smoked_meat", "ore", "iron", "steel", "hide", "salve", "gold"]:
+	for item in ["smoked_meat", "bread", "wheat", "ore", "iron", "steel", "hide", "salve", "gold"]:
 		if player.count(item) > 0:
 			extras.append("%s %d" % [ITEM_NAMES[item].capitalize(), player.count(item)])
 	if not extras.is_empty():
@@ -1489,6 +1532,11 @@ func _refresh_hud() -> void:
 	if not soldiers.is_empty() or _count("barracks") > 0:
 		inv += "\nArmy %d / %d  ·  %s  ·  %s (Z)" % [soldiers.size(), _army_capacity(),
 			"following" if army_mode == "follow" else "guarding", formation]
+		var workers := soldiers.filter(func(so): return so.mode == "work").size()
+		if workers > 0:
+			inv += "  ·  %d at work" % workers
+	if not settlers.is_empty() or _count("house") > 0:
+		inv += "\nVillage: %d settler%s  ·  %d gold in taxes this morning" % [settlers.size(), "" if settlers.size() == 1 else "s", taxes_last]
 	hud.update_hotbar(_hotbar_slots(), HOTBAR.find(player.equipped if player.owns(player.equipped) else "hands"))
 	hud.set_hotbar_visible(started)
 	hud.update_stats([player.health, player.stamina, player.hunger, player.warmth, player.sanity], day, time_label(), inv,
@@ -1831,6 +1879,11 @@ func _add_structure(kind: String, cell: Vector2i, hp: float = -1.0, items: Dicti
 	entities.add_child(b)
 	buildings[cell] = b
 	world.add_structure(cell, kind)
+	if kind in DEFENCES:
+		_defences.append(b)
+	elif kind == "field":
+		_fields.append(b)
+	_village_timer = 0.0
 	_line_up_around(cell)
 	if kind == "torch_post":
 		var crackle := audio.make_fire_player()
@@ -1851,9 +1904,13 @@ func _line_up_around(cell: Vector2i) -> void:
 
 func _remove_structure(cell: Vector2i) -> void:
 	if buildings.has(cell):
-		buildings[cell].queue_free()
+		var b: Structure = buildings[cell]
+		_defences.erase(b)
+		_fields.erase(b)
+		b.queue_free()
 		buildings.erase(cell)
 	world.remove_structure(cell)
+	_village_timer = 0.0
 	_line_up_around(cell)
 
 
@@ -1871,6 +1928,12 @@ func _set_build_mode(on: bool) -> void:
 func _build_input(event: InputEvent) -> bool:
 	var key := event as InputEventKey
 	if key and key.pressed and not key.echo:
+		var page: Array = Structure.PAGES[_build_page()]
+		if key.physical_keycode == KEY_TAB:
+			# Turn the page: walls and workshops, then defences and the village.
+			var next: Array = Structure.PAGES[(_build_page() + 1) % Structure.PAGES.size()]
+			build_index = Structure.ORDER.find(next[0])
+			return true
 		var n: int = key.physical_keycode - KEY_1
 		if key.physical_keycode == KEY_0:
 			n = 9
@@ -1878,8 +1941,8 @@ func _build_input(event: InputEvent) -> bool:
 			n = 10
 		elif key.physical_keycode == KEY_EQUAL:
 			n = 11
-		if n >= 0 and n < Structure.ORDER.size():
-			build_index = n
+		if n >= 0 and n < page.size():
+			build_index = Structure.ORDER.find(page[n])
 			return true
 	var click := event as InputEventMouseButton
 	if click and click.pressed and click.button_index == MOUSE_BUTTON_LEFT:
@@ -1895,6 +1958,15 @@ func _build_input(event: InputEvent) -> bool:
 		_set_build_mode(false)
 		return true
 	return false
+
+
+## Which build-menu page the chosen building is on.
+func _build_page() -> int:
+	var kind: String = Structure.ORDER[build_index]
+	for i in Structure.PAGES.size():
+		if kind in Structure.PAGES[i]:
+			return i
+	return 0
 
 
 ## The tile under the mouse, if it's close enough; otherwise the tile in front of you.
@@ -1986,10 +2058,12 @@ func _update_build_preview() -> void:
 	_ghost.cell = cell
 	_ghost.line_up(world.structures)
 	var names := PackedStringArray()
-	for i in Structure.ORDER.size():
-		var n: String = Structure.info(Structure.ORDER[i])["name"]
+	var page: Array = Structure.PAGES[_build_page()]
+	for i in page.size():
+		var n: String = Structure.info(page[i])["name"]
 		var key_name := "0" if i == 9 else ("-" if i == 10 else ("=" if i == 11 else str(i + 1)))
-		names.append(("[%s %s]" if i == build_index else "%s %s") % [key_name, n])
+		names.append(("[%s %s]" if page[i] == kind else "%s %s") % [key_name, n])
+	names.append("Tab: %s" % ("defences and village" if _build_page() == 0 else "walls and workshops"))
 	var info: Dictionary = Structure.info(kind)
 	hud.set_hint("%s\n%s: %s. %s  %s" % [
 		"  ".join(names), info["name"], _items_text(info["cost"]), info["about"],
@@ -2185,6 +2259,12 @@ func _building_hint(b: Structure) -> String:
 			return "E: use the %s" % b.display_name().to_lower()
 		"vault":
 			return "E: treasure vault (%d gold)" % _vault_gold(b)
+		"field":
+			if b.is_ripe():
+				return "E: harvest the wheat"
+			return "Wheat: %d%% grown%s" % [int(b.growth * 100.0), " (nothing grows in winter)" if world.season == "winter" else ""]
+		"house":
+			return "E: your village (%d settlers)" % settlers.size()
 	if damaged:
 		return "E: repair the %s (%d%%)" % [b.display_name().to_lower(), int(100.0 * b.hp / Structure.max_hp(b.kind))]
 	return ""
@@ -2192,6 +2272,15 @@ func _building_hint(b: Structure) -> String:
 
 func _use_building(b: Structure) -> void:
 	match b.kind:
+		"field":
+			if b.is_ripe():
+				_harvest_field(b, true)
+			else:
+				hud.toast("The wheat is %d%% grown. Farmers and settlers make it grow faster." % int(b.growth * 100.0))
+			return
+		"house":
+			_open_village()
+			return
 		"vault":
 			_open_vault(b)
 			return
@@ -2447,6 +2536,391 @@ func _end_purge(won: bool, why: String = "") -> void:
 	purge = {}
 	hud.set_banner("")
 	_save_timer = SAVE_INTERVAL - 1.0
+
+
+# ---------- Defences ----------
+
+## The nearest living wolf or raider within `radius` of `at`, or null.
+func _nearest_enemy(at: Vector2, radius: float) -> Wolf:
+	var best: Wolf = null
+	var best_d := radius
+	for w in wolves:
+		if not w.dead:
+			var d: float = w.pos.distance_to(at)
+			if d < best_d:
+				best_d = d
+				best = w
+	return best
+
+
+## Archer towers shoot, spike traps stab, and oil gates scald.
+func _tick_defences(delta: float) -> void:
+	for b in _defences:
+		b.cooldown = maxf(b.cooldown - delta, 0.0)
+		if b.cooldown > 0.0 or wolves.is_empty():
+			continue
+		match b.kind:
+			"archer_tower":
+				var foe := _nearest_enemy(b.pos, Structure.TOWER_RANGE)
+				if foe != null:
+					b.cooldown = Structure.TOWER_COOLDOWN
+					b.shoot(foe.position + Vector3(0, 0.6, 0))
+					_defence_hit(foe, Structure.TOWER_DAMAGE, "Your archer tower brings down")
+			"spike_trap":
+				var foe := _nearest_enemy(b.pos, 11.0)
+				if foe != null:
+					b.cooldown = Structure.TRAP_COOLDOWN
+					audio.play("hit", b.position, -6.0)
+					_defence_hit(foe, Structure.TRAP_DAMAGE, "Your spike trap brings down")
+			"oil_gate":
+				if _nearest_enemy(b.pos, Structure.OIL_RANGE) != null:
+					b.cooldown = Structure.OIL_COOLDOWN
+					b.pour()
+					audio.play("hurt", b.position, -8.0)
+					for w in wolves.duplicate():
+						if not w.dead and w.pos.distance_to(b.pos) < Structure.OIL_RANGE:
+							_defence_hit(w, Structure.OIL_DAMAGE, "Boiling oil brings down")
+
+
+func _defence_hit(foe: Wolf, amount: int, by: String) -> void:
+	foe.hurt(amount, foe.pos - foe.facing)
+	if foe.hp <= 0 and wolves.has(foe):
+		_kill_wolf(foe, true, by)
+
+
+# ---------- Soldiers at work ----------
+
+func _count_job(job: String) -> int:
+	return soldiers.filter(func(so): return so.mode == "work" and so.job == job).size()
+
+
+func _idle_soldiers() -> Array:
+	return soldiers.filter(func(so): return not so.dead and so.mode != "work" and so.kind != "centurion")
+
+
+func _barracks_near(at: Vector2) -> Structure:
+	return _nearest(buildings.values().filter(func(b): return b.kind == "barracks"), at, 99999.0) as Structure
+
+
+## Legionaries go to work first, then whoever is nearest the barracks.
+func _better_worker(a: Soldier, b: Soldier, at: Vector2) -> bool:
+	if (a.kind == "legionary") != (b.kind == "legionary"):
+		return a.kind == "legionary"
+	return a.pos.distance_to(at) < b.pos.distance_to(at)
+
+
+## Somewhere to work near `from`: [where to stand, what to work on], or [].
+## Each tree, rock or field gets one worker.
+func _find_work(job: String, from: Vector2) -> Array:
+	var taken := {}
+	for so in soldiers:
+		if so.mode == "work":
+			taken[so.work_at] = true
+	if job == "farm":
+		var best: Structure = null
+		var best_d := WORK_RADIUS * 1.5
+		for f in _fields:
+			var d: float = f.pos.distance_to(from)
+			if d < best_d and not taken.has(f.pos):
+				best_d = d
+				best = f
+		return [best.pos + Vector2(0, 5), best.pos] if best != null else []
+	var want := "tree" if job == "wood" else "rock"
+	var c0 := world.cell_of(from)
+	var r := int(WORK_RADIUS / World.TILE)
+	var best_at := Vector2.INF
+	var best_stand := Vector2.INF
+	var best_r := float(r)
+	for dy in range(-r, r + 1):
+		for dx in range(-r, r + 1):
+			var dist := Vector2(dx, dy).length()
+			if dist >= best_r:
+				continue
+			var c := c0 + Vector2i(dx, dy)
+			if world.prop_type(c) != want:
+				continue
+			var at := world.cell_center(c)
+			if taken.has(at):
+				continue
+			for side in [Vector2(0, 1), Vector2(1, 0), Vector2(-1, 0), Vector2(0, -1)]:
+				var stand: Vector2 = at + side * 13.0
+				if world.is_walkable(stand):
+					best_r = dist
+					best_at = at
+					best_stand = stand
+					break
+	return [best_stand, best_at] if best_at != Vector2.INF else []
+
+
+## Puts one more soldier to work at `job` (n > 0), or calls one back (n < 0).
+func _set_job(job: String, n: int) -> bool:
+	if not JOBS.has(job):
+		return false
+	if n < 0:
+		var workers := soldiers.filter(func(so): return so.mode == "work" and so.job == job)
+		if workers.is_empty():
+			return false
+		var back: Soldier = workers[-1]
+		back.mode = army_mode
+		back.job = ""
+		back.guard_point = player.pos
+		_reassign_slots()
+		_save_timer = SAVE_INTERVAL - 1.0
+		return true
+	var barracks := _barracks_near(player.pos)
+	if barracks == null:
+		hud.toast("Build a barracks first.")
+		return false
+	var idle := _idle_soldiers()
+	if idle.is_empty():
+		hud.toast("No idle soldiers. Recruit more, or call some back from other jobs.")
+		return false
+	# Legionaries first, then whoever is nearest the barracks.
+	idle.sort_custom(_better_worker.bind(barracks.pos))
+	var site := _find_work(job, barracks.pos)
+	if site.is_empty():
+		hud.toast({"wood": "No free trees near your barracks.", "stone": "No free rocks near your barracks.",
+			"farm": "Every field near your barracks has a farmer. Build more fields (B, then Tab)."}[job])
+		return false
+	var s: Soldier = idle[0]
+	s.mode = "work"
+	s.job = job
+	s.guard_point = site[0]
+	s.work_at = site[1]
+	selected.erase(s)
+	s.set_selected(false)
+	_reassign_slots()
+	hud.toast("%s goes to work as a %s." % [s.soldier_name, JOBS[job]["one"]])
+	_save_timer = SAVE_INTERVAL - 1.0
+	return true
+
+
+## A stroke of the axe, pick or hoe.
+func _work_stroke(s: Soldier) -> void:
+	var lost := false
+	match s.job:
+		"wood", "stone":
+			lost = world.prop_type(world.cell_of(s.work_at)) != ("tree" if s.job == "wood" else "rock")
+			if not lost:
+				_store_produce(JOBS[s.job]["gives"], s.pos)
+		"farm":
+			var f: Structure = buildings.get(world.cell_of(s.work_at))
+			lost = f == null or f.kind != "field"
+			if not lost:
+				if f.is_ripe():
+					_harvest_field(f, false)
+				elif world.season != "winter":
+					f.set_growth(f.growth + FARMER_TEND / Structure.GROW_TIME)
+	if lost:
+		# The tree was felled or the field taken up: find another, or come back.
+		var site := _find_work(s.job, s.pos)
+		if site.is_empty():
+			hud.toast("%s has no more work as a %s and rejoins the army." % [s.soldier_name, JOBS[s.job]["one"]])
+			s.mode = army_mode
+			s.job = ""
+			s.guard_point = player.pos
+			_reassign_slots()
+		else:
+			s.guard_point = site[0]
+			s.work_at = site[1]
+
+
+## Puts what workers make into the chest nearest them, or your pack if you have no chest.
+func _store_produce(items: Dictionary, near: Vector2) -> void:
+	var chest: Structure = _nearest(buildings.values().filter(func(b): return b.kind == "chest"), near, 900.0)
+	for item in items:
+		if chest != null:
+			chest.items[item] = int(chest.items.get(item, 0)) + int(items[item])
+		else:
+			player.add_item(item, int(items[item]))
+
+
+# ---------- Farms and the village ----------
+
+func _harvest_field(f: Structure, by_you: bool) -> void:
+	if not f.is_ripe():
+		return
+	f.set_growth(0.0)
+	if by_you:
+		player.add_item("wheat", Structure.FIELD_YIELD)
+		audio.play("pick", f.position, -4.0)
+		hud.toast("You harvest %d wheat and sow the field again. Bake bread at a smokehouse." % Structure.FIELD_YIELD)
+	else:
+		_store_produce({"wheat": Structure.FIELD_YIELD}, f.pos)
+	_save_timer = SAVE_INTERVAL - 1.0
+
+
+## Fields grow; settlers wander, tend the wheat and hide from danger.
+func _tick_village(delta: float) -> void:
+	var growing := world.season != "winter"
+	if growing:
+		for f in _fields:
+			if not f.is_ripe():
+				f.set_growth(f.growth + delta / Structure.GROW_TIME)
+	if settlers.is_empty():
+		return
+	_village_timer -= delta
+	if _village_timer <= 0.0:
+		_village_timer = 3.0
+		_village_spots = []
+		for b in buildings.values():
+			if b.kind in ["field", "house", "chest", "smokehouse"]:
+				_village_spots.append(b.pos)
+			if b.kind == "field":
+				_village_spots.append(b.pos)  # fields count twice: that's where the work is
+	var field_spots := _fields.map(func(f): return f.pos)
+	for st in settlers:
+		var foe := _nearest_enemy(st.pos, Settler.DANGER)
+		st.tick(delta, foe.pos if foe != null else Vector2.INF, _village_spots, field_spots)
+		if st.tending:
+			var f: Structure = _nearest(_fields, st.pos, 14.0)
+			if f != null:
+				if f.is_ripe():
+					_harvest_field(f, false)
+				elif growing:
+					f.set_growth(f.growth + delta / Structure.GROW_TIME)  # tended wheat grows twice as fast
+
+
+## How much food your chests hold that settlers will eat.
+func _food_in_store() -> int:
+	var n := 0
+	for b in buildings.values():
+		if b.kind == "chest":
+			for item in SETTLER_FOODS:
+				n += int(b.items.get(item, 0))
+	return n
+
+
+## Takes up to `n` food from your chests. Returns how much it found.
+func _take_food(n: int) -> int:
+	var got := 0
+	for item in SETTLER_FOODS:
+		for b in buildings.values():
+			if got >= n:
+				return got
+			if b.kind == "chest" and int(b.items.get(item, 0)) > 0:
+				var take := mini(int(b.items[item]), n - got)
+				b.items[item] = int(b.items[item]) - take
+				if int(b.items[item]) <= 0:
+					b.items.erase(item)
+				got += take
+	return got
+
+
+## Each morning settlers eat from your chests and pay their taxes; hungry ones
+## leave, and newcomers move into empty beds if there's food to spare.
+func _village_dawn() -> void:
+	var houses := buildings.values().filter(func(b): return b.kind == "house")
+	if houses.is_empty() and settlers.is_empty():
+		return
+	var fed := 0
+	var gone := PackedStringArray()
+	for st in settlers.duplicate():
+		if _take_food(SETTLER_FOOD) >= SETTLER_FOOD:
+			fed += 1
+		else:
+			gone.append(st.settler_name)
+			settlers.erase(st)
+			st.queue_free()
+	taxes_last = fed * SETTLER_TAX
+	var vault: Structure = _nearest(buildings.values().filter(func(b): return b.kind == "vault"), player.pos, 99999.0)
+	if taxes_last > 0:
+		if vault != null:
+			vault.items["gold"] = _vault_gold(vault) + taxes_last
+		else:
+			player.add_item("gold", taxes_last)
+	var arrived := PackedStringArray()
+	var beds := houses.size() * HOUSE_BEDS - settlers.size()
+	for k in mini(beds, 2):
+		if _food_in_store() < SETTLER_FOOD * 2:
+			break
+		var house: Structure = _emptiest_house(houses)
+		var spot := world.random_walkable_near(house.pos, 14.0, 30.0, rng)
+		var st := _spawn_settler(_settler_name(), rng.randi() % 6, spot if spot != Vector2.INF else house.pos, house.pos, Settler.MAX_HP)
+		arrived.append(st.settler_name)
+	var news := PackedStringArray()
+	if fed > 0:
+		news.append("%d settler%s fed, %d gold in taxes%s." % [fed, "" if fed == 1 else "s", taxes_last, " (in the vault)" if vault != null else ""])
+	if not gone.is_empty():
+		news.append("%s left: there was no food in your chests." % ", ".join(gone))
+	if not arrived.is_empty():
+		news.append("%s moved into the village." % ", ".join(arrived))
+	elif beds > 0 and _food_in_store() < SETTLER_FOOD * 2:
+		news.append("Empty beds wait, but nobody will come until your chests hold food.")
+	if not news.is_empty():
+		hud.toast("The village: " + " ".join(news))
+
+
+func _emptiest_house(houses: Array) -> Structure:
+	var best: Structure = houses[0]
+	var best_n := 999
+	for h in houses:
+		var n := settlers.filter(func(st): return st.home == h.pos).size()
+		if n < best_n:
+			best_n = n
+			best = h
+	return best
+
+
+func _settler_name() -> String:
+	var used := settlers.map(func(st): return st.settler_name)
+	var free := Array(Settler.NAMES).filter(func(n): return not n in used)
+	if free.is_empty():
+		return "%s the Younger" % Settler.NAMES[rng.randi() % Settler.NAMES.size()]
+	return free[rng.randi() % free.size()]
+
+
+func _spawn_settler(settler_name: String, look: int, at: Vector2, home_pos: Vector2, hp: float) -> Settler:
+	var st: Settler = Settler.new()
+	st.world = world
+	st.settler_name = settler_name
+	st.look = look
+	st.pos = at
+	st.home = home_pos
+	st.hp = clampf(hp, 1.0, Settler.MAX_HP)
+	entities.add_child(st)
+	settlers.append(st)
+	_village_timer = 0.0
+	return st
+
+
+func _on_settler_fallen(st: Settler) -> void:
+	settlers.erase(st)
+	get_tree().create_timer(3.0).timeout.connect(st.queue_free)
+	hud.toast("%s, one of your settlers, has been killed. Guard the village!" % st.settler_name)
+
+
+func _export_settlers() -> Array:
+	var out := []
+	for st in settlers:
+		out.append([st.settler_name, st.look, snappedf(st.pos.x, 0.1), snappedf(st.pos.y, 0.1),
+			snappedf(st.home.x, 0.1), snappedf(st.home.y, 0.1), snappedf(st.hp, 0.1)])
+	return out
+
+
+## E at a cottage: who lives in the village, and how it's fed.
+func _open_village() -> void:
+	var houses := _count("house")
+	var ripe := _fields.filter(func(f): return f.is_ripe()).size()
+	var about := [
+		{"name": "Cottages", "detail": "%d  (%d beds)" % [houses, houses * HOUSE_BEDS]},
+		{"name": "Settlers", "detail": "%d" % settlers.size()},
+		{"name": "Food in your chests", "detail": "%d  (they eat %d a day)" % [_food_in_store(), settlers.size() * SETTLER_FOOD]},
+		{"name": "Taxes this morning", "detail": "%d gold" % taxes_last},
+		{"name": "Fields", "detail": "%d  (%d ripe)" % [_fields.size(), ripe]},
+		{"name": "Farmers", "detail": "%d" % _count_job("farm")},
+	]
+	var people := []
+	for st in settlers:
+		people.append({"name": st.settler_name, "detail": "hiding at home" if st.hidden else "%d%% health" % int(100.0 * st.hp / Settler.MAX_HP)})
+	if people.is_empty():
+		people.append({"name": "Nobody yet", "detail": "they come at dawn", "dim": true})
+	hud.show_panel("Village", "Each morning settlers eat %d food from your chests (wheat, bread, berries or meat) and pay %d gold, into your vault if you have one. Wolves and raiders hunt them: they run home when danger comes.   Esc to close" % [SETTLER_FOOD, SETTLER_TAX],
+		[[{"title": "Your village", "rows": about}], [{"title": "Settlers", "rows": people}]], _on_village_action)
+
+
+func _on_village_action(_action: String) -> void:
+	pass
 
 
 # ---------- Horses ----------
@@ -2879,13 +3353,26 @@ func _open_barracks() -> void:
 	var about := []
 	for kind in ["legionary", "archer", "cavalry", "centurion"]:
 		about.append({"name": str(Soldier.info(kind)["name"]), "detail": str(Soldier.info(kind)["about"]).left(34) + "…"})
-	hud.show_panel("Barracks", "Each barracks houses %d soldiers, and one centurion. Kills make veterans: Veteran at 3, Elite at 8, Hero at 15.   Esc to close" % Soldier.PER_BARRACKS,
-		[[{"title": "Recruit", "rows": units}], [{"title": "Your legion", "rows": roster}, {"title": "Most decorated", "rows": best}]],
+	var work := []
+	var idle := _idle_soldiers().size()
+	for job in JOBS:
+		var n := _count_job(job)
+		work.append({"name": str(JOBS[job]["name"]), "detail": "× %d" % n, "button": "Add one", "action": "job:%s:1" % job,
+			"enabled": idle > 0})
+		work.append({"name": "", "detail": "", "button": "Call one back", "action": "job:%s:-1" % job, "enabled": n > 0})
+	work.append({"name": "Idle soldiers", "detail": "%d" % idle})
+	work.append({"name": "Woodcutters and quarrymen", "detail": "3 a stroke, to a chest"})
+	work.append({"name": "Farmers", "detail": "tend and harvest fields"})
+	hud.show_panel("Barracks", "Each barracks houses %d soldiers, and one centurion. Kills make veterans: Veteran at 3, Elite at 8, Hero at 15. Workers fill your nearest chest (or your pack); T doesn't call them away.   Esc to close" % Soldier.PER_BARRACKS,
+		[[{"title": "Recruit", "rows": units}], [{"title": "Work", "rows": work}],
+			[{"title": "Your legion", "rows": roster}, {"title": "Most decorated", "rows": best}]],
 		_on_barracks_action)
 
 
 func _on_barracks_action(action: String) -> void:
 	var parts := action.split(":")
+	if parts.size() == 3 and parts[0] == "job":
+		_set_job(parts[1], parts[2].to_int())
 	if parts.size() == 3 and parts[0] == "recruit":
 		var got := _recruit(parts[2].to_int(), parts[1])
 		if got > 0:
@@ -2931,7 +3418,7 @@ func _spawn_soldier(pos: Vector2, hp: float, mode: String, guard_point: Vector2,
 	s.kills = maxi(kills, 0)
 	s.pos = pos
 	s.hp = s.max_hp() if hp <= 0.0 else clampf(hp, 1.0, s.max_hp())
-	s.mode = mode if mode in ["follow", "guard", "hold"] else "follow"
+	s.mode = mode if mode in ["follow", "guard", "hold", "work"] else "follow"
 	s.guard_point = guard_point
 	s.formation = formation
 	s.slot = soldiers.size()
@@ -2945,9 +3432,10 @@ func _toggle_army_mode() -> void:
 	if soldiers.is_empty():
 		hud.toast("You have no soldiers yet. Build a barracks (B, then 7) and recruit some.")
 		return
-	var all_following := soldiers.all(func(so): return so.mode == "follow")
+	var army := soldiers.filter(func(so): return so.mode != "work")  # workers stay at their jobs
+	var all_following := army.all(func(so): return so.mode == "follow")
 	army_mode = "guard" if all_following else "follow"
-	for s in soldiers:
+	for s in army:
 		s.mode = army_mode
 		s.guard_point = player.pos
 	_set_selection([])
@@ -3003,6 +3491,7 @@ func _order_to(target: Vector2) -> void:
 	var ahead := (target - centre).normalized() if target.distance_to(centre) > 8.0 else player.facing
 	for s in selected:
 		s.mode = "hold"
+		s.job = ""
 		s.guard_point = target
 		s.order_facing = ahead
 	_reassign_slots()
@@ -3096,6 +3585,8 @@ func _tick_army(delta: float) -> void:
 		var killed: Wolf = s.tick(delta, player.pos, player.facing, wolves)
 		if killed != null and wolves.has(killed):
 			_kill_wolf(killed, true)
+		if s.worked:
+			_work_stroke(s)
 		if s.ranked_up != "":
 			hud.toast("%s is now %s %s! (%d kills)" % [s.soldier_name, "an" if s.ranked_up == "Elite" else "a", s.ranked_up, s.kills])
 			audio.play("discover", s.position, -6.0)
@@ -3116,7 +3607,10 @@ func _on_soldier_fallen(s: Soldier) -> void:
 func _export_structures() -> Array:
 	var out := []
 	for b in buildings.values():
-		out.append([b.cell.x, b.cell.y, b.kind, snappedf(b.hp, 0.1), b.items])
+		var row := [b.cell.x, b.cell.y, b.kind, snappedf(b.hp, 0.1), b.items]
+		if b.kind == "field":
+			row.append(snappedf(b.growth, 0.001))
+		out.append(row)
 	return out
 
 
@@ -3132,7 +3626,8 @@ func _export_soldiers() -> Array:
 	for s in soldiers:
 		out.append([snappedf(s.pos.x, 0.1), snappedf(s.pos.y, 0.1), snappedf(s.hp, 0.1), s.mode,
 			snappedf(s.guard_point.x, 0.1), snappedf(s.guard_point.y, 0.1),
-			{"k": s.kind, "n": s.soldier_name, "x": s.kills, "f": [snappedf(s.order_facing.x, 0.01), snappedf(s.order_facing.y, 0.01)]}])
+			{"k": s.kind, "n": s.soldier_name, "x": s.kills, "f": [snappedf(s.order_facing.x, 0.01), snappedf(s.order_facing.y, 0.01)],
+				"j": s.job, "w": [snappedf(s.work_at.x, 0.1), snappedf(s.work_at.y, 0.1)]}])
 	return out
 
 
@@ -3479,6 +3974,7 @@ func save_game(respawn: bool = false, upload: bool = false) -> void:
 		"army_mode": army_mode,
 		"formation": formation,
 		"raids": {"cleared": camps_cleared.duplicate(), "found": camps_found.keys(), "purged_day": purged_day},
+		"village": {"settlers": _export_settlers(), "taxes": taxes_last},
 		"boats": _export_boats(),
 		"horses": {"tame": _export_horses(),
 			"riding": tame_horses.find(riding_horse) if riding_horse != null else -1, "taken": horses_taken.keys()},
@@ -3615,7 +4111,9 @@ func _apply_save(save: Dictionary) -> bool:
 			var cell := Vector2i(int(st[0]), int(st[1]))
 			if world.can_build(cell):
 				var items: Variant = st[4] if st.size() > 4 else {}
-				_add_structure(str(st[2]), cell, float(st[3]), items if typeof(items) == TYPE_DICTIONARY else {})
+				var built := _add_structure(str(st[2]), cell, float(st[3]), items if typeof(items) == TYPE_DICTIONARY else {})
+				if st.size() > 5 and built.kind == "field":
+					built.set_growth(float(st[5]))
 	army_mode = "guard" if str(save.get("army_mode", "follow")) == "guard" else "follow"
 	var raids: Variant = save.get("raids", {})
 	if typeof(raids) == TYPE_DICTIONARY:
@@ -3626,6 +4124,13 @@ func _apply_save(save: Dictionary) -> bool:
 		for k in raids.get("found", []):
 			camps_found[str(k)] = true
 		purged_day = int(raids.get("purged_day", 0))
+	var village: Variant = save.get("village", {})
+	if typeof(village) == TYPE_DICTIONARY:
+		taxes_last = int(village.get("taxes", 0))
+		for row in village.get("settlers", []):
+			if typeof(row) == TYPE_ARRAY and row.size() >= 7:
+				_spawn_settler(str(row[0]), int(row[1]), Vector2(float(row[2]), float(row[3])),
+					Vector2(float(row[4]), float(row[5])), float(row[6]))
 	formation = str(save.get("formation", "line"))
 	if not formation in Soldier.FORMATIONS:
 		formation = "line"
@@ -3637,6 +4142,12 @@ func _apply_save(save: Dictionary) -> bool:
 			var f := _to_vec(extra.get("f", null))
 			if f != Vector2.INF and f.length() > 0.1:
 				s.order_facing = f
+			var w := _to_vec(extra.get("w", null))
+			if s.mode == "work" and JOBS.has(str(extra.get("j", ""))) and w != Vector2.INF:
+				s.job = str(extra.get("j", ""))
+				s.work_at = w
+			elif s.mode == "work":
+				s.mode = "follow"
 	_reassign_slots()
 	for bo in save.get("boats", []):
 		if typeof(bo) == TYPE_ARRAY and bo.size() >= 5 and _boat_of(str(bo[0])) == null:

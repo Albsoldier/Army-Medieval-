@@ -32,9 +32,37 @@ const TYPES := {
 		"about": "Build at the water's edge. Builds and launches a raft or a galley."},
 	"vault": {"name": "Treasure vault", "cost": {"wood": 16, "iron": 6, "gold": 2}, "hp": 400, "blocks": "all",
 		"about": "Store gold. With 50 gold inside, start a purge: waves of raiders come for it."},
+	# Defences: they fight back.
+	"archer_tower": {"name": "Archer tower", "cost": {"wood": 20, "stone": 8}, "hp": 350, "blocks": "all",
+		"about": "Shoots wolves and raiders that come within range."},
+	"spike_trap": {"name": "Spike trap", "cost": {"wood": 6, "iron": 1}, "hp": 100, "blocks": "none",
+		"about": "Wounds wolves and raiders that step on it. Safe for you and your people."},
+	"oil_gate": {"name": "Boiling-oil gate", "cost": {"wood": 10, "stone": 4, "iron": 4}, "hp": 260, "blocks": "wolves",
+		"about": "A gate that scalds enemies at it or trying to break it."},
+	# The village.
+	"field": {"name": "Farm field", "cost": {"wood": 4, "berries": 2}, "hp": 60, "blocks": "none",
+		"about": "Grows wheat in half a day (not in winter). E to harvest when golden."},
+	"house": {"name": "Cottage", "cost": {"wood": 24, "stone": 6}, "hp": 250, "blocks": "all",
+		"about": "Two settlers can live here, if your chests hold food. They pay taxes in gold."},
 }
+## Build menu pages (Tab in build mode turns the page).
+const PAGES := [["wood_wall", "stone_wall", "gate", "torch_post", "chest", "tent", "barracks",
+	"workbench", "forge", "smokehouse", "dock", "vault"],
+	["archer_tower", "spike_trap", "oil_gate", "field", "house"]]
 const ORDER := ["wood_wall", "stone_wall", "gate", "torch_post", "chest", "tent", "barracks",
-	"workbench", "forge", "smokehouse", "dock", "vault"]
+	"workbench", "forge", "smokehouse", "dock", "vault", "archer_tower", "spike_trap", "oil_gate", "field", "house"]
+## Defences
+const TOWER_RANGE := 160.0  # game pixels
+const TOWER_DAMAGE := 2
+const TOWER_COOLDOWN := 1.1
+const TRAP_DAMAGE := 5
+const TRAP_COOLDOWN := 0.9
+const OIL_RANGE := 28.0
+const OIL_DAMAGE := 4
+const OIL_COOLDOWN := 1.4
+## Fields
+const GROW_TIME := 480.0  # seconds from sowing to harvest (half a day)
+const FIELD_YIELD := 10  # wheat per harvest
 ## What each crafting station makes. "gives" is an item, or a tool you keep.
 const RECIPES := {
 	"workbench": [
@@ -50,11 +78,12 @@ const RECIPES := {
 	],
 	"smokehouse": [
 		{"id": "smoke", "name": "Smoke all raw meat", "cost": {}, "about": "Smoked meat fills 45 hunger."},
+		{"id": "bread", "name": "Bread", "cost": {"wheat": 2}, "about": "Bake a loaf from 2 wheat. Fills 30 hunger."},
 	],
 }
 const TORCH_RADIUS := 80.0
 ## Walls and gates turn to line up with the walls next to them.
-const LINES_UP := ["wood_wall", "stone_wall", "gate"]  # game pixels: wolves won't come closer to a lit torch post
+const LINES_UP := ["wood_wall", "stone_wall", "gate", "oil_gate"]  # game pixels: wolves won't come closer to a lit torch post
 
 var world: World
 var kind := ""
@@ -65,8 +94,13 @@ var items: Dictionary = {}  # for chests
 var built_ms := -1  # Time.get_ticks_msec() when built this session; -1 if loaded from a save
 var radius := 0.0  # light radius (torch posts only), so wolves treat it like a fire
 
+var cooldown := 0.0  # defences: time until they strike again
+var growth := 0.0  # fields: 0 just sown, 1 ripe
+
 var _flash := 0.0
 var _parts: Array = []
+var _crops: Array = []  # fields: the wheat stalks
+var _stage := -1
 
 
 static func info(type_name: String) -> Dictionary:
@@ -103,6 +137,48 @@ func water_direction() -> Vector2:
 		if not world.is_land(cell + d):
 			return Vector2(d)
 	return Vector2.DOWN
+
+
+func is_ripe() -> bool:
+	return kind == "field" and growth >= 1.0
+
+
+## Fields: how far the wheat has grown (0 to 1).
+func set_growth(g: float) -> void:
+	growth = clampf(g, 0.0, 1.0)
+	var stage := int(growth * 20.0)
+	if stage == _stage:
+		return  # the wheat only looks different every 5%
+	_stage = stage
+	var ripe := growth >= 1.0
+	for c in _crops:
+		var stalk := c as MeshInstance3D
+		stalk.scale = Vector3(1, 0.15 + growth * 0.85, 1)
+		stalk.position.y = 0.12 + 0.3 * stalk.scale.y
+		var mat := stalk.material_override as StandardMaterial3D
+		if mat:
+			mat.albedo_color = Color("d9b44a") if ripe else Color("6f9a3a").lerp(Color("a8a648"), growth)
+
+
+## Towers: an arrow that flies from the top of the tower to `at`.
+func shoot(at: Vector3) -> void:
+	var arrow := Node3D.new()
+	arrow.top_level = true
+	add_child(arrow)
+	Art.part(arrow, Art.cylinder(0.012, 0.012, 0.7, 4), Color("caa472"), Vector3.ZERO, Vector3(PI / 2, 0, 0))
+	Art.part(arrow, Art.cylinder(0.0, 0.03, 0.08, 4), Color("8a8f95"), Vector3(0, 0, 0.38), Vector3(PI / 2, 0, 0))
+	var from := global_position + Vector3(0, 3.0, 0)
+	arrow.global_position = from
+	if from.distance_to(at) > 0.1:
+		arrow.look_at(at, Vector3.UP, true)
+	var tween := arrow.create_tween()
+	tween.tween_property(arrow, "global_position", at, clampf(from.distance_to(at) / 30.0, 0.08, 0.45))
+	tween.tween_callback(arrow.queue_free)
+
+
+## Oil gates: a puff of steam when it pours.
+func pour() -> void:
+	_flash = 0.15
 
 
 func display_name() -> String:
@@ -184,13 +260,23 @@ func _build_model() -> void:
 				_add(Art.box(Vector3(1.02, 0.04, 0.82)), Color("5d5a52"), Vector3(0, 0.35 + row * 0.4, 0))
 			_add(Art.box(Vector3(0.3, 0.25, 0.8)), Color("8a8577"), Vector3(-0.35, 1.52, 0))
 			_add(Art.box(Vector3(0.3, 0.25, 0.8)), Color("8a8577"), Vector3(0.35, 1.52, 0))
-		"gate":
+		"gate", "oil_gate":
 			_add(Art.cylinder(0.12, 0.13, 2.1, 6), Color("5a3d22"), Vector3(-0.45, 1.05, 0))
 			_add(Art.cylinder(0.12, 0.13, 2.1, 6), Color("5a3d22"), Vector3(0.45, 1.05, 0))
 			_add(Art.box(Vector3(1.05, 0.14, 0.14)), Color("4d3420"), Vector3(0, 2.0, 0))
 			for i in 3:
 				_add(Art.box(Vector3(0.24, 1.2, 0.06)), Color("8f6239"), Vector3(-0.26 + i * 0.26, 0.75, 0))
 			_add(Art.box(Vector3(0.8, 0.08, 0.08)), Color("4d3420"), Vector3(0, 0.95, 0.05), Vector3(0, 0, 0.6))
+			if kind == "oil_gate":
+				# Stone towers either side and a cauldron of boiling oil over the gate.
+				for x in [-0.45, 0.45]:
+					_add(Art.box(Vector3(0.3, 2.4, 0.4)), Color("7d786d"), Vector3(x, 1.2, 0))
+				_add(Art.box(Vector3(1.2, 0.2, 0.5)), Color("6a665e"), Vector3(0, 2.4, 0))
+				_add(Art.cylinder(0.2, 0.15, 0.3, 8), Color("2e2e30"), Vector3(0, 2.65, 0))
+				_add(Art.cylinder(0.17, 0.17, 0.02, 8), Color(1.0, 0.55, 0.15), Vector3(0, 2.8, 0), Vector3.ZERO, 2.5, true)
+				var glow := Art.omni(Color(1.0, 0.55, 0.2), 2.5, 0.8)
+				glow.position = Vector3(0, 3.0, 0)
+				add_child(glow)
 		"torch_post":
 			_add(Art.cylinder(0.06, 0.08, 1.8, 6), Color("5a3d22"), Vector3(0, 0.9, 0))
 			_add(Art.cylinder(0.14, 0.1, 0.2, 6), Color("4a4846"), Vector3(0, 1.85, 0))
@@ -264,6 +350,50 @@ func _build_model() -> void:
 			_add(Art.box(Vector3(0.14, 0.14, 0.04)), Color("d8b45a"), Vector3(0, 0.5, 0.33), Vector3.ZERO, 1.2)
 			for k in 5:
 				_add(Art.cylinder(0.07, 0.07, 0.02, 8), Color("e8c25a"), Vector3(-0.2 + k * 0.1, 0.83 + (k % 2) * 0.02, 0.05 * (k % 3)), Vector3.ZERO, 0.8)
+		"archer_tower":
+			# A timber tower with a railed platform, a roof and an archer on watch.
+			for x in [-0.36, 0.36]:
+				for z in [-0.36, 0.36]:
+					_add(Art.cylinder(0.07, 0.09, 2.6, 6), Color("5a3d22"), Vector3(x, 1.3, z))
+			_add(Art.box(Vector3(0.8, 0.06, 0.06)), Color("4d3420"), Vector3(0, 1.0, 0.36), Vector3(0, 0, 0.9))
+			_add(Art.box(Vector3(0.8, 0.06, 0.06)), Color("4d3420"), Vector3(0, 1.0, -0.36), Vector3(0, 0, -0.9))
+			_add(Art.box(Vector3(1.05, 0.1, 1.05)), Color("8f6239"), Vector3(0, 2.4, 0))
+			for side in [Vector3(0, 2.7, 0.5), Vector3(0, 2.7, -0.5)]:
+				_add(Art.box(Vector3(1.05, 0.5, 0.05)), Color("6b4a2b"), side)
+			for side in [Vector3(0.5, 2.7, 0), Vector3(-0.5, 2.7, 0)]:
+				_add(Art.box(Vector3(0.05, 0.5, 1.05)), Color("6b4a2b"), side)
+			_add(Art.cylinder(0.0, 0.78, 0.6, 4), Color("8b2e2e"), Vector3(0, 3.65, 0), Vector3(0, PI / 4, 0))
+			for x in [-0.45, 0.45]:
+				_add(Art.cylinder(0.03, 0.03, 0.9, 4), Color("5a3d22"), Vector3(x, 3.0, 0.45))
+			_add(Art.box(Vector3(0.22, 0.42, 0.16)), Color("4f5d2f"), Vector3(0.1, 2.85, 0.1))  # the archer
+			_add(Art.sphere(0.1, 4, 8), Color("d9a77f"), Vector3(0.1, 3.15, 0.1))
+			_add(Art.cylinder(0.11, 0.11, 0.05, 8), Color("7d8186"), Vector3(0.1, 3.24, 0.1))
+		"spike_trap":
+			# A board of sharpened iron spikes, low enough to step on.
+			_add(Art.box(Vector3(0.9, 0.06, 0.9)), Color("5a3d22"), Vector3(0, 0.03, 0))
+			for i in 4:
+				for j in 4:
+					_add(Art.cylinder(0.0, 0.05, 0.28, 4), Color("8a8f95"), Vector3(-0.3 + i * 0.2, 0.2, -0.3 + j * 0.2))
+		"field":
+			# Tilled earth in furrows, with rows of wheat.
+			_add(Art.box(Vector3(1.0, 0.1, 1.0)), Color("5b4030"), Vector3(0, 0.05, 0))
+			for r in 4:
+				_add(Art.box(Vector3(1.0, 0.05, 0.08)), Color("4a3326"), Vector3(0, 0.11, -0.375 + r * 0.25))
+				for k in 5:
+					var stalk := _add(Art.cylinder(0.035, 0.045, 0.6, 4), Color("6f9a3a"),
+						Vector3(-0.4 + k * 0.2 + (r % 2) * 0.05, 0.3, -0.375 + r * 0.25))
+					stalk.material_override = Art.material(Color("6f9a3a"))
+					_crops.append(stalk)
+			set_growth(growth)
+		"house":
+			# A whitewashed cottage with a thatched roof and a chimney.
+			_add(Art.box(Vector3(0.95, 0.9, 0.85)), Color("d9cfb8"), Vector3(0, 0.45, 0))
+			for x in [-0.46, 0.46]:
+				_add(Art.box(Vector3(0.06, 0.9, 0.06)), Color("5a3d22"), Vector3(x, 0.45, 0.43))
+			_add(Art.cylinder(0.0, 0.82, 0.75, 4), Color("c2a25a"), Vector3(0, 1.27, 0), Vector3(0, PI / 4, 0))
+			_add(Art.box(Vector3(0.24, 0.5, 0.03)), Color("5a3d22"), Vector3(-0.18, 0.25, 0.44))
+			_add(Art.box(Vector3(0.2, 0.18, 0.03)), Color(1.0, 0.85, 0.5), Vector3(0.22, 0.55, 0.44), Vector3.ZERO, 0.8)
+			_add(Art.box(Vector3(0.16, 0.5, 0.16)), Color("77736b"), Vector3(0.28, 1.4, -0.2))
 		"barracks":
 			_add(Art.box(Vector3(1.0, 1.1, 1.0)), Color("7a5634"), Vector3(0, 0.55, 0))
 			_add(Art.cylinder(0.0, 0.85, 0.8, 4), Color("8b2e2e"), Vector3(0, 1.5, 0), Vector3(0, PI / 4, 0))

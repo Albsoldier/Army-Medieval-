@@ -15,7 +15,7 @@ C                    campfire   R   torch
 M                    island map
 N / G              leave a note / a stash
 Mouse wheel     zoom       V   first person
-B                    build (1–0, – to choose)
+B                    build (1–0, –, = to choose, Tab: more)
 X                    take down a building
 T                    army: follow me / guard here
 Drag / right-click  select soldiers / send them
@@ -26,6 +26,8 @@ H                    show / hide this help
 Build a workbench, forge and smokehouse
 for tools, iron gear and smoked meat.
 A dock (in build mode, –) builds boats.
+Build mode, Tab: towers, traps, oil gates,
+fields and cottages for settlers.
 
 Wolves fear fire. Explore to find ruins,
 wrecks, caves, shrines and a lighthouse."""

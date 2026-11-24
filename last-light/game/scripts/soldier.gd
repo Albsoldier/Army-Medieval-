@@ -13,7 +13,8 @@ const Horse = preload("res://scripts/horse.gd")
 const MAX_ARMY := 100
 const PER_BARRACKS := 10
 const DRAW_DISTANCE := 720.0  # game pixels (45 m): farther soldiers aren't drawn or animated
-const INSPIRE_RADIUS := 110.0  # a centurion makes soldiers this close fight harder
+const INSPIRE_RADIUS := 110.0
+const WORK_STROKE := 2.0  # seconds between strokes of work  # a centurion makes soldiers this close fight harder
 
 ## Unit types. Costs are paid at a barracks.
 const KINDS := {
@@ -47,9 +48,13 @@ var soldier_name := ""
 var kills := 0
 var pos := Vector2.ZERO
 var hp := 60.0
-## "follow" (behind you in formation), "guard" (rings round a point) or
-## "hold" (in formation at a point you sent them to).
+## "follow" (behind you in formation), "guard" (rings round a point),
+## "hold" (in formation at a point you sent them to) or "work" (at a job).
 var mode := "follow"
+## Workers: "wood", "stone" or "farm", and what they're working on.
+var job := ""
+var work_at := Vector2.ZERO
+var worked := false  # finished a stroke of work this frame
 var guard_point := Vector2.ZERO  # the guard or hold point
 var order_facing := Vector2.UP  # which way a holding group faces
 var formation := "line"
@@ -82,6 +87,7 @@ var _shown := true
 var _thrust := 0.0
 var _detour_time := 0.0
 var _detour_side := 1.0
+var _work_timer := 1.0
 
 
 static func info(k: String) -> Dictionary:
@@ -185,6 +191,7 @@ static func _ring_mesh() -> Mesh:
 ## Returns a wolf this soldier killed this frame, or null.
 func tick(delta: float, leader: Vector2, leader_facing: Vector2, wolves: Array) -> Wolf:
 	ranked_up = ""
+	worked = false
 	if dead:
 		_body.tick(delta)
 		return null
@@ -224,7 +231,16 @@ func tick(delta: float, leader: Vector2, leader_facing: Vector2, wolves: Array) 
 		elif kind == "archer":
 			# Archers close in only until the wolf is in range.
 			goal = pos + (target.pos - pos).normalized() * (dist - reach * 0.85)
-	_move_toward(goal, delta, 10.0 if target == null else 2.0, float(stats["speed"]))
+	_move_toward(goal, delta, (4.0 if mode == "work" else 10.0) if target == null else 2.0, float(stats["speed"]))
+	# Workers swing their axe, pick or hoe when they're at the job.
+	if mode == "work" and target == null and pos.distance_to(home) < 8.0:
+		if work_at.distance_to(pos) > 1.0:
+			facing = (work_at - pos).normalized()
+		_work_timer -= delta
+		if _work_timer <= 0.0:
+			_work_timer = WORK_STROKE
+			_body.play_once("slash", 1.1)
+			worked = true
 	_animate(delta)
 	return killed
 
@@ -299,6 +315,8 @@ func _update_label() -> void:
 
 ## Where this soldier should stand.
 func _post(leader: Vector2, leader_facing: Vector2) -> Vector2:
+	if mode == "work":
+		return guard_point
 	if mode == "guard":
 		# Rings around the guard point: 6 soldiers in the first ring, 12 in the next, and so on.
 		var ring := 1

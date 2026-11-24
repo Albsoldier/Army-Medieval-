@@ -247,7 +247,8 @@ func is_walkable(pos: Vector2, wolf: bool = false) -> bool:
 	if not is_land(cell) and not is_ice(cell):
 		return false
 	if structures.has(cell):
-		return (structures[cell] == "gate" and not wolf) or structures[cell] == "dock"
+		var built: String = structures[cell]
+		return (built in ["gate", "oil_gate"] and not wolf) or built in ["dock", "spike_trap", "field"]
 	if _poi_centers.has(cell):
 		return false
 	return not prop_type(cell) in SOLID_PROPS

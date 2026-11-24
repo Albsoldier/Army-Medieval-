@@ -347,6 +347,46 @@ func _run() -> void:
 			main.player.pos = base_pos
 			w.update_view(base_pos, true)
 
+	# The village: cottages, wheat fields, settlers, an archer tower, and soldiers at work.
+	var free: Array = []
+	for r in range(4, 16):
+		for dx in range(-r, r + 1):
+			for dz in [-r, r]:
+				var fc: Vector2i = w.cell_of(base_pos) + Vector2i(dx, dz)
+				if free.size() < 9 and w.can_build(fc) and w.can_build(fc + Vector2i(1, 0)):
+					free.append(fc)
+	if free.size() >= 6:
+		for item in ["wood", "stone", "berries", "iron"]:
+			main.player.add_item(item, 200)
+		var plan := ["house", "field", "field", "house", "field", "archer_tower", "chest", "field", "spike_trap"]
+		var made: Array = []
+		for k in free.size():
+			if main._try_build(plan[k], free[k]):
+				made.append(main.buildings[free[k]])
+		for b in made:
+			if b.kind == "field":
+				b.set_growth(0.45 + 0.55 * float(made.find(b) % 2))
+			if b.kind == "chest":
+				b.items["wheat"] = 40
+		main._village_dawn()
+		main._set_job("farm", 1)
+		main._set_job("wood", 1)
+		for st in main.settlers:
+			st.pos = st.home + Vector2(0, 20)
+		for i in 60:
+			main._tick_village(0.1)
+			main._tick_army(0.1)
+		var centre := Vector2.ZERO
+		for b in made:
+			centre += b.pos
+		centre /= maxf(made.size(), 1.0)
+		main.player.pos = centre + Vector2(0, 60)
+		main.player.facing = Vector2.UP
+		w.update_view(main.player.pos, true)
+		main.zoom = 1.5
+		await _frames(30)
+		await _shot("16g-village")
+
 	# Winter and autumn.
 	main.day = 10
 	w.set_season("winter")
