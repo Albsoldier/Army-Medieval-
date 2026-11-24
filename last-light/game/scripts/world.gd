@@ -19,6 +19,7 @@ const PROP_VIEW := 2  # trees, rocks and bushes are drawn a little closer in
 const GRASS_RADIUS := 34  # tiles of grass around the player
 const CHUNKS := SIZE / CHUNK
 const BUILDS_PER_FRAME := 2
+const PROP_BUILDS_PER_FRAME := 1  # prop chunks built per frame as you travel (they appear far out, in the fog)
 const NO_CELL := Vector2i(-1, -1)
 const WATER_LEVEL := 0.0
 
@@ -92,8 +93,17 @@ var _base_props: Dictionary = {}  # chunk -> {Vector2i cell: String type}
 var _meshes: Dictionary = {}  # chunk -> MeshInstance3D
 var _build_queue: Array = []
 var _view_chunk := Vector2i(-999, -999)
-var _props_dirty := true
-var _layers: Dictionary = {}  # prop type -> Array of [MultiMeshInstance3D, part definition]
+var _last_prop_center := Vector2i(-999, -999)
+var _props_dirty := true  # every built prop chunk needs rebuilding (season, loaded save)
+## Props are drawn per chunk, so the camera and shadow passes can cull each one:
+## chunk -> {"node": Node3D, "props": int}. See GRAPHICS_PROP_CHUNKS.md.
+var _prop_chunks: Dictionary = {}
+var _prop_queue: Array = []  # chunks in view that still need building, nearest first
+var _dirty_prop_chunks: Dictionary = {}  # chunk -> true: rebuild (something there changed)
+var _props_root: Node3D
+## kind -> Array of layer definitions {"parts": [part, ...], "material": Material}.
+## Parts that share a mesh and material (a bush's berries) share one layer.
+var _prop_defs: Dictionary = {}
 var _terrain_mat: ShaderMaterial
 var islets: Array = []  # [{"cell": Vector2i, "r": float, "name": String}]
 var _islets_on := false
@@ -171,8 +181,8 @@ func update_view(pos: Vector2, immediate: bool = false) -> void:
 
 	if center != _view_chunk:
 		_view_chunk = center
-		_props_dirty = true
 		_build_queue.clear()
+		_queue_prop_chunks()
 		var wanted := {}
 		for dz in range(-VIEW, VIEW + 1):
 			for dx in range(-VIEW, VIEW + 1):
@@ -195,9 +205,8 @@ func update_view(pos: Vector2, immediate: bool = false) -> void:
 			_build_chunk_mesh(ck)
 		budget -= 1
 
-	if _props_dirty:
-		_props_dirty = false
-		_refresh_props()
+	_update_props(immediate, center != _last_prop_center)
+	_last_prop_center = center
 
 	# Reveal the map around the player.
 	for dz in range(-VIEW, VIEW + 1):
@@ -288,7 +297,7 @@ func add_structure(cell: Vector2i, kind: String) -> void:
 	structures[cell] = kind
 	if prop_type(cell) != "" and prop_type(cell) != "cleared":
 		prop_changes[cell] = {"type": "cleared", "hp": 0, "regrow_day": 0}
-		_props_dirty = true
+		_mark_props_dirty(cell)
 
 
 func remove_structure(cell: Vector2i) -> void:
@@ -397,7 +406,7 @@ func harvest(cell: Vector2i, day: int) -> Dictionary:
 			return {}
 	if REGROW_DAYS.has(prop["type"]):
 		prop["regrow_day"] = day + int(REGROW_DAYS[prop["type"]])
-		_props_dirty = true
+		_mark_props_dirty(cell)
 	prop_changes[cell] = prop
 	return gained
 
@@ -408,7 +417,7 @@ func regrow(day: int) -> void:
 		var regrow_day := int(prop_changes[cell].get("regrow_day", 0))
 		if regrow_day > 0 and regrow_day <= day:
 			prop_changes.erase(cell)
-			_props_dirty = true
+			_mark_props_dirty(cell)
 
 
 ## A random walkable point between min_r and max_r pixels from `origin`,
@@ -831,37 +840,46 @@ func _prop_parts() -> Dictionary:
 	}
 
 
+## Sets up how each prop type is drawn: its layers and their shared materials,
+## and the grass. The props themselves are built per chunk (_build_prop_chunk).
 func _build_prop_layers() -> void:
-	for kind in _layers:
-		for layer in _layers[kind]:
-			layer[0].queue_free()
-	_layers.clear()
+	if _props_root:
+		_props_root.queue_free()
+	_prop_chunks.clear()
+	_prop_queue.clear()
+	_dirty_prop_chunks.clear()
+	_props_root = Node3D.new()
+	_props_root.name = "Props"
+	add_child(_props_root)
+	_prop_defs.clear()
 	var parts := _prop_parts()
 	var foliage_shader := preload("res://shaders/foliage.gdshader")
+	var bark := StandardMaterial3D.new()  # one material for everything that doesn't sway
+	bark.vertex_color_use_as_albedo = true
+	bark.vertex_color_is_srgb = true
+	bark.roughness = 0.95
+	var leaves_by_sway := {}
 	for kind in DRAW_TYPES:
 		var layers := []
+		var by_key := {}
 		for p in parts[kind]:
-			var mm := MultiMesh.new()
-			mm.transform_format = MultiMesh.TRANSFORM_3D
-			mm.use_colors = true
-			mm.mesh = p["mesh"]
-			var inst := MultiMeshInstance3D.new()
-			inst.name = "Props_%s" % kind
-			inst.multimesh = mm
-			if float(p["sway"]) > 0.0:
-				var leaves := ShaderMaterial.new()
-				leaves.shader = foliage_shader
-				leaves.set_shader_parameter("sway", p["sway"])
-				inst.material_override = leaves
-			else:
-				var mat := StandardMaterial3D.new()
-				mat.vertex_color_use_as_albedo = true
-				mat.vertex_color_is_srgb = true
-				mat.roughness = 0.95
-				inst.material_override = mat
-			add_child(inst)
-			layers.append([inst, p])
-		_layers[kind] = layers
+			var sway := float(p["sway"])
+			var key := "%d:%s" % [(p["mesh"] as Mesh).get_instance_id(), sway]
+			if by_key.has(key):
+				by_key[key]["parts"].append(p)  # same mesh, same material: one layer
+				continue
+			var mat: Material = bark
+			if sway > 0.0:
+				if not leaves_by_sway.has(sway):
+					var leaves := ShaderMaterial.new()
+					leaves.shader = foliage_shader
+					leaves.set_shader_parameter("sway", sway)
+					leaves_by_sway[sway] = leaves
+				mat = leaves_by_sway[sway]
+			var layer := {"parts": [p], "material": mat, "mesh": p["mesh"], "sway": sway}
+			by_key[key] = layer
+			layers.append(layer)
+		_prop_defs[kind] = layers
 	# Grass clumps around the player.
 	_grass = MultiMeshInstance3D.new()
 	_grass.name = "Grass"
@@ -913,24 +931,91 @@ func _tree_kind(cell: Vector2i) -> String:
 	return "tree_pine" if _hash01(cell.x, cell.y, 9) < pine_share else "tree_oak"
 
 
-## Rebuilds the 3D props and grass for the chunks around the player.
-func _refresh_props() -> void:
-	var cells_by_kind := {}
-	for kind in DRAW_TYPES:
-		cells_by_kind[kind] = []
+## A change to the prop on `cell` (felled, picked, regrown, built over):
+## only its chunk is rebuilt.
+func _mark_props_dirty(cell: Vector2i) -> void:
+	var ck := _chunk_of_cell(cell)
+	if _prop_chunks.has(ck):
+		_dirty_prop_chunks[ck] = true
+
+
+## The chunks whose props are drawn: PROP_VIEW chunks each way from the player.
+func _prop_view_chunks() -> Array:
+	var out := []
 	for dz in range(-PROP_VIEW, PROP_VIEW + 1):
 		for dx in range(-PROP_VIEW, PROP_VIEW + 1):
 			var ck := _view_chunk + Vector2i(dx, dz)
-			if not _chunk_in_bounds(ck):
-				continue
-			for cell in _chunk_props(ck):
-				var kind := prop_type(cell)
-				if kind == "tree":
-					kind = _tree_kind(cell)
-				if cells_by_kind.has(kind):
-					cells_by_kind[kind].append(cell)
+			if _chunk_in_bounds(ck):
+				out.append(ck)
+	return out
 
-	for kind in DRAW_TYPES:
+
+## On entering a new chunk: queue the chunks that came into view (nearest
+## first), hide the ones that left it, and free those well out of it. Chunks
+## one ring beyond the view are kept (hidden), so walking back and forth over
+## a boundary rebuilds nothing, and the drawn area is the same as before.
+func _queue_prop_chunks() -> void:
+	_prop_queue.clear()
+	for ck in _prop_view_chunks():
+		if not _prop_chunks.has(ck):
+			_prop_queue.append(ck)
+	_prop_queue.sort_custom(_nearer_to_view)
+	for ck in _prop_chunks.keys():
+		var far: Vector2i = (ck - _view_chunk).abs()
+		var reach := maxi(far.x, far.y)
+		if reach > PROP_VIEW + 1:
+			(_prop_chunks[ck]["node"] as Node3D).queue_free()
+			_prop_chunks.erase(ck)
+			_dirty_prop_chunks.erase(ck)
+		else:
+			(_prop_chunks[ck]["node"] as Node3D).visible = reach <= PROP_VIEW
+
+
+## Builds queued chunks (a couple per frame, or all of them when `immediate`)
+## and rebuilds changed ones. Grass follows the player as before.
+func _update_props(immediate: bool, moved: bool) -> void:
+	var changed := moved
+	if _props_dirty:
+		_props_dirty = false
+		changed = true
+		for ck in _prop_chunks:
+			_dirty_prop_chunks[ck] = true
+	for ck in _dirty_prop_chunks.keys():
+		_build_prop_chunk(ck)
+		changed = true
+	_dirty_prop_chunks.clear()
+	var budget := _prop_queue.size() if immediate else PROP_BUILDS_PER_FRAME
+	while budget > 0 and not _prop_queue.is_empty():
+		var ck: Vector2i = _prop_queue.pop_front()
+		if not _prop_chunks.has(ck):
+			_build_prop_chunk(ck)
+		budget -= 1
+	if changed:
+		_refresh_grass()
+
+
+## (Re)builds one chunk's props: one small MultiMesh per layer of each prop
+## type found there, so Godot can cull the chunk as a whole.
+func _build_prop_chunk(ck: Vector2i) -> void:
+	if _prop_chunks.has(ck):
+		(_prop_chunks[ck]["node"] as Node3D).queue_free()
+	var node := Node3D.new()
+	node.name = "Props_%d_%d" % [ck.x, ck.y]
+	_props_root.add_child(node)
+	var cells_by_kind := {}
+	var total := 0
+	var bounds := AABB()  # every prop's footprint and height, for measuring what's in view
+	var has_bounds := false
+	for cell in _chunk_props(ck):
+		var kind := prop_type(cell)
+		if kind == "tree":
+			kind = _tree_kind(cell)
+		if _prop_defs.has(kind):
+			if not cells_by_kind.has(kind):
+				cells_by_kind[kind] = []
+			cells_by_kind[kind].append(cell)
+			total += 1
+	for kind in cells_by_kind:
 		var cells: Array = cells_by_kind[kind]
 		# Work out each prop's place, turn and size once, then use it for every part.
 		var origins := []
@@ -942,27 +1027,94 @@ func _refresh_props() -> void:
 			var s := 0.8 + _hash01(cell.x, cell.y, 3) * 0.45
 			origins.append(origin)
 			turns.append(Basis(Vector3.UP, _hash01(cell.x, cell.y, 2) * TAU) * Basis.from_scale(Vector3.ONE * s))
-		for layer in _layers[kind]:
-			var inst: MultiMeshInstance3D = layer[0]
-			var p: Dictionary = layer[1]
-			var mm := inst.multimesh
-			mm.instance_count = cells.size()
-			var base_color: Color = p["color"]
-			var offset: Vector3 = p["offset"]
-			var part_scale := Basis.from_scale(p["scale"])
-			for i in cells.size():
-				var cell: Vector2i = cells[i]
-				var turn: Basis = turns[i]
-				var origin: Vector3 = origins[i]
-				var shade := (_hash01(cell.x, cell.y, 6) - 0.5) * 0.22
-				var c := _season_color(kind, p, base_color, cell)
-				if c.a <= 0.0:
-					mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * 0.001), origin))
-					mm.set_instance_color(i, base_color)
-					continue
-				mm.set_instance_transform(i, Transform3D(turn * part_scale, origin + turn * offset))
-				mm.set_instance_color(i, c.lightened(shade) if shade > 0.0 else c.darkened(-shade))
-	_refresh_grass()
+			var box := AABB(origin - Vector3(2.0, 0.5, 2.0), Vector3(4.0, 7.0, 4.0))  # the tallest pine, scaled up
+			bounds = box if not has_bounds else bounds.merge(box)
+			has_bounds = true
+		for layer in _prop_defs[kind]:
+			var layer_parts: Array = layer["parts"]
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			mm.use_colors = true
+			mm.mesh = layer["mesh"]
+			mm.instance_count = cells.size() * layer_parts.size()
+			var i := 0
+			for p in layer_parts:
+				var base_color: Color = p["color"]
+				var offset: Vector3 = p["offset"]
+				var part_scale := Basis.from_scale(p["scale"])
+				for n in cells.size():
+					var cell: Vector2i = cells[n]
+					var turn: Basis = turns[n]
+					var origin: Vector3 = origins[n]
+					var shade := (_hash01(cell.x, cell.y, 6) - 0.5) * 0.22
+					var c := _season_color(kind, p, base_color, cell)
+					if c.a <= 0.0:
+						mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * 0.001), origin))
+						mm.set_instance_color(i, base_color)
+					else:
+						mm.set_instance_transform(i, Transform3D(turn * part_scale, origin + turn * offset))
+						mm.set_instance_color(i, c.lightened(shade) if shade > 0.0 else c.darkened(-shade))
+					i += 1
+			var inst := MultiMeshInstance3D.new()
+			inst.name = kind
+			inst.multimesh = mm
+			inst.material_override = layer["material"]
+			if float(layer["sway"]) > 0.0:
+				inst.extra_cull_margin = 0.5  # leaves sway a little outside their resting bounds
+			node.add_child(inst)
+	var far: Vector2i = (ck - _view_chunk).abs()
+	node.visible = maxi(far.x, far.y) <= PROP_VIEW
+	_prop_chunks[ck] = {"node": node, "props": total, "bounds": bounds if has_bounds else null}
+
+
+## Trees, rocks and bushes in the chunks being drawn (not the hidden spare ring).
+func drawn_prop_count() -> int:
+	var n := 0
+	for ck in _prop_chunks:
+		if (_prop_chunks[ck]["node"] as Node3D).visible:
+			n += int(_prop_chunks[ck]["props"])
+	return n
+
+
+## Prop chunks and props inside `camera`'s view (a chunk counts if any of it is).
+## For measuring; the renderer does its own culling.
+func props_in_view(camera: Camera3D) -> Dictionary:
+	var planes := camera.get_frustum()
+	var chunks := 0
+	var props := 0
+	for ck in _prop_chunks:
+		var node: Node3D = _prop_chunks[ck]["node"]
+		if not node.visible or _prop_chunks[ck]["bounds"] == null:
+			continue
+		var box: AABB = _prop_chunks[ck]["bounds"]
+		var inside := true
+		for plane in planes:
+			if _box_outside(plane, box):
+				inside = false
+				break
+		if inside:
+			chunks += 1
+			props += int(_prop_chunks[ck]["props"])
+	var shown := 0
+	for ck in _prop_chunks:
+		if (_prop_chunks[ck]["node"] as Node3D).visible:
+			shown += 1
+	return {"chunks_built": _prop_chunks.size(), "chunks_drawn": shown, "chunks_in_view": chunks,
+		"props_drawn": drawn_prop_count(), "props_in_view": props}
+
+
+## Camera3D.get_frustum() planes point outwards: a box is outside a plane when
+## even its corner deepest inside lies in front of (outside) it.
+static func _box_outside(plane: Plane, box: AABB) -> bool:
+	var inner := Vector3(box.position.x if plane.normal.x > 0.0 else box.end.x,
+		box.position.y if plane.normal.y > 0.0 else box.end.y,
+		box.position.z if plane.normal.z > 0.0 else box.end.z)
+	return plane.is_point_over(inner)
+
+
+## Shows or hides every prop chunk (for the benchmark's diagnostics).
+func set_props_visible(on: bool) -> void:
+	_props_root.visible = on
 
 
 func _refresh_grass() -> void:

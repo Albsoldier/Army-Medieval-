@@ -176,9 +176,7 @@ func _go(pos: Vector2) -> void:
 
 
 func _set_props_visible(on: bool) -> void:
-	for kind in main.world._layers:
-		for layer in main.world._layers[kind]:
-			(layer[0] as MultiMeshInstance3D).visible = on
+	main.world.set_props_visible(on)
 
 
 func _clear_enemies() -> void:
@@ -340,6 +338,7 @@ func _sample(scene: String, from: Vector2, velocity: Vector2, seconds_to_run: fl
 		"nodes": int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
 		"props_drawn": _props_drawn(),
 		"grass_clumps": main.world._grass.multimesh.instance_count,
+		"prop_view": main.world.props_in_view(main.camera),
 		"soldiers": main.soldiers.size(),
 		"buildings": main.buildings.size(),
 		"settlers": main.settlers.size(),
@@ -365,12 +364,7 @@ func _note(label: String, data: Dictionary) -> void:
 
 ## Trees, rocks and bushes currently in the prop MultiMeshes (one per prop, not per part).
 func _props_drawn() -> int:
-	var n := 0
-	for kind in main.world._layers:
-		var layers: Array = main.world._layers[kind]
-		if not layers.is_empty():
-			n += (layers[0][0] as MultiMeshInstance3D).multimesh.instance_count
-	return n
+	return main.world.drawn_prop_count()
 
 
 static func _avg(a: Array) -> float:

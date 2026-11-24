@@ -91,6 +91,66 @@ func _run_game() -> void:
 	_check(main.sun_shadow_preset == "C" and main.sun.directional_shadow_mode == DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
 		and int(ProjectSettings.get_setting("rendering/lights_and_shadows/directional_shadow/size")) == 2048,
 		"the sun casts shadows with 2 cascades on a 2048 atlas")
+	# Props are drawn in chunks the renderer can cull; moving only builds what came into view.
+	var pw = main.world
+	var pv_here: Vector2 = main.player.pos
+	pw.update_view(pv_here, true)
+	var pv: Dictionary = pw.props_in_view(main.camera)
+	var pv_side: int = 2 * pw.PROP_VIEW + 1
+	var expected_props := 0
+	for ck in pw._prop_view_chunks():
+		for cell in pw._chunk_props(ck):
+			if pw.prop_type(cell) in pw.PROP_TYPES:
+				expected_props += 1
+	_check(pv["chunks_drawn"] == pv_side * pv_side, "props are drawn in %d chunks of %d m around you" % [pv["chunks_drawn"], pw.CHUNK])
+	_check(pv["props_drawn"] == expected_props, "every tree, rock and bush within view distance is drawn (%d of %d)" % [pv["props_drawn"], expected_props])
+	_check(pv["chunks_in_view"] > 0 and pv["chunks_in_view"] < pv["chunks_drawn"],
+		"only some prop chunks are in the camera's view (%d of %d)" % [pv["chunks_in_view"], pv["chunks_drawn"]])
+	var before_nodes := {}
+	for ck in pw._prop_chunks:
+		before_nodes[ck] = pw._prop_chunks[ck]["node"]
+	pw.update_view(pv_here + Vector2(pw.CHUNK * pw.TILE, 0), true)
+	var pv_kept := 0
+	var pv_rebuilt := 0
+	for ck in pw._prop_chunks:
+		if before_nodes.has(ck):
+			if before_nodes[ck] == pw._prop_chunks[ck]["node"]:
+				pv_kept += 1
+			else:
+				pv_rebuilt += 1
+	var pv_fresh: int = pw._prop_chunks.size() - pv_kept - pv_rebuilt
+	_check(pv_rebuilt == 0 and pv_kept == pv_side * pv_side and pv_fresh == pv_side,
+		"moving one chunk keeps every built chunk and builds only the new edge (kept %d, rebuilt %d, new %d)" % [pv_kept, pv_rebuilt, pv_fresh])
+	_check(pw.props_in_view(main.camera)["chunks_drawn"] == pv_side * pv_side, "chunks that left the view are hidden, not drawn")
+	var after_step: int = pw._prop_chunks.size()
+	pw.update_view(pv_here, true)
+	_check(pw._prop_chunks.size() == after_step and pw.props_in_view(main.camera)["props_drawn"] == expected_props,
+		"stepping back over the boundary builds nothing new")
+	# Felling a tree rebuilds only its own chunk, and it still blocks you until it's pv_felled.
+	var pv_felled := Vector2i(-1, -1)
+	for cell in pw._chunk_props(pw._view_chunk):
+		if pw.prop_type(cell) == "tree":
+			pv_felled = cell
+			break
+	if pv_felled.x >= 0:
+		_check(not pw.is_walkable(pw.cell_center(pv_felled)), "trees still block the way")
+		var pv_nodes := {}
+		for ck in pw._prop_chunks:
+			pv_nodes[ck] = pw._prop_chunks[ck]["node"]
+		for i in 60:
+			if pw.prop_type(pv_felled) != "tree":
+				break
+			pw.harvest(pv_felled, main.day)
+		pw.update_view(pv_here, true)
+		var pv_changed := []
+		for ck in pw._prop_chunks:
+			if pv_nodes.get(ck) != pw._prop_chunks[ck]["node"]:
+				pv_changed.append(ck)
+		_check(pw.prop_type(pv_felled) == "stump" and pv_changed == [pw._chunk_of_cell(pv_felled)] and pw.is_walkable(pw.cell_center(pv_felled)),
+			"felling a tree rebuilds only its chunk (%d rebuilt), and the stump can be walked over" % pv_changed.size())
+		pw.prop_changes.erase(pv_felled)
+		pw._mark_props_dirty(pv_felled)
+		pw.update_view(pv_here, true)
 	main._craft("torch")
 	_check(main.player.torch_time > 0.0, "torch crafted")
 	main._craft("spear")
