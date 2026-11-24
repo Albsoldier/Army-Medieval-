@@ -677,7 +677,7 @@ func _run_game() -> void:
 		_check(wave1.all(func(r): return r.pos.distance_to(vault.pos) > 300.0 and r.home == Vector2.INF),
 			"waves gather out of sight and aren't tied to a camp")
 		var waves: int = int(main.purge.get("waves", 0))
-		var steel_before: int = main.player.count("steel")
+		var purge_steel: int = main.player.count("steel")
 		var gold_left: int = main._vault_gold(vault)
 		var biggest: int = wave1.size()
 		for i in 30:
@@ -688,7 +688,7 @@ func _run_game() -> void:
 			main._tick_purge(13.0)
 			biggest = maxi(biggest, main._purge_raiders().size())
 		_check(main.purge.is_empty() and main._vault_gold(vault) == gold_left + stake / 2
-			and main.player.count("steel") > steel_before, "holding the vault through %d waves pays half again, and spoils" % waves)
+			and main.player.count("steel") > purge_steel, "holding the vault through %d waves pays half again, and spoils" % waves)
 		_check(biggest > wave1.size(), "later waves are bigger (%d)" % biggest)
 		_check(not main._start_purge(vault), "one purge a day")
 		main.soldiers.append_array(army)

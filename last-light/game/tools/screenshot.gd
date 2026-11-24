@@ -320,9 +320,9 @@ func _run() -> void:
 	var vault_cell := Vector2i(-1, -1)
 	for r in range(3, 14):
 		for dx in range(-r, r + 1):
-			var c: Vector2i = w.cell_of(base_pos) + Vector2i(dx, r)
-			if vault_cell.x < 0 and w.can_build(c):
-				vault_cell = c
+			var vc: Vector2i = w.cell_of(base_pos) + Vector2i(dx, r)
+			if vault_cell.x < 0 and w.can_build(vc):
+				vault_cell = vc
 	if vault_cell.x >= 0:
 		main.player.add_item("wood", 16)
 		main.player.add_item("iron", 6)
