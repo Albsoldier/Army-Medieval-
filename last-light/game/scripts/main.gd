@@ -21,6 +21,10 @@ const MAX_TAME_HORSES := 10
 const Art = preload("res://scripts/art.gd")
 const CAMP_NAMES := ["the Ashfang camp", "the Blackmoor camp", "the Redhand camp", "the Wolfstone camp",
 	"the Ironbrook camp", "the Crowhill camp", "the Saltmarsh camp", "the Gallows Oak camp"]
+const PURGE_MIN_GOLD := 50  # gold a vault needs before you can start a purge
+const PURGE_STEAL := 3  # gold a raider grabs with each blow at the vault
+const PURGE_REACH := 130.0
+const PURGE_WAVE_GIVE_UP := 210.0  # seconds before a stuck wave flees  # purge raiders turn on defenders closer than this
 const MAIN_CAMPS := 8  # raider camps scattered over the main island
 const BASE_SAFE_RADIUS := 320.0  # no camp is manned, and no wolf appears, this close to your buildings
 const CAMP_REGROUP_DAYS := 8  # a cleared islet camp is retaken after this many days
@@ -134,6 +138,11 @@ var riding_horse: Horse = null  # the one you're on
 var _wild_horses := {}  # id -> Horse grazing near you now
 var _resume_riding := -1
 var _horse_open: Horse = null  # the horse whose saddlebags are open
+## The purge you started at a vault, or {}: {"vault": Structure, "wave", "waves",
+## "stake" (gold at the start), "stolen", "timer", "from" (the side they come from)}.
+var purge := {}
+var purged_day := 0  # one purge a day
+var _vault_open: Structure = null  # the vault whose screen is open
 var camps: Array = []
 var camps_cleared := {}  # camp id -> the day you cleared it
 var camps_found := {}  # camp id -> true once you've seen it
@@ -829,6 +838,8 @@ func _tick_wolves(delta: float) -> void:
 						hud.toast("A howl rolls across the island…")
 	var lights := _lights()
 	for wolf in wolves.duplicate():
+		if not wolves.has(wolf):
+			continue  # gone this frame (a purge ended)
 		# Each wolf goes for whoever is closest: you or one of your soldiers.
 		var target_pos := player.pos
 		var victim: Soldier = null
@@ -841,18 +852,34 @@ func _tick_wolves(delta: float) -> void:
 					target_pos = soldier.pos
 					victim = soldier
 		var raider: bool = wolf.is_raider()
+		var at_vault := false
+		if raider and wolf.purge and not purge.is_empty() and best > PURGE_REACH:
+			# Purge raiders go for the vault, turning on you or your soldiers only up close.
+			target_pos = (purge["vault"] as Structure).pos
+			victim = null
+			at_vault = true
 		if wolf.tick(delta, target_pos, lights, night):
-			audio.play("hit" if raider else "wolf_bite", wolf.position, -2.0)
-			if victim == null:
-				# Armour stops part of every blow.
-				_hurt(wolf.bite * (1.0 - player.armour_reduction()), "raiders" if raider else "wolves")
-			elif victim.hurt(wolf.bite):
-				_on_soldier_fallen(victim)
+			if at_vault:
+				_purge_steal(wolf)
+			else:
+				audio.play("hit" if raider else "wolf_bite", wolf.position, -2.0)
+				if victim == null:
+					# Armour stops part of every blow.
+					_hurt(wolf.bite * (1.0 - player.armour_reduction()), "raiders" if raider else "wolves")
+				elif victim.hurt(wolf.bite):
+					_on_soldier_fallen(victim)
+		# Only purge raiders break walls: they hack their way to the vault.
+		if raider and wolf.purge and buildings.has(wolf.blocked_cell):
+			var wall: Structure = buildings[wolf.blocked_cell]
+			if wall.kind != "vault" and wall.damage((8.0 if wall.kind == "stone_wall" else 22.0) * delta):
+				hud.toast("Raiders broke through your %s!" % wall.display_name().to_lower())
+				_remove_structure(wall.cell)
 		var far: float = wolf.pos.distance_to(player.pos)
 		if not raider and not night and far > 450.0:
 			wolves.erase(wolf)
 			wolf.queue_free()
 	_tick_camps()
+	_tick_purge(delta)
 
 
 func _count_wolves() -> int:
@@ -1849,6 +1876,8 @@ func _build_input(event: InputEvent) -> bool:
 			n = 9
 		elif key.physical_keycode == KEY_MINUS:
 			n = 10
+		elif key.physical_keycode == KEY_EQUAL:
+			n = 11
 		if n >= 0 and n < Structure.ORDER.size():
 			build_index = n
 			return true
@@ -1920,6 +1949,9 @@ func _demolish(cell: Vector2i) -> void:
 		hud.toast("There's nothing you built there.")
 		return
 	var b: Structure = buildings[cell]
+	if not purge.is_empty() and purge["vault"] == b:
+		hud.toast("Not during the purge! Hold the vault.")
+		return
 	var refund := _refund(b)
 	for item in refund:
 		player.add_item(item, int(refund[item]))
@@ -1956,7 +1988,7 @@ func _update_build_preview() -> void:
 	var names := PackedStringArray()
 	for i in Structure.ORDER.size():
 		var n: String = Structure.info(Structure.ORDER[i])["name"]
-		var key_name := "0" if i == 9 else ("-" if i == 10 else str(i + 1))
+		var key_name := "0" if i == 9 else ("-" if i == 10 else ("=" if i == 11 else str(i + 1)))
 		names.append(("[%s %s]" if i == build_index else "%s %s") % [key_name, n])
 	var info: Dictionary = Structure.info(kind)
 	hud.set_hint("%s\n%s: %s. %s  %s" % [
@@ -1993,6 +2025,9 @@ func _ask_demolish() -> void:
 		hud.toast("Stand next to one of your buildings and press X to take it down.")
 		return
 	var b := near as Structure
+	if not purge.is_empty() and purge["vault"] == b:
+		hud.toast("Not during the purge! Hold the vault.")
+		return
 	var refund := _refund(b)
 	var stored := "" if b.items.is_empty() else "\n\nEverything stored inside comes back to you too."
 	hud.open_dialog("Take down the %s?" % b.display_name().to_lower(),
@@ -2148,6 +2183,8 @@ func _building_hint(b: Structure) -> String:
 			return "E: recruit soldiers (%d / %d)" % [soldiers.size(), _army_capacity()]
 		"workbench", "forge", "smokehouse":
 			return "E: use the %s" % b.display_name().to_lower()
+		"vault":
+			return "E: treasure vault (%d gold)" % _vault_gold(b)
 	if damaged:
 		return "E: repair the %s (%d%%)" % [b.display_name().to_lower(), int(100.0 * b.hp / Structure.max_hp(b.kind))]
 	return ""
@@ -2155,6 +2192,9 @@ func _building_hint(b: Structure) -> String:
 
 func _use_building(b: Structure) -> void:
 	match b.kind:
+		"vault":
+			_open_vault(b)
+			return
 		"dock":
 			_open_dock(b)
 			return
@@ -2234,6 +2274,179 @@ func _chest_take(b: Structure) -> void:
 		if ITEM_NAMES.has(item):
 			player.add_item(item, int(b.items[item]))
 	b.items = {}
+
+
+# ---------- Treasure vault and the purge ----------
+
+func _vault_gold(b: Structure) -> int:
+	return int(b.items.get("gold", 0))
+
+
+## The vault: put gold in or take it out, and start a purge once it holds enough.
+func _open_vault(b: Structure) -> void:
+	_vault_open = b
+	var gold := _vault_gold(b)
+	var running := not purge.is_empty()
+	var why := ""
+	if running:
+		why = "A purge is under way."
+	elif gold < PURGE_MIN_GOLD:
+		why = "Needs %d gold inside." % PURGE_MIN_GOLD
+	elif purged_day == day:
+		why = "Once a day. Come back tomorrow."
+	var waves := _purge_waves(gold)
+	var rows := [
+		{"name": "Gold in the vault", "detail": "%d" % gold},
+		{"name": "Put in your gold", "detail": "you carry %d" % player.count("gold"), "button": "Deposit",
+			"action": "deposit", "enabled": player.count("gold") > 0 and not running},
+		{"name": "Take the gold out", "detail": "", "button": "Withdraw", "action": "withdraw", "enabled": gold > 0 and not running},
+	]
+	var purge_rows := [
+		{"name": "Start the purge", "detail": why if why != "" else "%d waves of raiders" % waves, "button": "Start",
+			"action": "purge", "enabled": why == ""},
+		{"name": "If you hold them off", "detail": "+%d gold, and spoils" % (gold / 2)},
+		{"name": "If they reach it", "detail": "they steal gold"},
+	]
+	hud.show_panel("Treasure vault", "Raiders smash through walls to reach the vault during a purge. More gold brings more waves.   Esc to close",
+		[[{"title": "Gold", "rows": rows}], [{"title": "The purge", "rows": purge_rows}]], _on_vault_action)
+
+
+func _on_vault_action(action: String) -> void:
+	var b = _vault_open
+	if b == null or not is_instance_valid(b):
+		hud.close_inventory()
+		return
+	match action:
+		"deposit":
+			b.items["gold"] = _vault_gold(b) + player.count("gold")
+			player.inventory["gold"] = 0
+			audio.play("craft")
+		"withdraw":
+			player.add_item("gold", _vault_gold(b))
+			b.items.erase("gold")
+		"purge":
+			hud.close_inventory()
+			_start_purge(b)
+			return
+	_save_timer = SAVE_INTERVAL - 1.0
+	_open_vault(b)
+
+
+## How many waves a purge brings for this much gold.
+static func _purge_waves(gold: int) -> int:
+	return clampi(3 + (gold - PURGE_MIN_GOLD) / 75, 3, 6)
+
+
+func _start_purge(b: Structure) -> bool:
+	var gold := _vault_gold(b)
+	if not purge.is_empty() or gold < PURGE_MIN_GOLD or purged_day == day:
+		return false
+	purged_day = day
+	purge = {"vault": b, "wave": 0, "waves": _purge_waves(gold), "stake": gold, "stolen": 0, "timer": 8.0,
+		"from": Vector2.from_angle(rng.randf() * TAU)}
+	hud.toast("The purge begins! Raiders are gathering. Defend the vault: %d waves." % purge["waves"])
+	audio.play("wolf_howl", world.to_3d(b.pos), 2.0, 0.0)
+	_save_timer = SAVE_INTERVAL - 1.0
+	return true
+
+
+func _purge_side(v: Vector2) -> String:
+	var names := ["east", "south-east", "south", "south-west", "west", "north-west", "north", "north-east"]
+	return names[int(round(v.angle() / (TAU / 8.0))) % 8]
+
+
+func _spawn_purge_wave() -> void:
+	var b: Structure = purge["vault"]
+	purge["wave"] = int(purge["wave"]) + 1
+	var wave: int = purge["wave"]
+	var last: bool = wave == int(purge["waves"])
+	# Each wave comes from a new side, bigger than the last; chiefs lead the final one.
+	var from: Vector2 = (purge["from"] as Vector2).rotated(wave * 2.1)
+	var muster := world.random_walkable_near(b.pos + from * 470.0, 4.0, 80.0, rng)
+	if muster == Vector2.INF:
+		muster = world.random_walkable_near(b.pos, 360.0, 520.0, rng)
+	var count := mini(3 + wave * 2 + int(purge["stake"]) / 60, 16)
+	var chiefs := (1 + int(purge["stake"]) / 120) if last else (1 if wave >= 3 else 0)
+	var made := 0
+	for k in count:
+		var spot := world.random_walkable_near(muster, 4.0, 60.0, rng) if muster != Vector2.INF else Vector2.INF
+		if spot == Vector2.INF:
+			continue
+		var r := _spawn_raider("raider_chief" if k < chiefs else "raider", spot)
+		r.purge = true
+		made += 1
+	hud.toast("Wave %d of %d: %d raiders from the %s!" % [wave, purge["waves"], made, _purge_side(from)])
+	audio.play("wolf_howl", world.to_3d(muster if muster != Vector2.INF else b.pos), 1.0, 0.0)
+
+
+func _purge_raiders() -> Array:
+	return wolves.filter(func(w): return w.is_raider() and w.purge)
+
+
+## Runs the purge: waits, sends waves, and ends it when the last falls or the vault is empty.
+func _tick_purge(delta: float) -> void:
+	if purge.is_empty():
+		hud.set_banner("")
+		return
+	var vault_ref = purge["vault"]
+	if not is_instance_valid(vault_ref) or buildings.get((vault_ref as Structure).cell) != vault_ref:
+		_end_purge(false, "The vault is gone. The raiders scatter with what they can carry.")
+		return
+	var b: Structure = vault_ref
+	var left := _purge_raiders().size()
+	# Stragglers who can't find a way in give up after a while.
+	purge["wave_time"] = float(purge.get("wave_time", 0.0)) + delta
+	if left > 0 and float(purge["wave_time"]) > PURGE_WAVE_GIVE_UP:
+		for r in _purge_raiders():
+			wolves.erase(r)
+			r.queue_free()
+		hud.toast("The rest of the wave loses heart and flees.")
+		left = 0
+	if left == 0:
+		if int(purge["wave"]) >= int(purge["waves"]):
+			_end_purge(true)
+			return
+		purge["timer"] = float(purge["timer"]) - delta
+		if float(purge["timer"]) <= 0.0:
+			_spawn_purge_wave()
+			purge["wave_time"] = 0.0
+			purge["timer"] = 12.0  # a breather before the next wave
+	hud.set_banner("PURGE  ·  wave %d of %d  ·  %d raiders  ·  vault %d gold" % [
+		maxi(int(purge["wave"]), 1), purge["waves"], left, _vault_gold(b)] if int(purge["wave"]) > 0 or left > 0
+		else "PURGE  ·  raiders gather…  %ds  ·  vault %d gold" % [ceili(float(purge["timer"])), _vault_gold(b)])
+
+
+## A raider at the vault grabs gold. If they empty it, the purge is lost.
+func _purge_steal(r) -> void:
+	var b: Structure = purge["vault"]
+	var take := mini(PURGE_STEAL, _vault_gold(b))
+	if take > 0:
+		b.items["gold"] = _vault_gold(b) - take
+		purge["stolen"] = int(purge["stolen"]) + take
+		audio.play("hit", b.position, -4.0)
+	if _vault_gold(b) <= 0:
+		_end_purge(false, "The raiders emptied the vault and escape with %d gold." % purge["stolen"])
+
+
+func _end_purge(won: bool, why: String = "") -> void:
+	var b = purge.get("vault")
+	var waves: int = purge.get("waves", 3)
+	for r in _purge_raiders():
+		wolves.erase(r)
+		r.queue_free()
+	if won and is_instance_valid(b):
+		var bonus := int(purge["stake"]) / 2
+		b.items["gold"] = _vault_gold(b) + bonus
+		var spoils := {"iron": 4 * waves, "steel": waves, "hide": 2 * waves}
+		for item in spoils:
+			player.add_item(item, int(spoils[item]))
+		audio.play("discover")
+		hud.toast("The purge is over: you held the vault! +%d gold in the vault, and spoils: %s." % [bonus, _items_text(spoils)])
+	else:
+		hud.toast(why if why != "" else "The purge is over.")
+	purge = {}
+	hud.set_banner("")
+	_save_timer = SAVE_INTERVAL - 1.0
 
 
 # ---------- Horses ----------
@@ -3265,7 +3478,7 @@ func save_game(respawn: bool = false, upload: bool = false) -> void:
 		"soldiers": _export_soldiers(),
 		"army_mode": army_mode,
 		"formation": formation,
-		"raids": {"cleared": camps_cleared.duplicate(), "found": camps_found.keys()},
+		"raids": {"cleared": camps_cleared.duplicate(), "found": camps_found.keys(), "purged_day": purged_day},
 		"boats": _export_boats(),
 		"horses": {"tame": _export_horses(),
 			"riding": tame_horses.find(riding_horse) if riding_horse != null else -1, "taken": horses_taken.keys()},
@@ -3412,6 +3625,7 @@ func _apply_save(save: Dictionary) -> bool:
 				camps_cleared[str(k)] = int(cleared[k])
 		for k in raids.get("found", []):
 			camps_found[str(k)] = true
+		purged_day = int(raids.get("purged_day", 0))
 	formation = str(save.get("formation", "line"))
 	if not formation in Soldier.FORMATIONS:
 		formation = "line"

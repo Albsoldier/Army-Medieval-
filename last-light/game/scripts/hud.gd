@@ -161,6 +161,7 @@ var _on_choice := Callable()
 var _dismissable := true
 var _hotbar: HBoxContainer
 var _crosshair: Control
+var _banner: Label
 var _hotbar_buttons: Array = []
 var _on_hotbar := Callable()
 var _inv_center: CenterContainer
@@ -189,6 +190,16 @@ func _ready() -> void:
 	_build_maps()
 	_build_hotbar()
 	_build_crosshair()
+	_banner = _label(20, Color(1.0, 0.82, 0.45))
+	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_banner.offset_left = -360
+	_banner.offset_right = 360
+	_banner.offset_top = 16
+	_banner.add_theme_color_override("font_outline_color", Color(0.25, 0.04, 0.02))
+	_banner.add_theme_constant_override("outline_size", 6)
+	_banner.visible = false
+	_root.add_child(_banner)
 	_build_inventory()
 	_build_dialog()
 
@@ -404,6 +415,12 @@ func _build_crosshair() -> void:
 	_crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_crosshair.visible = false
 	_root.add_child(_crosshair)
+
+
+## A big line across the top of the screen (the purge). "" hides it.
+func set_banner(text: String) -> void:
+	_banner.text = text
+	_banner.visible = text != ""
 
 
 func set_crosshair(on: bool) -> void:
