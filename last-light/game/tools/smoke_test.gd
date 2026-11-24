@@ -899,7 +899,7 @@ func _run_game() -> void:
 	_check(village_count < 0 or copy_main.settlers.size() == village_count, "settlers are still in the village after reload")
 	_check(copy_main._fields.size() == main._fields.size() and copy_main._count_job("farm") == main._count_job("farm"),
 		"fields and farmers survive a reload")
-	_check(purge_gold < 0 or (copy_main.buildings.has(purge_cell) and copy_main._vault_gold(copy_main.buildings[purge_cell]) == purge_gold
+	_check(purge_gold < 0 or (copy_main.buildings.has(purge_cell) and copy_main._vault_gold(copy_main.buildings[purge_cell]) == main._vault_gold(main.buildings[purge_cell])
 		and copy_main.purged_day == main.purged_day), "the vault keeps its gold after reload, and you can't purge twice in a day")
 	_check(not copy_main.world.is_walkable(world.cell_center(cells[0])), "walls still block after reload")
 	_check(copy_main.player.has_axe and copy_main.player.armour and copy_main.player.lantern, "tools are still yours after reload")
