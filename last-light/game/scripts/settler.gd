@@ -13,6 +13,8 @@ const MAX_HP := 30.0
 const SPEED := 38.0
 const FLEE_SPEED := 85.0
 const DANGER := 150.0  # an enemy this close sends them running home
+const ROUTE_RADIUS := 14  # tiles around the cottage searched for a way home
+const ROUTE_REFRESH := 1.5  # seconds before a fleeing settler looks for a new way home
 const NAMES := ["Wenna", "Bran", "Elowen", "Tobin", "Maud", "Osric", "Hild", "Corin", "Ysolde", "Edric",
 	"Morwen", "Aldo", "Briony", "Garth", "Isolde", "Rowan", "Tamsin", "Wat", "Agnes", "Piers"]
 const SHIRTS := ["9a7b4f", "6e7f5a", "8a5a44", "5f6f86", "a88f5c", "7a6a8a"]
@@ -37,6 +39,8 @@ var _rest := 0.0
 var _moving := false
 var _hurt := 0.0
 var _work_timer := 0.0
+var _route: Array = []  # tile centres to run through to reach the cottage
+var _route_age := 0.0
 var _rng := RandomNumberGenerator.new()
 var facing := Vector2.DOWN
 
@@ -75,14 +79,23 @@ func tick(delta: float, danger: Vector2, spots: Array, fields: Array) -> void:
 	hp = minf(hp + delta * 0.5, MAX_HP)
 	var threatened := danger != Vector2.INF and danger.distance_to(pos) < DANGER
 	if threatened:
-		# Run home and bar the door.
+		# Run home and bar the door, going round anything in the way.
 		_goal = Vector2.INF
-		if pos.distance_to(home) < 14.0:
+		if at_home():
+			_route.clear()
 			_set_hidden(true)
 		else:
-			_walk(home, delta, FLEE_SPEED)
+			_route_age += delta
+			if _route.is_empty() or _route_age > ROUTE_REFRESH:
+				_route = _route_home()
+				_route_age = 0.0
+			var target: Vector2 = _route[0] if not _route.is_empty() else home
+			_walk(target, delta, FLEE_SPEED)
+			if not _route.is_empty() and pos.distance_to(target) < 3.0:
+				_route.pop_front()
 		_animate(delta, "run")
 		return
+	_route.clear()
 	if hidden:
 		_set_hidden(false)
 		_rest = _rng.randf_range(1.0, 3.0)
@@ -106,6 +119,51 @@ func tick(delta: float, danger: Vector2, spots: Array, fields: Array) -> void:
 		tending = true  # hoeing the wheat
 		action = "work"
 	_animate(delta, action)
+
+
+## True when the settler is at the cottage: on a tile touching it.
+func at_home() -> bool:
+	var c := world.cell_of(pos)
+	var h := world.cell_of(home)
+	return pos.distance_to(home) < 14.0 or (c != h and maxi(absi(c.x - h.x), absi(c.y - h.y)) <= 1)
+
+
+## The way home as tile centres, ending on a tile beside the cottage, found by
+## searching outwards over walkable tiles (no cutting corners round obstacles).
+## Empty if there's no way within ROUTE_RADIUS tiles.
+func _route_home() -> Array:
+	var start := world.cell_of(pos)
+	var h := world.cell_of(home)
+	var came := {start: start}
+	var queue: Array = [start]
+	var head := 0
+	var found := Vector2i(-99999, -99999)
+	while head < queue.size():
+		var c: Vector2i = queue[head]
+		head += 1
+		if c != h and maxi(absi(c.x - h.x), absi(c.y - h.y)) <= 1:
+			found = c
+			break
+		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
+				Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1)]:
+			var n: Vector2i = c + d
+			if came.has(n) or maxi(absi(n.x - h.x), absi(n.y - h.y)) > ROUTE_RADIUS:
+				continue
+			if not world.is_walkable(world.cell_center(n)):
+				continue
+			if d.x != 0 and d.y != 0 and not (world.is_walkable(world.cell_center(c + Vector2i(d.x, 0)))
+					and world.is_walkable(world.cell_center(c + Vector2i(0, d.y)))):
+				continue  # don't squeeze diagonally between two obstacles
+			came[n] = c
+			queue.append(n)
+	if found.x == -99999:
+		return []
+	var path: Array = []
+	var at := found
+	while at != start:
+		path.push_front(world.cell_center(at))
+		at = came[at]
+	return path
 
 
 func _walk(goal: Vector2, delta: float, speed: float) -> bool:

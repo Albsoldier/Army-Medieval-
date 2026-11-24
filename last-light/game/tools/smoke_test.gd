@@ -825,6 +825,27 @@ func _run_game() -> void:
 			for i in 5:
 				main._tick_village(0.1)
 			_check(not villager.hidden, "and comes out when it's gone")
+			# A wall between a settler and the cottage: they run round it, not into it.
+			var detour: Dictionary = _wall_between(world, world.cell_of(villager.home))
+			_check(not detour.is_empty(), "found room to wall a settler off from the cottage")
+			if not detour.is_empty():
+				for c in detour["wall"]:
+					main._add_structure("wood_wall", c)
+				villager.pos = world.cell_center(detour["stand"])
+				var blocker = main._spawn_raider("raider", villager.pos + Vector2(0, 90))
+				var took := -1.0
+				for i in 80:
+					main._tick_village(0.1)
+					if villager.hidden:
+						took = (i + 1) * 0.1
+						break
+				_check(villager.hidden, "a settler walled off from the cottage runs round the wall and hides (%.1fs)" % took)
+				main.wolves.erase(blocker)
+				blocker.queue_free()
+				for c in detour["wall"]:
+					main._remove_structure(c)
+				for i in 5:
+					main._tick_village(0.1)
 			village_count = main.settlers.size()
 	world.set_season(w_season_before)
 	# Wild horses: find a herd, win a horse's trust with berries, then ride it.
@@ -982,6 +1003,25 @@ func _vault_gold_total(main) -> int:
 		if b.kind == "vault":
 			n += int(b.items.get("gold", 0))
 	return n
+
+
+## A way to put a 3-tile wall between a settler and the cottage at `home`: the
+## wall two tiles out, the settler four tiles out, and room to walk round.
+## {"wall": [cells], "stand": cell}, or {} if no side of the cottage has room.
+func _wall_between(world, home: Vector2i) -> Dictionary:
+	for d in [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]:
+		var side := Vector2i(d.y, d.x)  # along the wall
+		var wall := [home + d * 2 - side, home + d * 2, home + d * 2 + side]
+		var ok := true
+		for c in wall:
+			ok = ok and world.can_build(c)
+		# Open ground for the settler, and a way round at least one end of the wall.
+		for c in [home + d * 3, home + d * 4, home + d, home + d * 3 + side * 2, home + d * 2 + side * 2, home + d + side * 2,
+				home + d + side]:
+			ok = ok and world.is_walkable(world.cell_center(c))
+		if ok:
+			return {"wall": wall, "stand": home + d * 4}
+	return {}
 
 
 ## `n` free tiles in an east-west row, searching around `start`.
