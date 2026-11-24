@@ -88,6 +88,9 @@ func _run_game() -> void:
 	main.player.add_item("stone", 10)
 	main._craft("campfire")
 	_check(main.campfires.size() == 1, "campfire crafted")
+	_check(main.sun_shadow_preset == "C" and main.sun.directional_shadow_mode == DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+		and int(ProjectSettings.get_setting("rendering/lights_and_shadows/directional_shadow/size")) == 2048,
+		"the sun casts shadows with 2 cascades on a 2048 atlas")
 	main._craft("torch")
 	_check(main.player.torch_time > 0.0, "torch crafted")
 	main._craft("spear")
