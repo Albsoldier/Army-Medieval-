@@ -26,7 +26,7 @@ const SUN_SHADOWS := {
 	"C": {"mode": DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS, "atlas": 2048, "about": "2 cascades, 2048 atlas"},
 	"D": {"mode": DirectionalLight3D.SHADOW_ORTHOGONAL, "atlas": 2048, "about": "1 cascade, 2048 atlas"},
 }
-const SUN_SHADOW_DEFAULT := "A"
+const SUN_SHADOW_DEFAULT := "C"  # chosen in GRAPHICS_SHADOWS.md
 ## Jobs for soldiers who aren't needed in the field. They work near the barracks.
 const JOBS := {
 	"wood": {"name": "Woodcutters", "one": "woodcutter", "gives": {"wood": 3}},

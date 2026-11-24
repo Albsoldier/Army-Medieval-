@@ -58,21 +58,35 @@ func _run() -> void:
 		main.cam_yaw = scene[3]
 		main.set_first_person(scene[5], false)
 		main.fp_pitch = -0.12
-		for preset in PRESETS:
+		for st in main.settlers:
+			st.visible = not scene[5]  # nobody wanders in front of the first-person camera
+		main.apply_sun_shadows("A")
+		await _hold(day * float(scene[4]), 40)  # let the camera and soldiers settle
+		# Freeze the scene so every preset renders exactly the same moment.
+		main.process_mode = Node.PROCESS_MODE_DISABLED
+		var order: Array = PRESETS.duplicate()
+		if OS.get_environment("SHOT_REVERSE") != "":
+			order.reverse()  # to check the order of switching doesn't matter
+		for preset in order:
 			main.apply_sun_shadows(preset)
-			await _hold(day * float(scene[4]), 25)
+			await _hold(day * float(scene[4]), 6)
 			_save("%s-%s" % [scene[0], preset])
+		main.process_mode = Node.PROCESS_MODE_INHERIT
 	main.set_first_person(false, false)
+	for st in main.settlers:
+		st.visible = true
 	# Shimmer: a still camera over the village while the sun moves slowly.
 	bench._go(spots["village"] + Vector2(0, 40))
 	main.zoom = 1.5
 	main.cam_yaw = 0.7
+	await _hold(day * 0.5, 40)
+	main.process_mode = Node.PROCESS_MODE_DISABLED  # only the sun moves
 	# "off" is the noise floor: grass sway and idle animations, with no shadows at all.
 	for preset in PRESETS + ["off"]:
 		main.sun.shadow_enabled = preset != "off"
 		if preset != "off":
 			main.apply_sun_shadows(preset)
-		await _hold(day * 0.5, 25)
+		await _hold(day * 0.5, 6)
 		for k in SHIMMER_FRAMES:
 			await _hold(day * 0.5 + k * SHIMMER_STEP, 3)
 			_save("shimmer-%s-%02d" % [preset, k])
