@@ -27,7 +27,7 @@ var sprinting := false  # sprinting this frame
 var _winded := false  # ran out: no sprinting until stamina recovers a little
 var _rest_time := 0.0  # seconds since stamina was last spent
 var inventory := {"wood": 0, "stone": 0, "berries": 0, "raw_meat": 0, "cooked_meat": 0,
-	"smoked_meat": 0, "ore": 0, "iron": 0, "hide": 0, "salve": 0, "gold": 0, "steel": 0}
+	"smoked_meat": 0, "ore": 0, "iron": 0, "hide": 0, "salve": 0, "gold": 0, "steel": 0, "wheat": 0, "bread": 0}
 ## Your best spear, sword and armour, as tiers in gear.gd (-1: none).
 var spear_tier := -1
 var sword_tier := -1
