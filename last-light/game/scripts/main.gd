@@ -18,6 +18,15 @@ const Horse = preload("res://scripts/horse.gd")
 const Settler = preload("res://scripts/settler.gd")
 const PerfOverlay = preload("res://scripts/perf_overlay.gd")
 const PerfBench = preload("res://scripts/perf_bench.gd")
+## The sun's shadow setups compared in GRAPHICS_SHADOWS.md: cascades (splits)
+## and shadow-map atlas size. All keep the 70 m shadow distance.
+const SUN_SHADOWS := {
+	"A": {"mode": DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS, "atlas": 4096, "about": "4 cascades, 4096 atlas"},
+	"B": {"mode": DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS, "atlas": 4096, "about": "2 cascades, 4096 atlas"},
+	"C": {"mode": DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS, "atlas": 2048, "about": "2 cascades, 2048 atlas"},
+	"D": {"mode": DirectionalLight3D.SHADOW_ORTHOGONAL, "atlas": 2048, "about": "1 cascade, 2048 atlas"},
+}
+const SUN_SHADOW_DEFAULT := "A"
 ## Jobs for soldiers who aren't needed in the field. They work near the barracks.
 const JOBS := {
 	"wood": {"name": "Woodcutters", "one": "woodcutter", "gives": {"wood": 3}},
@@ -167,6 +176,7 @@ var _fields: Array = []  # farm fields
 var _village_spots: Array = []  # where settlers like to go
 var _village_timer := 0.0
 var bench_mode := false  # the developer benchmark is running: never save
+var sun_shadow_preset := ""  # which SUN_SHADOWS preset is in use
 var camps: Array = []
 var camps_cleared := {}  # camp id -> the day you cleared it
 var camps_found := {}  # camp id -> true once you've seen it
@@ -678,7 +688,26 @@ func _setup_environment() -> void:
 	sun.directional_shadow_max_distance = 70.0
 	sun.shadow_blur = 1.5
 	add_child(sun)
+	apply_sun_shadows(sun_shadow_override())
 	_update_lighting()
+
+
+## Sets the sun's shadow cascades and atlas size from a SUN_SHADOWS preset.
+func apply_sun_shadows(preset: String) -> void:
+	if not SUN_SHADOWS.has(preset):
+		preset = SUN_SHADOW_DEFAULT
+	var p: Dictionary = SUN_SHADOWS[preset]
+	sun.directional_shadow_mode = p["mode"]
+	RenderingServer.directional_shadow_atlas_set_size(int(p["atlas"]), true)
+	sun_shadow_preset = preset
+
+
+## Developers can try another preset: index.html?shadows=B, or -- --shadows=B.
+static func sun_shadow_override() -> String:
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--shadows="):
+			return arg.trim_prefix("--shadows=").to_upper()
+	return PerfOverlay.url_value("shadows").to_upper()
 
 
 ## Picks a colour for day (n = 0), dusk/dawn (0.5) or night (1).

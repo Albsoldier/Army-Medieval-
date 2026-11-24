@@ -39,6 +39,14 @@ static func requested() -> bool:
 	return url_flag("perf")
 
 
+## The value of ?<name>=... in the web page URL, or "".
+static func url_value(name: String) -> String:
+	if not OS.has_feature("web"):
+		return ""
+	var v: Variant = JavaScriptBridge.eval("new URLSearchParams(window.location.search).get('%s') || ''" % name, true)
+	return str(v) if typeof(v) == TYPE_STRING else ""
+
+
 ## True if the web page URL has ?<flag> (with any value but "0").
 static func url_flag(flag: String) -> bool:
 	if not OS.has_feature("web"):
