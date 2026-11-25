@@ -214,6 +214,12 @@ func _ready() -> void:
 
 	world = World.new()
 	add_child(world)
+	var nature := PerfOverlay.url_value("nature")
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--nature="):
+			nature = arg.trim_prefix("--nature=")
+	if nature == "0":
+		world.nature_models = false  # developers: the procedural trees, rocks and bushes, for comparing
 	world.generate(world_seed)
 	var prop_chunk_override := prop_chunk_size_override()
 	if prop_chunk_override > 0:

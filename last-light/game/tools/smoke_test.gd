@@ -125,6 +125,34 @@ func _run_game() -> void:
 	_check(tw0._grass.multimesh.instance_count == 0, "no grass under the snow")
 	tw0.set_season("spring")
 	tw0.update_view(main.player.pos, true)
+	# Environment prototype (phase 4A): pines, oaks, rocks and bushes are the
+	# textured MegaKit models, two surfaces each like the merged props they
+	# replace, sharing their materials and textures.
+	var nm_ok := true
+	var nm_mats := {}
+	for nkind in tw0.NATURE_MODELS:
+		var nmesh: Mesh = tw0._merged_props[nkind]
+		nm_ok = nm_ok and nmesh.get_surface_count() == (1 if nkind == "rock" else 2)
+		for ns in nmesh.get_surface_count():
+			var nmat := nmesh.surface_get_material(ns) as ShaderMaterial
+			nm_ok = nm_ok and nmat != null and nmat.get_shader_parameter("albedo") is Texture2D
+			nm_mats[nmat] = true
+	_check(nm_ok and nm_mats.size() == 5 and tw0._merged_props["bush"] == tw0._merged_props["bush_empty"]
+		and tw0._merged_props["tree_pine"].surface_get_material(0) == tw0._merged_props["tree_oak"].surface_get_material(0),
+		"trees, rocks and bushes use the textured nature models (%d shared materials)" % nm_mats.size())
+	var nm_nodes := {}
+	for nck in tw0._prop_chunks:
+		for nchild in (tw0._prop_chunks[nck]["node"] as Node3D).get_children():
+			nm_nodes[String(nchild.name)] = nchild
+	_check(nm_nodes.has("tree_pine") and nm_nodes.has("tree_pine_far") and nm_nodes.has("tree_pine_shadow")
+		and (nm_nodes["tree_pine"] as GeometryInstance3D).cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		and (nm_nodes["tree_pine_shadow"] as GeometryInstance3D).cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		and (nm_nodes["tree_pine"] as GeometryInstance3D).visibility_range_end == (nm_nodes["tree_pine_far"] as GeometryInstance3D).visibility_range_begin
+		and (nm_nodes["tree_pine_far"] as MultiMeshInstance3D).multimesh.buffer == (nm_nodes["tree_pine"] as MultiMeshInstance3D).multimesh.buffer,
+		"near trees switch to their far version at %d m, and the old shapes cast their shadows" % int(tw0.NATURE_NEAR))
+	var nm_cell := Vector2i(3, 4)
+	_check(tw0._prop_instance_params("bush_empty", nm_cell)[1].a == 1.0 and tw0._prop_instance_params("bush", nm_cell)[1].a == 0.0,
+		"picked bushes hide their flowers, unpicked ones show them")
 	# Building on grass clears it there; taking the building down brings it back.
 	var gcell := Vector2i(-1, -1)
 	for gc in _free_cells(tw0, tw0.cell_of(main.player.pos), 12, []):
