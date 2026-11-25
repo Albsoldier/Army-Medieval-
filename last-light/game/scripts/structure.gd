@@ -87,8 +87,8 @@ const LINES_UP := ["wood_wall", "stone_wall", "gate", "oil_gate"]  # game pixels
 ## Building prototype (phase 4B, GRAPHICS_BUILDING_PROTOTYPE.md): these types
 ## are drawn with models from Kay Lousberg's KayKit Medieval Hexagon Pack
 ## (models/buildings, CC0) instead of their primitive parts. Every one is one
-## mesh with one surface, and all share one material and one 16 KB texture
-## atlas. Same tile, hit points, preview, damage lean and collision as before.
+## mesh with one surface, and all share one material and one small palette
+## texture. Same tile, hit points, preview, damage lean and collision as before.
 const BUILDING_MODELS := {"house": "cottage", "stone_wall": "stone_wall", "archer_tower": "archer_tower"}
 ## Off with ?buildings=0 (set before any building is made), to compare.
 static var use_models := true

@@ -42,7 +42,7 @@ Sizes of the three prototyped types (old):
 | **Poly Haven** | CC0 | 522 models; nothing like a cottage, tower or castle wall. The nearest are `modular_fort_01` (28,000 triangles), `large_castle_door` and `large_iron_gate` (12,600–38,100 triangles), all photoscanned. | Not suitable: no buildings, and photoreal and far too heavy. |
 | **Quaternius: Medieval Village MegaKit** (Standard, free) | CC0 (quaternius.com, `License`) | 300+ **modular** pieces: walls (brick, plaster, timber), floors, roofs, doors, windows, chimneys, balconies. 153 MB zip. | Good-looking and the same artist as the nature models, but every building would have to be assembled from pieces. It uses several materials (one per surface type), and has no defensive towers or fortification walls. The better choice for a later, fuller pass at cottages. |
 | Quaternius: Medieval Village Pack, Modular Medieval Buildings, Ultimate Fantasy RTS | CC0 | Ready-made medieval houses, walls and towers | Distributed through Google Drive folders, which this session can't download from. |
-| **KayKit Medieval Hexagon Pack 1.0** (Kay Lousberg) | **CC0** (`LICENSE.txt`: "free to use in personal, educational and commercial projects") | 200+ medieval buildings, walls and props, each a **single mesh on one shared 1024² palette atlas (16 KB)**, glTF. Includes cottages (`building_home_A/B`), towers (`building_tower_A/B`), walls (`wall_straight`, corners, gates). Published by the author on GitHub. | **Chosen.** Ready-made, already close to the game's one-tile scale, one material for everything, light enough for the browser. |
+| **KayKit Medieval Hexagon Pack 1.0** (Kay Lousberg) | **CC0** (`LICENSE.txt`: "free to use in personal, educational and commercial projects") | 200+ medieval buildings, walls and props, each a **single mesh on one shared palette atlas** (1024², 16 KB), glTF. Includes cottages (`building_home_A/B`), towers (`building_tower_A/B`), walls (`wall_straight`, corners, gates). Published by the author on GitHub. | **Chosen.** Ready-made, already close to the game's one-tile scale, one material for everything, light enough for the browser. |
 
 **Licence check.** KayKit's CC0 allows commercial use and redistribution, and attribution is optional. Credit is given in `game/models/CREDITS.md` anyway, with the source path of every file.
 
@@ -64,14 +64,14 @@ Sizes of the three prototyped types (old):
   - merges every node into one mesh with one surface, applying the node transforms;
   - scales and cuts the models, and keeps only the vertices used;
   - writes a texture-less `.glb` per building;
-  - copies the shared atlas.
+  - writes the shared atlas at **128 × 128**. The pack's 1024² palette is made of flat colour blocks: at 128² no colour the three models use changes by more than 1/255, for 1/64th of the texture memory. The first build used the full 1024² atlas, and its GPU-compressed copy with mipmaps added 0.8 MB to the download and 0.6 MB of texture memory.
 
-  The output is 204 KB in all: cottage 56 KB, wall 18 KB, tower 114 KB, atlas 16 KB.
+  The output is 190 KB in all: cottage 56 KB, wall 18 KB, tower 114 KB, atlas 1.7 KB (11 KB as a GPU texture).
 - **In the game** (`structure.gd`, `BUILDING_MODELS`):
   - `_build_model()` adds one `MeshInstance3D` named `Model`, using a mesh loaded once and shared by every building of that type, with **one `StandardMaterial3D` shared by all three types** (the atlas, roughness 0.9 like every other building).
   - It skips the primitive parts entirely. `Art.bake()` finds nothing to merge, and the model is added to the building's drawn parts afterwards. So previews, the hit flash, the damage lean and removal all work on it unchanged.
 - **Phase 3D architecture kept.** One surface and one shared material per building, no more than the baked buildings. The cottage drops from 2 surfaces to 1: the old glowing window was a separate surface.
-- **Texture atlas.** All three share one 1024² palette atlas, imported with mipmaps and GPU (S3TC/BPTC) compression. No normal maps, no transparency.
+- **Texture atlas.** All three share one 128² palette atlas, imported with mipmaps and GPU (S3TC/BPTC) compression. No normal maps, no transparency.
 - **LOD.** Godot's automatic mesh LOD, generated at import, verified working in the Compatibility renderer in phase 4A. The cottage drops to 727 triangles and the tower to 1,376 at a distance. The wall is too simple to reduce.
 - **Collision** stays tile-based, as before. The models have no collision shapes and need none.
 - **`?buildings=0`** turns the models off (set in `main.gd` before any building is made).

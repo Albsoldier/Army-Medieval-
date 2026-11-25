@@ -59,4 +59,4 @@ to the one-tile buildings they replace, and the wall cut to a 1 m section. See
 | `cottage.glb` | `Assets/gltf/buildings/yellow/building_home_A_yellow.gltf` | cottages |
 | `stone_wall.glb` | `Assets/gltf/buildings/neutral/wall_straight.gltf` (one half) | stone walls |
 | `archer_tower.glb` | `Assets/gltf/buildings/red/building_tower_A_red.gltf` | archer towers |
-| `hexagons_medieval.png` | `Assets/gltf/buildings/neutral/hexagons_medieval.png` (unchanged) | the shared palette atlas |
+| `hexagons_medieval.png` | `Assets/gltf/buildings/neutral/hexagons_medieval.png` (1024 → 128 px) | the shared palette atlas |

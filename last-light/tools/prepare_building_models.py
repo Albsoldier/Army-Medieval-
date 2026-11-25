@@ -13,14 +13,17 @@ For each building it:
   * for the wall, keeps a 1 m section of the pack's 2 m wall (the pack's
     walls follow hexagon edges; the game's walls are one tile long);
   * writes a .glb with no textures (the game loads the shared atlas itself).
-It also copies the atlas, hexagons_medieval.png (a 1024x1024 palette, 16 KB).
+It also writes the atlas, hexagons_medieval.png. The pack's is a 1024x1024
+palette of flat colour blocks; at 128x128 no colour the three models use moves
+by more than 1/255, and it's 64 times less texture memory and download.
 """
 import json
 import math
 import os
-import shutil
 import struct
 import sys
+
+from PIL import Image
 
 # kind -> (source model, scale (x, y, z), turn about y in degrees, keep x in [lo, hi] then centre)
 MODELS = {
@@ -28,6 +31,8 @@ MODELS = {
     "stone_wall": ("neutral/wall_straight", (1.0, 1.25, 1.0), 0.0, (0.0, 1.0)),
     "archer_tower": ("red/building_tower_A_red", (0.95, 1.3, 0.95), 0.0, None),
 }
+
+ATLAS_SIZE = 128
 
 FMT = {5126: ("f", 4), 5125: ("I", 4), 5123: ("H", 2), 5121: ("B", 1)}
 WIDTH = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
@@ -176,7 +181,8 @@ def main():
         size = [max(p[k] for p in P) - min(p[k] for p in P) for k in range(3)]
         print("%-13s <- %-34s %5d triangles %5d vertices  size %.2f x %.2f x %.2f m" % (
             kind, name, len(I) // 3, len(P), size[0], size[1], size[2]))
-    shutil.copy(os.path.join(src_dir, "neutral", "hexagons_medieval.png"), os.path.join(out_dir, "hexagons_medieval.png"))
+    atlas = Image.open(os.path.join(src_dir, "neutral", "hexagons_medieval.png")).convert("RGB")
+    atlas.resize((ATLAS_SIZE, ATLAS_SIZE), Image.BOX).save(os.path.join(out_dir, "hexagons_medieval.png"), optimize=True)
 
 
 if __name__ == "__main__":
