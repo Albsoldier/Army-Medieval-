@@ -337,6 +337,8 @@ func _sample(scene: String, from: Vector2, velocity: Vector2, seconds_to_run: fl
 		"buffer_mem_mb": snappedf(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_BUFFER_MEM_USED) / 1048576.0, 0.1),
 		"static_mem_mb": snappedf(Performance.get_monitor(Performance.MEMORY_STATIC) / 1048576.0, 0.1),
 		"nodes": int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+		"scene_meshes": _scene_meshes()[0],
+		"scene_surfaces": _scene_meshes()[1],
 		"props_drawn": _props_drawn(),
 		"grass_clumps": main.world._grass.multimesh.instance_count,
 		"prop_view": main.world.props_in_view(main.camera),
@@ -361,6 +363,29 @@ func _note(label: String, data: Dictionary) -> void:
 	print("PERF_RESULT " + line)
 	if OS.has_feature("web"):
 		JavaScriptBridge.eval("(window.perfResults = window.perfResults || []).push(%s);" % line, true)
+
+
+## Visible mesh nodes (MeshInstance3D and MultiMeshInstance3D) in the game,
+## and their surfaces: each surface is a draw call per pass it's drawn in.
+func _scene_meshes() -> Array:
+	var meshes := 0
+	var surfaces := 0
+	var stack: Array = [main]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		stack.append_array(n.get_children())
+		var gi := n as GeometryInstance3D
+		if gi == null or not gi.is_visible_in_tree():
+			continue
+		var mesh: Mesh = null
+		if n is MeshInstance3D:
+			mesh = (n as MeshInstance3D).mesh
+		elif n is MultiMeshInstance3D and (n as MultiMeshInstance3D).multimesh:
+			mesh = (n as MultiMeshInstance3D).multimesh.mesh
+		if mesh:
+			meshes += 1
+			surfaces += mesh.get_surface_count()
+	return [meshes, surfaces]
 
 
 ## Trees, rocks and bushes currently in the prop MultiMeshes (one per prop, not per part).

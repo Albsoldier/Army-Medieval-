@@ -53,32 +53,60 @@ func _run() -> void:
 	# A line-up of characters on open ground, frozen at the same poses.
 	main.player.visible = true
 	var line: Vector2 = spots["empty"]
+	# Clear the trees and rocks around the line-up, for the picture only.
+	var w = main.world
+	var c0: Vector2i = w.cell_of(line)
+	for dz in range(-14, 15):
+		for dx in range(-14, 15):
+			if w.prop_type(c0 + Vector2i(dx, dz)) != "":
+				w.prop_changes[c0 + Vector2i(dx, dz)] = {"type": "cleared", "hp": 0, "regrow_day": 0}
+	w._props_dirty = true
 	bench._go(line)
+	main.player.pos = line
 	var cast := []
+	var spots_x := [-56, -40, -24, 24, 40, 56, 72]  # the player stands in the middle, at 0
 	var kinds := ["legionary", "archer", "cavalry", "centurion"]
 	for i in kinds.size():
-		var s = main._spawn_soldier(line + Vector2(-60 + i * 24, 0), -1.0, "hold", line + Vector2(-60 + i * 24, 0), kinds[i])
-		cast.append(s)
+		var at: Vector2 = line + Vector2(spots_x[i], 0)
+		cast.append(main._spawn_soldier(at, -1.0, "hold", at, kinds[i]))
 	for k in ["raider", "raider_chief"]:
-		var r = main._spawn_raider(k, line + Vector2(40 + cast.size() * 2, 0) + Vector2((cast.size() - 4) * 24, 0))
+		var r = main._spawn_raider(k, line + Vector2(spots_x[cast.size()], 0))
 		r.home = r.pos
 		cast.append(r)
-	var st = main._spawn_settler("Wenna", 0, line + Vector2(100, 0), line + Vector2(100, 0), 30.0)
-	cast.append(st)
-	main.player.pos = line + Vector2(-90, 0)
+	var at_s: Vector2 = line + Vector2(spots_x[cast.size()], 0)
+	cast.append(main._spawn_settler("Wenna", 0, at_s, at_s, 30.0))
 	main.player.facing = Vector2.DOWN
+	# Raiders and settlers aren't run by the game here, so they stand still.
+	for c in cast:
+		if main.wolves.has(c):
+			main.wolves.erase(c)
+		if main.settlers.has(c):
+			main.settlers.erase(c)
 	await _hold(0.3, 20)
 	main.process_mode = Node.PROCESS_MODE_DISABLED  # freeze: same moment, every run
+	for i in cast.size():
+		cast[i].pos = line + Vector2(spots_x[i], 0)  # exactly in line
+	main.player.pos = line
 	for c in cast:
 		c.facing = Vector2.DOWN
 		var model: Node3D = c._model
 		model.rotation.y = 0.0
 		c.position = main.world.to_3d(c.pos)
 	main.player._model.rotation.y = 0.0
+	main.player.position = main.world.to_3d(line)
 	for pose in [["idle", 0.4], ["run", 0.25], ["attack", 0.3]]:
 		for c in cast + [main.player]:
 			_pose(c._body, str(pose[0]), float(pose[1]))
-		for side in [["front", PI], ["back", 0.0]]:
+		await _frames(2)  # the skeletons update
+		for c in cast:
+			# Re-attach helmets, shields, spears and hats to the posed bones.
+			if c.has_method("set_shown"):
+				c._animate(0.0)
+			elif c is Node3D and c.get_script() == load("res://scripts/settler.gd"):
+				c._animate(0.0, "idle")
+			else:
+				c._animate(0.0)
+		for side in [["front", 0.0], ["back", PI]]:
 			main.zoom = 0.75
 			main.cam_yaw = float(side[1])
 			main._update_camera(1.0)
@@ -89,18 +117,19 @@ func _run() -> void:
 
 
 ## Puts a character in a fixed pose: an animation at a set time, held still.
+## It's played as a one-shot, so the character's own update doesn't replace it.
 func _pose(body, action: String, at: float) -> void:
 	var anim: AnimationPlayer = body.anim
 	if anim == null:
 		return
-	var names := {"idle": ["Man_Idle", "Idle"], "run": ["Man_Run", "Run", "Gallop"], "attack": ["Man_SwordSlash", "Sword_Slash", "Attack"]}
-	for ending in names.get(action, []):
-		for n in anim.get_animation_list():
-			if str(n).ends_with(ending):
-				anim.play(n)
-				anim.seek(at, true)
-				anim.pause()
-				return
+	var tries := {"idle": ["idle"], "run": ["run", "walk"], "attack": ["slash", "attack", "punch", "work"]}
+	for a in tries.get(action, []):
+		if body.has_action(a):
+			body.play_once(a, 1.0)
+			body._oneshot = 1e9  # held
+			anim.seek(at, true)
+			anim.pause()
+			return
 
 
 func _hold(day_fraction: float, n: int) -> void:
