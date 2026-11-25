@@ -187,7 +187,7 @@ func shoot(at: Vector3) -> void:
 	add_child(arrow)
 	Art.part(arrow, Art.cylinder(0.012, 0.012, 0.7, 4), Color("caa472"), Vector3.ZERO, Vector3(PI / 2, 0, 0))
 	Art.part(arrow, Art.cylinder(0.0, 0.03, 0.08, 4), Color("8a8f95"), Vector3(0, 0, 0.38), Vector3(PI / 2, 0, 0))
-	var from := global_position + Vector3(0, 3.0, 0)
+	var from := global_position + Vector3(0, 4.4 if _model else 3.0, 0)  # from the top-floor windows of the tower model
 	arrow.global_position = from
 	if from.distance_to(at) > 0.1:
 		arrow.look_at(at, Vector3.UP, true)

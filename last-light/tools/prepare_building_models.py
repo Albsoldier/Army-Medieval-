@@ -28,9 +28,9 @@ from PIL import Image
 
 # kind -> (source model, scale (x, y, z), turn about y in degrees, keep x in [lo, hi] then centre)
 MODELS = {
-    "cottage": ("yellow/building_home_A_yellow", (1.84, 1.84, 1.84), 0.0, None),
-    "stone_wall": ("neutral/wall_straight", (1.0, 1.6, 1.25), 0.0, (0.0, 1.0)),
-    "archer_tower": ("red/building_tower_A_red", (1.3, 1.8, 1.3), 0.0, None),
+    "cottage": ("yellow/building_home_A_yellow", (2.58, 2.58, 2.58), 0.0, None),
+    "stone_wall": ("neutral/wall_straight", (1.0, 2.08, 1.5), 0.0, (0.0, 1.0)),
+    "archer_tower": ("red/building_tower_A_red", (1.75, 2.43, 1.75), 0.0, None),
 }
 
 ATLAS_SIZE = 128

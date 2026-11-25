@@ -50,13 +50,13 @@ Sizes of the three prototyped types (old):
 
 | Type | KayKit model | Changes | Size (w × h × d) | Triangles | Surfaces |
 |---|---|---|---|---|---|
-| Cottage | `building_home_A_yellow` (half-timbered, straw-yellow roof like the old thatch) | Scaled 1.84× | 1.46 × 1.71 × 1.57 m | 1,011 (Godot LOD 727) | 1 |
-| Stone wall | `wall_straight` | Cut to 1 m (the pack's walls run 2 m along hexagon edges; only 3 of its 504 triangles crossed the cut), raised 1.6× and thickened 1.25× | 1.00 × 1.76 × 1.00 m | 259 | 1 |
-| Archer tower | `building_tower_A_red` (stone tower, red roof like the old one) | Tower and roof merged into one mesh; 1.3× wide, 1.8× tall | 1.29 × 3.95 × 1.50 m | 2,138 (Godot LOD 1,376) | 1 |
+| Cottage | `building_home_A_yellow` (half-timbered, straw-yellow roof like the old thatch) | Scaled 2.58× | 2.04 × 2.40 × 2.20 m | 1,011 (Godot LOD 727) | 1 |
+| Stone wall | `wall_straight` | Cut to 1 m (the pack's walls run 2 m along hexagon edges; only 3 of its 504 triangles crossed the cut), raised 2.08× and thickened 1.5× | 1.00 × 2.29 × 1.20 m | 259 | 1 |
+| Archer tower | `building_tower_A_red` (stone tower, red roof like the old one) | Tower and roof merged into one mesh; 1.75× wide, 2.43× tall | 1.74 × 5.33 × 2.02 m | 2,138 (Godot LOD 1,376) | 1 |
 
-- **Same tile, same placement, drawn larger.** Each model is centred on its tile like the old one, with the front facing +z. After a first review ("make them larger") they were scaled up so they stand taller than the people. The cottage and tower now overhang their tile by up to 0.25 m each side. That changes only how they look: collision, placement and building rules still use the one tile, so two cottages built side by side can touch or overlap a little.
+- **Same tile, same placement, drawn larger.** Each model is centred on its tile like the old one, with the front facing +z. After review ("make them larger", then "bigger still") they were scaled up twice, so they now tower over the people. The cottage and tower overhang their tile by up to 0.5 m each side. That changes only how they look: collision, placement and building rules still use the one tile. Two cottages built side by side overlap, and cottages two tiles apart touch at the roofs.
 - **Walls still turn.** They run east–west, and turn north–south with `line_up()` exactly as before.
-- **The tower is as tall as the old one** (3.95 m). Arrows still fly from 3 m up, from its upper windows.
+- **The tower is taller than the old one** (5.33 m against 3.95 m). Its arrows now start from the top-floor windows (4.4 m), a one-line visual change in `shoot()`; the old tower's arrows still start at 3 m.
 
 ## Step 4: implementation and optimisation
 
@@ -117,7 +117,7 @@ Images in `perf/buildings/`:
 
 - **Fit:** the half-timbered cottages, crenellated stone wall and stone tower read clearly as medieval. They sit well with the stylised low-poly Quaternius characters and the MegaKit nature.
 - **Style:** KayKit's palette is brighter and more pastel than the old flat colours, most noticeably the wall's terracotta walkway and pale stone. The unconverted buildings around them (wooden walls, gates, barracks) still look like the old primitives, which is expected until more types are converted.
-- **Scale:** the models were enlarged after a first review. Cottages (1.71 m) now stand taller than a 1.58 m character, walls are 1.76 m and the tower 3.95 m. Cottages and towers overhang their tile slightly (images are of the larger versions).
+- **Scale:** the models were enlarged twice after review. Cottages (2.40 m) and walls (2.29 m) now stand well above a 1.58 m character, and the tower is 5.33 m. Cottages and towers overhang their tile by up to 0.5 m each side, so cottages built close together overlap (images are of the final sizes).
 
 ## Step 7: performance
 
