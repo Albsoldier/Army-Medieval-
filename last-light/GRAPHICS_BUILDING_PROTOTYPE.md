@@ -121,7 +121,41 @@ Images in `perf/buildings/`:
 
 ## Step 7: performance
 
-PERF_TABLE
+### One of each building (`tools/building_audit.gd`)
+
+| Type | Surfaces (draw calls per pass) | Materials | Triangles | Godot LOD | Lights |
+|---|---|---|---|---|---|
+| Cottage | 2 → **1** | 2 → 1 | 92 → 1,011 | 727 | 0 → 0 |
+| Stone wall | 1 → 1 | 1 → 1 | 72 → 259 | — | 0 → 0 |
+| Archer tower | 1 → 1 | 1 → 1 | 436 → 2,138 | 1,376 | 0 → 0 |
+
+All three new models share **one** material, against the old ones' one shared vertex-colour material plus the cottage window's glow material.
+
+### Browser benchmark
+
+The same web build, with `?buildings=0` (old) and without, run in the project's benchmark (`perf/run_web_bench.cjs`, Chromium and ANGLE on Mesa llvmpipe, 1280×720, fixed seed). Results are in `perf/buildings/web-buildings0.json` and `web-buildings1.json`. The benchmark village has 4 cottages and an archer tower among 46 buildings (its walls are wooden), so the village rows measure 5 converted buildings.
+
+| Scene | Draw calls | Primitives | Mesh surfaces | Frame time p50 | Frame time p95 | Video memory | Texture memory |
+|---|---|---|---|---|---|---|---|
+| Village | 592 → 582 | 2.17 → 2.18 M | 714 → 710 | 798 → 816 ms | 2,059 → 2,053 ms | 39.6 → 39.8 MB | 9.3 → 9.3 MB |
+| Village + 10 soldiers | 613 → 605 | 1.96 → 1.97 M | 765 → 761 | 798 → 795 ms | 922 → 840 ms | 50.3 → 50.4 MB | 9.4 → 9.4 MB |
+| Village + 30 soldiers | 713 → 705 | 2.18 → 2.19 M | 867 → 863 | 918 → 939 ms | 979 → 1,114 ms | 62.3 → 62.5 MB | 9.8 → 9.8 MB |
+| Night village + 30 soldiers | 793 → 786 | 2.68 → 2.70 M | 869 → 865 | 1,050 → 1,051 ms | 1,227 → 1,168 ms | 62.3 → 62.5 MB | 9.8 → 9.8 MB |
+| Forest (no buildings) | 339 → 340 | 2.40 → 2.42 M | 555 → 555 | 1,482 → 1,403 ms | 1,672 → 1,758 ms | 31.6 → 31.6 MB | 9.2 → 9.2 MB |
+
+| | Old | New | Change |
+|---|---|---|---|
+| Download: `index.pck` (vs `main` at 5a9f738) | 3.59 MB | 3.70 MB | **+110 KB** (+101 KB gzipped); `index.wasm` unchanged |
+| Load to first frame (same build) | 13.4 s | 14.2 s | +0.8 s, within run-to-run variation (12.1–13.8 s in the earlier pair) |
+| Texture memory | 9.3 MB | 9.3 MB | +11 KB (the atlas) |
+| Video memory, village | 39.6 MB | 39.8 MB | +0.2 MB (vertex buffers) |
+
+How to read this:
+- **Draw calls fell slightly** (−1%) and mesh surfaces by 4. The cottages no longer need a separate glowing-window surface.
+- **Primitives rose by 0.5–1%** in the village scenes. The models have more triangles, but 5 buildings are a small share of a village frame, and Godot's LOD trims them at a distance.
+- **Frame times are within noise.** Differences go both ways, and the same scene varied by up to ±10% between runs on this software renderer.
+- **Memory and download cost almost nothing**, once the atlas was shrunk. With the pack's 1024² atlas, the first run cost +0.8 MB of download and +0.6 MB of texture memory.
+- **Converting every building type would cost more.** With all 17 types converted at similar triangle counts, a village of 46 buildings would draw about 40,000–60,000 more triangles. That's small next to the 2 million primitives in a village frame, but worth measuring again at that point.
 
 ## Recommendation
 
