@@ -103,7 +103,53 @@ Renders (`tools/player_shots.gd`, `perf/character/`):
 
 Equipment follows the hands through every animation. The armour breastplate and the lantern are the game's existing procedural pieces, placed on the ranger's chest and hip.
 
-PERF_SECTION
+## Phase 8: performance
+
+### The player itself (`tools/drawcall_audit.gd`, and the model files)
+
+| | Old adventurer | Ranger |
+|---|---|---|
+| Mesh nodes | 1 (merged at load, phase 3D) | 1 (merged ahead of time) |
+| Surfaces (draw calls per pass) | **1** | **1** |
+| Materials | **1** (`character.gdshader`) | **1** (`StandardMaterial3D` with the atlas) |
+| Lights (torch, lantern, self-glow) | 3 | 3 |
+| Triangles | 10,198 | 32,620 |
+| Godot LOD levels | none (the merged mesh has none) | 18,404 → 9,202 → 4,601 |
+| Vertices | 20,569 | 28,230 |
+| Skin binds | 310 | 123 |
+| Textures | none (colours per vertex) | 1024 × 512 colour, 512 × 256 normal, 512 × 256 roughness/metal: 0.61 MB as GPU textures |
+| Model file | `adventurer.glb`, shared with soldiers and settlers | `ranger.scn`, 1.17 MB, player only |
+
+The phase 3D result is kept: **one mesh, one surface, one material**.
+
+### Browser benchmark
+
+The same web build, with `?player=0` (old) and without, run in the project's benchmark (`perf/run_web_bench.cjs`, Chromium and ANGLE on Mesa llvmpipe, 1280×720, fixed seed). Results are in `perf/character/web-player0.json` and `web-player1.json`. The scenes include the village with 10 and 30 soldiers, as the brief asks.
+
+| Scene | Draw calls | Primitives | Mesh surfaces | Frame time p50 | Frame time p95 | Video memory | Texture memory |
+|---|---|---|---|---|---|---|---|
+| Empty area | 318 → 319 | 2.08 → 2.10 M | 559 → 559 | 722 → 646 ms | 1,150 → 1,063 ms | 31.8 → 32.9 MB | 9.1 → 9.6 MB |
+| Forest | 333 → 340 | 2.36 → 2.42 M | 555 → 555 | 908 → 1,356 ms\* | 1,446 → 1,592 ms | 31.6 → 32.8 MB | 9.2 → 9.8 MB |
+| Village | 576 → 587 | 2.02 → 2.15 M | 714 → 714 | 747 → 768 ms | 850 → 1,701 ms | 39.8 → 40.9 MB | 9.3 → 9.9 MB |
+| Village + 10 soldiers | 614 → 614 | 1.97 → 1.99 M | 765 → 765 | 788 → 784 ms | 908 → 837 ms | 50.4 → 51.6 MB | 9.4 → 10.0 MB |
+| **Village + 30 soldiers** | 715 → 715 | 2.19 → 2.21 M | 867 → 867 | 986 → 957 ms | 1,088 → 1,111 ms | 62.5 → 63.7 MB | 9.8 → 10.3 MB |
+| Night village + 30 soldiers | 794 → 796 | 2.70 → 2.70 M | 869 → 869 | 994 → 1,026 ms | 1,124 → 1,269 ms | 62.5 → 63.7 MB | 9.8 → 10.3 MB |
+
+\* Run-to-run noise on the software renderer. The same forest scene measured 877 → 872 ms in the first run (`first-web-player*.json`, made with the larger atlas). The forest without sun shadows is unchanged in both runs (506 → 498 ms).
+
+| | Old | Ranger | Change |
+|---|---|---|---|
+| Download (`index.pck`) | | | **+1.8 MB** (+1.5 MB gzipped): the model 1.17 MB, the atlas textures 0.61 MB; `index.wasm` unchanged |
+| Load to first frame (same build) | 12.2 s | 12.9 s | +0.7 s |
+| Texture memory | 9.3 MB | 9.9 MB | +0.6 MB |
+| Video memory | 39.8 MB | 40.9 MB | +1.1 MB (texture and the larger vertex buffer) |
+
+How to read this:
+- **Draw calls and mesh surfaces are unchanged.** The player is still one surface in every pass.
+- **Primitives rise by 0.02–0.13 M** (1–6%). The ranger has three times the triangles of the adventurer; LOD halves them at a distance.
+- **Frame time is within noise.** One character is a small part of a frame, and the 30-soldier scenes show no cost.
+- **The main cost is the download, +1.8 MB.** The first build used a 2048 × 1024 colour atlas and 1024 × 512 detail maps. That cost +3.6 MB and +2.3 MB of texture memory, and was no sharper at the game's closest camera, so the atlas was halved.
+- **Vertex compression was tried and rejected.** Godot's compressed vertex attributes would cut the model by about 0.2 MB, but they break this skinned mesh when it animates (tested), so they're not used.
 
 ## Known limitations
 
