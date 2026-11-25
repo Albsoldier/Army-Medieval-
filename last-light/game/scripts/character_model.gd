@@ -4,6 +4,10 @@
 extends Node3D
 
 const LOOPING := ["idle", "walk", "run"]
+## Other names for a bone in other rigs (the humanoid rig of the player's
+## ranger model, phase 4C), tried in order when a model lacks the first name.
+const BONE_ALIASES := {"Palm.R": ["Wrist.R", "hand_r"], "Palm.L": ["Wrist.L", "hand_l"],
+	"Torso": ["spine_01"], "Neck": ["neck_01"]}
 
 var anim: AnimationPlayer
 var skeleton: Skeleton3D
@@ -14,7 +18,7 @@ var _current := ""
 var _oneshot := 0.0
 var _flash_mat: StandardMaterial3D
 var _flashing := false
-var merged := false  # the model's meshes and materials were merged into one surface
+var merged := false  # the model is one skinned surface (merged here, or ahead of time)
 
 ## Merged meshes and skins, shared by every character with the same model and colours.
 static var _merged_cache: Dictionary = {}
@@ -38,6 +42,9 @@ func build(scene: PackedScene, target: float, measure_length: bool, actions: Dic
 	_enhance()
 	if merge:
 		merged = _merge_meshes(scene.resource_path)
+	if not merged and _meshes.size() == 1 and (_meshes[0] as MeshInstance3D).skin != null \
+			and (_meshes[0] as MeshInstance3D).mesh.get_surface_count() == 1:
+		merged = true  # merged ahead of time (the player's ranger, tools/build_player_model.gd)
 
 	_flash_mat = StandardMaterial3D.new()
 	_flash_mat.albedo_color = Color(1.0, 0.15, 0.1, 0.45)
@@ -89,9 +96,12 @@ func flash(on: bool) -> void:
 func bone_follower(bone: String) -> Node3D:
 	if skeleton == null:
 		return null
-	if skeleton.find_bone(bone) < 0:
-		# Models name their hand bones differently.
-		bone = {"Palm.R": "Wrist.R", "Palm.L": "Wrist.L"}.get(bone, bone)
+	# Models name their bones differently: the adventurer's names first, then
+	# the stand-ins other models use (Wrist for Palm; the humanoid rig's names).
+	for name in [bone] + BONE_ALIASES.get(bone, []):
+		if skeleton.find_bone(name) >= 0:
+			bone = name
+			break
 	if skeleton.find_bone(bone) < 0:
 		return null
 	var follower := BoneAttachment3D.new()

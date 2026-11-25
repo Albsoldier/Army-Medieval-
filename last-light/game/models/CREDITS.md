@@ -60,3 +60,19 @@ to the one-tile buildings they replace, and the wall cut to a 1 m section. See
 | `stone_wall.glb` | `Assets/gltf/buildings/neutral/wall_straight.gltf` (one half) | stone walls |
 | `archer_tower.glb` | `Assets/gltf/buildings/red/building_tower_A_red.gltf` | archer towers |
 | `hexagons_medieval.png` | `Assets/gltf/buildings/neutral/hexagons_medieval.png` (1024 → 128 px) | the shared palette atlas |
+
+## Player model (`player/`, character prototype)
+
+`player/ranger.scn` is built by `game/tools/build_player_model.gd` from three kits by **Quaternius**
+(https://quaternius.com), free Standard editions downloaded from quaternius.itch.io. Each kit's own
+`License` file states **CC0 1.0 Universal** (public domain dedication): commercial use and redistribution
+allowed, no attribution required.
+
+| Kit | Files used | For |
+|---|---|---|
+| Modular Character Outfits – Fantasy (https://quaternius.com/packs/modularcharacteroutfitsfantasy.html) | `Exports/glTF (Godot-Unreal)/Outfits/Male_Ranger.gltf` and its `.bin` and textures (`T_Ranger_*`, `T_Regular_Male_*`) | the outfit and hands |
+| Universal Base Characters (https://quaternius.com/packs/universalbasecharacters.html) | `Base Characters/Godot - UE/Superhero_Male_FullBody.gltf` (head, eyes and eyebrows only) and `Hairstyles/Rigged to Head Bone/glTF (Godot -Unreal)/Hair_Beard.gltf`, with their textures | the head and beard |
+| Universal Animation Library (https://quaternius.com/packs/universalanimationlibrary.html) | `Unreal-Godot/UAL1_Standard.glb` (Idle, Walk, Jog_Fwd, Punch_Jab, Sword_Attack, Death01) | the animations |
+
+The textures were packed into `player/player_colour.png`, `player_normal.png` and `player_orm.png` (one
+atlas, downscaled) and every part merged into one skinned mesh. See `last-light/GRAPHICS_CHARACTER_PROTOTYPE.md`.
