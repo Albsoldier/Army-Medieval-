@@ -80,6 +80,13 @@ const SURVIVOR := "res://models/adventurer.glb"
 ## (set before the player is made), to compare with the old adventurer.
 const RANGER := "res://models/player/ranger.scn"
 static var use_ranger := true
+## The ranger's look (refinement, GRAPHICS_PLAYER_REFINEMENT.md): hood, skin
+## tone, outfit and backpack, as character_appearance.gd. Worn armour is drawn
+## by the ranger's own armour shell, coloured for its tier.
+const Appearance = preload("res://scripts/character_appearance.gd")
+static var appearance: Dictionary = Appearance.DEFAULT.duplicate()
+var _look_mesh: GeometryInstance3D  # the ranger's mesh (null for the adventurer)
+var _armour_look := ""  # which armour the ranger's shell shows
 
 var dead := false
 var _model: Node3D  # turns to face the walking direction
@@ -120,6 +127,9 @@ func _ready() -> void:
 	_left_hand = _body.bone_follower("Palm.L")
 	_torso = _body.bone_follower("Torso")
 	_neck = _body.bone_follower("Neck")
+	if use_ranger:
+		_look_mesh = _body._meshes[0]
+		Appearance.apply(_look_mesh, appearance)
 
 	# Spear and torch follow the hands but keep their own size and direction.
 	_spear = Node3D.new()
@@ -294,8 +304,9 @@ func tick_visuals(delta: float) -> void:
 
 	var turn := Basis(Vector3.UP, _model.rotation.y)
 	_lantern.visible = lantern and lantern_on and not dead
-	_armour.visible = armour and armour_on and not dead
+	_armour.visible = armour and armour_on and not dead and _look_mesh == null
 	_restyle_gear()
+	_restyle_ranger_armour()
 	_spear.visible = equipped == "spear" and has_spear and not dead
 	_sword.visible = equipped == "sword" and sword_tier >= 0 and not dead
 	_axe.visible = equipped == "axe" and has_axe and not dead
@@ -470,6 +481,24 @@ func _restyle_gear() -> void:
 	if armour_tier >= 0:
 		var g := Gear.info("armour", armour_tier)
 		_tint(_armour, [g["color"], g["color"].darkened(0.12), g["trim"], g["trim"]])
+
+
+## The ranger's armour shell: shown while armour is worn (it is skinned, so it
+## stays on through every animation, death included), in the tier's colours;
+## hide is leather, the rest metal.
+func _restyle_ranger_armour() -> void:
+	if _look_mesh == null:
+		return
+	var on := armour and armour_on
+	var look := "%s/%d" % [on, armour_tier]
+	if look == _armour_look:
+		return
+	_armour_look = look
+	if on:
+		var g := Gear.info("armour", armour_tier)
+		Appearance.set_armour(_look_mesh, true, g["color"], g["trim"], 0.0 if armour_tier == 0 else 0.8)
+	else:
+		Appearance.set_armour(_look_mesh, false)
 
 
 func _tint(node: Node3D, colors: Array) -> void:

@@ -212,6 +212,29 @@ func _run_game() -> void:
 	var pc_fp: bool = pc_mesh.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 	main.player.set_first_person(false)
 	_check(pc_fp and pc_mesh.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_ON, "in first person the ranger only casts a shadow")
+	# Refinement (GRAPHICS_PLAYER_REFINEMENT.md): every part (clothing, skin,
+	# hood, hair, armour, backpack) is in that one surface, labelled in UV2, and
+	# one shared material draws them, chosen per character by instance uniforms.
+	var pc_mat := pc_mesh.mesh.surface_get_material(0) as ShaderMaterial
+	var pc_parts := {}
+	for pc_uv2 in pc_mesh.mesh.surface_get_arrays(0)[Mesh.ARRAY_TEX_UV2]:
+		pc_parts[int(pc_uv2.x)] = true
+	_check(pc_mat != null and pc_mat.shader.resource_path.ends_with("character_atlas.gdshader") and pc_parts.size() == 6,
+		"the ranger's parts (clothing, skin, hood, hair, armour, backpack) share one surface and one material (%d parts)" % pc_parts.size())
+	var pc_ap = main.player.Appearance
+	var pc_look: Dictionary = pc_ap.from_options({"hood": "down", "skin": "dark", "outfit": "earth", "backpack": "0"})
+	var pc_bad: Dictionary = pc_ap.from_options({"skin": "green", "outfit": "clown"})
+	_check(not pc_look["hood"] and pc_look["skin"] == "dark" and pc_look["outfit"] == "earth" and not pc_look["backpack"]
+		and pc_bad["skin"] == "medium" and pc_bad["outfit"] == "ranger" and pc_bad["hood"] and pc_bad["backpack"],
+		"appearance options: hood, skin, outfit and backpack, unknown values ignored")
+	_check(pc_ap.skin_gain("medium").is_equal_approx(Vector3.ONE) and pc_ap.skin_gain("deep").x < 1.0 and pc_ap.skin_gain("light").x > 1.0,
+		"skin tones scale the skin texture; medium is the texture as made")
+	pc_ap.apply(pc_mesh, pc_look)
+	_check(float(pc_mesh.get_instance_shader_parameter("hood_up")) == 0.0 and float(pc_mesh.get_instance_shader_parameter("outfit")) == 1.0
+		and float(pc_mesh.get_instance_shader_parameter("backpack_on")) == 0.0, "the look is set on the player's mesh")
+	pc_ap.apply(pc_mesh, main.player.appearance)
+	_check(float(pc_mesh.get_instance_shader_parameter("hood_up")) == 1.0 and float(pc_mesh.get_instance_shader_parameter("backpack_on")) == 1.0,
+		"by default the hood is up and the backpack on")
 	# Skinning: every bind of the merged skin must still point at a bone of the skeleton.
 	var dc_skin: Skin = body_mesh.skin
 	var dc_bound := 0
@@ -576,8 +599,18 @@ func _run_game() -> void:
 	_check(main.player.equipped == "pickaxe", "equipping from the inventory")
 	main._on_inventory_action("armour")
 	_check(not main.player.wearing_armour(), "armour can be taken off")
+	main.player._restyle_ranger_armour()
+	var ar_mesh: GeometryInstance3D = main.player._look_mesh
+	_check(float(ar_mesh.get_instance_shader_parameter("armour_on")) == 0.0, "the ranger's armour shell goes when it is taken off")
 	main._on_inventory_action("armour")
 	_check(main.player.wearing_armour(), "and put back on")
+	main.player._restyle_ranger_armour()
+	var ar_want: Color = Gear.info("armour", main.player.armour_tier)["color"]
+	_check(float(ar_mesh.get_instance_shader_parameter("armour_on")) == 1.0
+		and (ar_mesh.get_instance_shader_parameter("armour_color") as Color).is_equal_approx(ar_want),
+		"and comes back, in the colour of its tier")
+	main.player.tick_visuals(0.016)
+	_check(not main.player._armour.visible, "the ranger wears its own armour, not the boxy breastplate")
 	main.hud.close_inventory()
 	_check(not main.hud.is_modal(), "the inventory closes")
 	main._on_hotbar_slot(2)
