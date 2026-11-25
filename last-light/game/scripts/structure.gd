@@ -84,6 +84,16 @@ const RECIPES := {
 const TORCH_RADIUS := 80.0
 ## Walls and gates turn to line up with the walls next to them.
 const LINES_UP := ["wood_wall", "stone_wall", "gate", "oil_gate"]  # game pixels: wolves won't come closer to a lit torch post
+## Building prototype (phase 4B, GRAPHICS_BUILDING_PROTOTYPE.md): these types
+## are drawn with models from Kay Lousberg's KayKit Medieval Hexagon Pack
+## (models/buildings, CC0) instead of their primitive parts. Every one is one
+## mesh with one surface, and all share one material and one 16 KB texture
+## atlas. Same tile, hit points, preview, damage lean and collision as before.
+const BUILDING_MODELS := {"house": "cottage", "stone_wall": "stone_wall", "archer_tower": "archer_tower"}
+## Off with ?buildings=0 (set before any building is made), to compare.
+static var use_models := true
+static var _model_meshes: Dictionary = {}  # model name -> Mesh, shared by every building of a kind
+static var _model_material: StandardMaterial3D
 
 var world: World
 var kind := ""
@@ -102,6 +112,7 @@ var _parts: Array = []
 var _crop_field: MultiMeshInstance3D  # fields: all the wheat stalks, one instance each
 var _crop_spots: Array = []  # where each stalk stands (x, z)
 var _stage := -1
+var _model: MeshInstance3D  # the building model, when this type has one
 
 
 static func info(type_name: String) -> Dictionary:
@@ -130,6 +141,8 @@ func _ready() -> void:
 	# mesh and a material per part: a draw call instead of up to twenty.
 	var crops: Array = [_crop_field] if _crop_field else []
 	_parts = Art.bake(self, _parts, "structure:" + kind) + crops  # every building of a kind is built alike
+	if _model:
+		_parts.append(_model)  # already one mesh and one shared material: nothing to bake
 
 
 func is_lit() -> bool:
@@ -252,7 +265,33 @@ func _add(mesh: Mesh, color: Color, offset: Vector3, rot: Vector3 = Vector3.ZERO
 	return mi
 
 
+## The shared mesh and material of a building model (loaded once).
+static func _model_mesh(model: String) -> Mesh:
+	if not _model_meshes.has(model):
+		var scene := load("res://models/buildings/%s.glb" % model) as PackedScene
+		var root := scene.instantiate()
+		_model_meshes[model] = (root.find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D).mesh
+		root.free()
+	return _model_meshes[model]
+
+
+static func _building_material() -> StandardMaterial3D:
+	if _model_material == null:
+		_model_material = StandardMaterial3D.new()
+		_model_material.albedo_texture = load("res://models/buildings/hexagons_medieval.png")
+		_model_material.roughness = 0.9  # like every other building
+	return _model_material
+
+
 func _build_model() -> void:
+	if use_models and BUILDING_MODELS.has(kind):
+		_model = MeshInstance3D.new()
+		_model.name = "Model"
+		_model.mesh = _model_mesh(BUILDING_MODELS[kind])
+		_model.material_override = _building_material()
+		add_child(_model)
+		_update_wear()
+		return
 	match kind:
 		"wood_wall":
 			# A palisade of sharpened logs.
