@@ -169,3 +169,77 @@ What the numbers showed:
 3. **Shadow passes were most of the remaining cost.** The models cast no shadows. The old procedural shapes are drawn into the shadow maps only, from the same instance data, so the trees' shadows are the same as before the prototype. A crown sits inside its proxy's shadow, so the leaf shader softens the sun's shadow on leaves to 35%. Lamps and torches light leaves as usual.
 4. **Draw calls are unchanged.** Each prop type is still one MultiMesh draw per surface per pass. The extra nodes are either hidden by visibility range (near/far) or drawn in place of the old shadow casters (proxies).
 5. Changing objects (felled trees, picked bushes) still rebuild only their chunk. All three instances of a prop type share one instance buffer.
+
+## Step 5: visual validation
+
+`game/tools/env_shots.gd` renders the same views with the old props (`-- --nature=0`) and the new ones:
+- a forest edge and a rocky area, each at three zooms and in first person;
+- the forest in all four seasons;
+- the forest at night in summer and winter.
+
+Images are in `perf/environment/`:
+
+| Image | What it shows |
+|---|---|
+| `before-after-forest.jpg` | Close, middle and far zoom, and first person. Textured bark and leaf crowns; bushes with flowers instead of red spheres. At far zoom the far versions are in use. |
+| `before-after-rocks.jpg` | Boulders with the kit's mossy rock texture; slightly taller than the old ones. |
+| `before-after-seasons.jpg` | Spring; summer olive; autumn oaks in red, orange and gold, and bushes browning; winter with frosted pines and rocks, and bare oaks showing their real branches. |
+| `before-after-night.jpg` | Night in summer and winter: everything still present and lit by the moon. Lamps light leaves normally. |
+
+Checked:
+- **Nothing disappears.** Every prop in view is drawn: the smoke test's "every tree, rock and bush within view distance is drawn" still passes.
+- **Same places.** Props sit on the same tiles with the same turn and size. Felling a tree, picking a bush and building over a prop behave as before.
+- **No double drawing.** The near/far switch shows no gap or overlap; both versions use the same instances.
+
+Known visual limits, for the next pass:
+- **Far oaks look sparse and star-shaped at the highest zoom.** Only 25% of their cards remain, each enlarged 1.8×. Keeping 35% at 1.5× is the obvious next step; it costs a little more.
+- **Shadows keep the old rounded shapes**, by design (the shadow proxies). They read well from the strategy camera.
+- **The boulder is taller than the old rock** (0.85 m against 0.6 m). Its tile-based collision is unchanged.
+
+## Step 6: performance against the baseline
+
+The same web build, run with `?nature=0` (old props) and with the models, in the project's browser benchmark (`perf/run_web_bench.cjs`, Chromium + ANGLE on Mesa llvmpipe, 1280×720, fixed seed). Results are in `perf/environment/web-nature0.json` and `web-nature1.json`. The first run, before the far versions and shadow proxies, is kept as `first-web-nature*.json`.
+
+| Scene | Draw calls | Primitives | Frame time p50 | Frame time p95 | Video memory | Texture memory |
+|---|---|---|---|---|---|---|
+| Empty area | 308 → 318 | 2.14 → 2.08 M | 512 → 673 ms | 601 → 1,224 ms | 30.3 → 31.8 MB | 8.6 → 9.1 MB |
+| **Forest** | 314 → 334 | 2.71 → 2.37 M | **646 → 1,002 ms** | 922 → 1,489 ms | 30.1 → 31.6 MB | 8.7 → 9.2 MB |
+| Forest, no sun shadows (diagnostic) | 126 → 146 | 0.67 → 0.58 M | 211 → 475 ms | 254 → 585 ms | 30.1 → 31.6 MB | 8.7 → 9.2 MB |
+| Forest, no props (diagnostic) | 104 → 104 | 0.15 → 0.15 M | 200 → 187 ms | 238 → 221 ms | 30.1 → 31.6 MB | 8.7 → 9.2 MB |
+| Village | 569 → 576 | 2.32 → 2.03 M | 529 → 744 ms | 671 → 904 ms | 38.2 → 39.6 MB | 8.8 → 9.3 MB |
+| Village + 30 soldiers | 707 → 713 | 2.63 → 2.17 M | 722 → 951 ms | 847 → 986 ms | 60.9 → 62.3 MB | 9.2 → 9.8 MB |
+| Night village + 30 soldiers | 791 → 791 | 3.19 → 2.68 M | 786 → 947 ms | 901 → 1,145 ms | 60.9 → 62.3 MB | 9.2 → 9.8 MB |
+
+| | Old props | Models | Change |
+|---|---|---|---|
+| Download: `index.pck` (vs `main` at 86cf462) | 2.68 MB | 3.58 MB | **+0.91 MB** (+0.49 MB gzipped); `index.wasm` unchanged |
+| Load to first frame (same build) | 13.1 s | 13.9 s | +0.8 s |
+| Texture memory | 8.7 MB | 9.2 MB | +0.5 MB |
+| Video memory | 30.1 MB | 31.6 MB | +1.5 MB |
+
+How to read this:
+- **Primitives fell** (−12% in the forest), because the far versions are lighter than the old shapes. **Draw calls rose by 6%** in the forest, and by 1% or nothing in the village scenes.
+- **Frame time rose 1.2–1.6×**, most in the forest (1.55×). Without props, the forest is unchanged. The remaining cost is the main colour pass drawing textured, cut-out leaf cards. A software rasterizer (llvmpipe, used for every measurement in this project) pays for that per vertex and per pixel far more than a real GPU does. So the ratio is a warning sign rather than a prediction, but it is real extra work. Before the optimisations it was 6.7× (`first-web-nature1.json`).
+- **Memory and download costs are small:** under 1 MB download, 0.5 MB textures and 1.5 MB video memory.
+
+## Deliverables
+
+| File | What it is |
+|---|---|
+| `game/models/nature/` | The four models, their far versions, and the five textures, with import settings |
+| `game/models/CREDITS.md` | Source and licence for each file |
+| `tools/prepare_nature_models.py` | Rebuilds `models/nature/` from the kit |
+| `game/shaders/prop_tex_rigid.gdshader`, `prop_tex_leaves.gdshader` | Textured prop shaders on the shared seasonal code |
+| `game/scripts/world.gd` | `_use_nature_models()`, `_prop_copy()`, and the near/far/shadow instances in `_build_prop_chunk()` |
+| `game/scripts/main.gd` | The `?nature=0` / `--nature=0` comparison switch |
+| `game/tools/env_shots.gd` | The before/after renders |
+| `game/tools/smoke_test.gd` | Checks: models and shared materials in use, near/far switch and shadow proxies set up, picked bushes hide their flowers |
+
+## Recommendation before replacing more objects
+
+1. **Measure on a real GPU before deciding.** Open the site with and without `?nature=0` and `?perf=1` on a typical laptop. The llvmpipe ratio overstates leaf-card costs.
+2. **If it needs to be cheaper:**
+   - fewer leaf cards in the near models (keep 60–70%);
+   - a shorter near distance (25 m saved 5% here);
+   - fewer pine sprigs in the far version.
+3. **Then extend** to stumps, iron and gold rocks (the kit's rocks plus ore nuggets), rubble and fallen logs, using the same pipeline (`prepare_nature_models.py`, `NATURE_MODELS`).
