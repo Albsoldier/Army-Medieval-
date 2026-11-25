@@ -221,6 +221,7 @@ func _merge(parts: Array) -> Array:
 	arrays[Mesh.ARRAY_WEIGHTS] = weights
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var im := ImporterMesh.new()
+	# Not ARRAY_FLAG_COMPRESS_ATTRIBUTES: tried, and it breaks this skinned mesh when animated.
 	im.add_surface(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, _material(), "Body")
 	im.generate_lods(25.0, 60.0, [])
 	var mesh := im.get_mesh()
