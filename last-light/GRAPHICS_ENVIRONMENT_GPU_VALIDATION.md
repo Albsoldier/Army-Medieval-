@@ -96,4 +96,16 @@ The runs take about 2 minutes per page load on a laptop GPU, so roughly 12–15 
 
 ## Check of the test itself (software renderer, not a GPU result)
 
-*To be added: the quick run (`?gpuval=1&quick=1`) on this machine's software renderer, confirming the six-step flow, the alternating versions, the summary and the download work. Its numbers are not GPU measurements.*
+The quick version (`?gpuval=1&quick=1`) was run in headless Chromium on the build machine, which has no GPU: WebGL reported `ANGLE (Mesa, llvmpipe ...)`. It confirmed that:
+- the page reloads between versions, with nature models on the first load and old props on the second;
+- the hardware details are recorded (GPU string, user agent, 4 cores, 16 GB, 1280×720, pixel ratio 1, S3TC available);
+- the page load time is recorded (13.6 s and 8.4 s; the first includes a cold cache);
+- the shader warm-up is recorded;
+- all eight scenes are measured;
+- the summary table appears on screen and the results file downloads.
+
+Files: `perf/environment/gpu-validation-selfcheck-llvmpipe.json` and `gpu-validation-selfcheck-summary.png`.
+
+**Its numbers are not GPU measurements.** A software rasterizer runs at 1–3 FPS in every scene and overstates per-vertex and per-pixel costs. The quick mode also measures for 1 second per scene instead of 6–10. On this machine the models ran at roughly 0.55–0.65× the old props' frame rate in every scene. That is consistent with GRAPHICS_ENVIRONMENT_PROTOTYPE.md, and it is exactly what the real-GPU run has to confirm or refute.
+
+`cpu_process_ms_avg` and `render_cpu_ms_avg` are only meaningful on a real GPU. With a software renderer, the "GPU" work is done by the CPU, so it shows up in the CPU numbers too.
