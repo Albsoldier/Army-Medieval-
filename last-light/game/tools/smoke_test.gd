@@ -91,6 +91,56 @@ func _run_game() -> void:
 	_check(main.sun_shadow_preset == "C" and main.sun.directional_shadow_mode == DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
 		and int(ProjectSettings.get_setting("rendering/lights_and_shadows/directional_shadow/size")) == 2048,
 		"the sun casts shadows with 2 cascades on a 2048 atlas")
+	# Terrain and grass are built faster, but exactly as before.
+	var tw0 = main.world
+	var t_worst := 0.0
+	var t_colour_steps := 0
+	var t_checked := 0
+	for tck in [tw0._view_chunk, tw0._view_chunk + Vector2i(1, 0), tw0._view_chunk + Vector2i(-2, 1), tw0._view_chunk + Vector2i(2, -2)]:
+		if not tw0._meshes.has(tck) or (tw0._meshes[tck] as MeshInstance3D).mesh == null:
+			continue
+		var ref: Dictionary = _old_terrain(tw0, tck)
+		var arrays: Array = tw0._terrain_arrays(tck, tw0._chunk_corners(tck))  # before the GPU packs it
+		var corners: PackedFloat32Array = tw0._chunk_corners(tck)
+		var cv: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var cn: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var cc: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+		for i in corners.size():
+			t_worst = maxf(t_worst, absf(corners[i] - float(ref["corners"][i])))
+			t_worst = maxf(t_worst, (cv[i] - ref["verts"][i]).length())
+			t_worst = maxf(t_worst, (cn[i] - ref["normals"][i]).length())
+			if cc[i] != ref["colors"][i]:
+				t_colour_steps += 1
+		t_checked += 1
+	_check(t_checked >= 2 and t_worst == 0.0 and t_colour_steps == 0,
+		"terrain heights, normals and blends are exactly the same as before (%d chunks, difference %s, blends differing %d)" % [t_checked, str(t_worst), t_colour_steps])
+	for gseason in ["spring", "autumn"]:
+		tw0.set_season(gseason)
+		tw0.update_view(main.player.pos, true)
+		var got := _grass_records(tw0._grass.multimesh)
+		var want := _old_grass(tw0)
+		_check(got.size() > 1000 and got == want, "grass clumps are the same as before in %s (%d of %d)" % [gseason, got.size(), want.size()])
+	tw0.set_season("winter")
+	tw0.update_view(main.player.pos, true)
+	_check(tw0._grass.multimesh.instance_count == 0, "no grass under the snow")
+	tw0.set_season("spring")
+	tw0.update_view(main.player.pos, true)
+	# Building on grass clears it there; taking the building down brings it back.
+	var gcell := Vector2i(-1, -1)
+	for gc in _free_cells(tw0, tw0.cell_of(main.player.pos), 12, []):
+		if tw0.terrain_at(gc) == tw0.GRASS and gc != tw0.cell_of(main.player.pos):
+			gcell = gc
+			break
+	if gcell.x >= 0:
+		var before_g: int = tw0._grass.multimesh.instance_count
+		main.player.add_item("wood", 4)
+		main._try_build("wood_wall", gcell)
+		tw0.update_view(main.player.pos, true)
+		var with_wall: int = tw0._grass.multimesh.instance_count
+		main._remove_structure(gcell)
+		tw0.update_view(main.player.pos, true)
+		_check(with_wall == before_g - 3 and tw0._grass.multimesh.instance_count == before_g and _grass_records(tw0._grass.multimesh) == _old_grass(tw0),
+			"building on grass clears it, and taking the building down brings it back (%d, %d, %d)" % [before_g, with_wall, tw0._grass.multimesh.instance_count])
 	# Props are drawn in chunks the renderer can cull; moving only builds what came into view.
 	var pw = main.world
 	var pv_here: Vector2 = main.player.pos
@@ -1054,6 +1104,86 @@ func _free_cells(world, around: Vector2i, n: int, avoid: Array = []) -> Array:
 				if found.size() < n and maxi(absi(dx), absi(dz)) == r and world.can_build(c) and not c in avoid:
 					found.append(c)
 	return found
+
+
+## The terrain of one chunk worked out the old way (four lookups per corner).
+func _old_terrain(w, ck: Vector2i) -> Dictionary:
+	var size: int = w.CHUNK + 1
+	var corners := []
+	for cz in size:
+		for cx in size:
+			var x: int = ck.x * w.CHUNK + cx
+			var z: int = ck.y * w.CHUNK + cz
+			var h: float = (w._tile_height(x - 1, z - 1) + w._tile_height(x, z - 1)
+				+ w._tile_height(x - 1, z) + w._tile_height(x, z)) / 4.0
+			h += w._detail.get_noise_2d(x, z) * 0.28 * clampf(h * 2.0, 0.0, 1.0)
+			corners.append(h)
+	var stored := PackedFloat32Array(corners)  # the heights are kept as 32-bit floats
+	var verts := []
+	var normals := []
+	var colors := []
+	for cz in size:
+		for cx in size:
+			var gx: int = ck.x * w.CHUNK + cx
+			var gz: int = ck.y * w.CHUNK + cz
+			verts.append(Vector3(gx, stored[cz * size + cx], gz))
+			normals.append(Vector3(w._corner_height(gx - 1, gz) - w._corner_height(gx + 1, gz), 2.0,
+				w._corner_height(gx, gz - 1) - w._corner_height(gx, gz + 1)).normalized())
+			colors.append(w._corner_blend(gx, gz))
+	return {"corners": stored, "verts": verts, "normals": normals, "colors": colors}
+
+
+## The grass around the player worked out the old way, as sorted records.
+func _old_grass(w) -> Array:
+	var out := []
+	var center: Vector2i = w._view_chunk * w.CHUNK + Vector2i(w.CHUNK / 2, w.CHUNK / 2)
+	var r: int = w.GRASS_RADIUS
+	for dz in range(-r, r + 1):
+		for dx in range(-r, r + 1):
+			if dx * dx + dz * dz > r * r:
+				continue
+			var cell: Vector2i = center + Vector2i(dx, dz)
+			var t: int = w.terrain_at(cell)
+			if t != w.GRASS and t != w.FOREST:
+				continue
+			if w.structures.has(cell) or w._poi_cells.has(cell):
+				continue
+			for c in (3 if t == w.GRASS else 1):
+				var jx: float = w._hash01(cell.x, cell.y, 20 + c)
+				var jz: float = w._hash01(cell.x, cell.y, 30 + c)
+				var p := Vector2(cell.x + jx, cell.y + jz)
+				var y: float = w.height_at(p * w.TILE)
+				var sc: float = 0.7 + w._hash01(cell.x, cell.y, 40 + c) * 0.7
+				var xf := Transform3D(Basis(Vector3.UP, jx * TAU) * Basis.from_scale(Vector3(sc, sc, sc)), Vector3(p.x, y - 0.02, p.y))
+				var g: float = w._hash01(cell.x, cell.y, 50 + c)
+				var tint: Color = Color("50652c").lerp(Color("7a7a42"), g * 0.8) if t == w.GRASS else Color("3b4c25")
+				if w.season == "autumn":
+					tint = tint.lerp(Color("8a6a34"), 0.45)
+				elif w.season == "summer":
+					tint = tint.lerp(Color("8a8040"), 0.2)
+				out.append(_grass_key(xf, tint))
+	out.sort()
+	return out
+
+
+## The grass in a MultiMesh, as sorted records (to compare whatever the order).
+## Read from the raw buffer: a 3x4 transform (row by row) then a colour per
+## clump. Headless Godot keeps the buffer but can't read transforms back.
+func _grass_records(mm: MultiMesh) -> Array:
+	var out := []
+	var b: PackedFloat32Array = mm.buffer
+	for i in mm.instance_count:
+		var o := i * 16
+		var xf := Transform3D(Basis(Vector3(b[o], b[o + 4], b[o + 8]), Vector3(b[o + 1], b[o + 5], b[o + 9]),
+			Vector3(b[o + 2], b[o + 6], b[o + 10])), Vector3(b[o + 3], b[o + 7], b[o + 11]))
+		out.append(_grass_key(xf, Color(b[o + 12], b[o + 13], b[o + 14], b[o + 15])))
+	out.sort()
+	return out
+
+
+func _grass_key(xf: Transform3D, c: Color) -> String:
+	return "%.3f %.3f %.3f %.4f %.4f %.4f %.3f %.3f %.3f" % [xf.origin.x, xf.origin.y, xf.origin.z,
+		xf.basis.x.x, xf.basis.x.z, xf.basis.y.y, c.r, c.g, c.b]
 
 
 ## Wood in your pack and all your chests.

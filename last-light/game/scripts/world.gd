@@ -20,7 +20,9 @@ const GRASS_RADIUS := 34  # tiles of grass around the player
 const CHUNKS := SIZE / CHUNK
 const BUILDS_PER_FRAME := 2
 const PROP_CHUNK_DEFAULT := 32  # tiles (metres) per side of a prop chunk; see GRAPHICS_PROP_CHUNKS.md
-const PROP_BUILDS_PER_FRAME := 1  # prop chunks built per frame as you travel (they appear far out, in the fog)
+const PROP_BUILDS_PER_FRAME := 1
+const GRASS_FLOATS := 16  # MultiMesh data per grass clump: a 3x4 transform and a colour
+const GRASS_ROWS_PER_FRAME := 6  # rows of grass worked out ahead of time each frame  # prop chunks built per frame as you travel (they appear far out, in the fog)
 const NO_CELL := Vector2i(-1, -1)
 const WATER_LEVEL := 0.0
 
@@ -86,6 +88,9 @@ var _map_timer := 0.0
 var _noise: FastNoiseLite
 var _detail: FastNoiseLite
 var _grass: MultiMeshInstance3D
+var _grass_cache: Dictionary = {}  # chunk -> rows of ready-made grass data (see _grass_rows)
+var _grass_dirty := true  # the grass around the player needs gathering again
+var _grass_partial: Dictionary = {}  # chunk -> rows worked out so far, ahead of time
 var _continent: FastNoiseLite
 var _moisture: FastNoiseLite
 var _data: Dictionary = {}  # chunk -> {"t": PackedByteArray, "e": PackedFloat32Array}
@@ -189,6 +194,14 @@ func update_view(pos: Vector2, immediate: bool = false) -> void:
 		_view_chunk = center
 		_build_queue.clear()
 		_queue_prop_chunks()
+		for gk in _grass_cache.keys():
+			var gfar: Vector2i = (gk - center).abs()
+			if maxi(gfar.x, gfar.y) > 4:
+				_grass_cache.erase(gk)  # keep only the grass near you
+		for gk in _grass_partial.keys():
+			var pfar: Vector2i = (gk - center).abs()
+			if maxi(pfar.x, pfar.y) > 4:
+				_grass_partial.erase(gk)
 		var wanted := {}
 		for dz in range(-VIEW, VIEW + 1):
 			for dx in range(-VIEW, VIEW + 1):
@@ -301,6 +314,7 @@ func can_build(cell: Vector2i) -> bool:
 
 func add_structure(cell: Vector2i, kind: String) -> void:
 	structures[cell] = kind
+	_grass_changed(cell)
 	if prop_type(cell) != "" and prop_type(cell) != "cleared":
 		prop_changes[cell] = {"type": "cleared", "hp": 0, "regrow_day": 0}
 		_mark_props_dirty(cell)
@@ -308,6 +322,7 @@ func add_structure(cell: Vector2i, kind: String) -> void:
 
 func remove_structure(cell: Vector2i) -> void:
 	structures.erase(cell)
+	_grass_changed(cell)
 
 
 func world_size_px() -> int:
@@ -556,14 +571,23 @@ func _chunk_corners(ck: Vector2i) -> PackedFloat32Array:
 	if _corners.has(ck):
 		return _corners[ck]
 	var w := CHUNK + 1
+	# Each tile touches four corners: look its height up once, not four times.
+	# Tiles run from one before the chunk to one after it (CHUNK + 2 a side).
+	var tw := CHUNK + 2
+	var tiles := PackedFloat64Array()
+	tiles.resize(tw * tw)
+	for tz in tw:
+		for tx in tw:
+			tiles[tz * tw + tx] = _tile_height(ck.x * CHUNK - 1 + tx, ck.y * CHUNK - 1 + tz)
 	var corners := PackedFloat32Array()
 	corners.resize(w * w)
 	for cz in w:
 		for cx in w:
 			var x := ck.x * CHUNK + cx
 			var z := ck.y * CHUNK + cz
-			var h := (_tile_height(x - 1, z - 1) + _tile_height(x, z - 1)
-				+ _tile_height(x - 1, z) + _tile_height(x, z)) / 4.0
+			var t := cz * tw + cx  # the tile up and to the left of this corner
+			var h := (tiles[t] + tiles[t + 1]
+				+ tiles[t + tw] + tiles[t + tw + 1]) / 4.0
 			h += _detail.get_noise_2d(x, z) * 0.28 * clampf(h * 2.0, 0.0, 1.0)
 			corners[cz * w + cx] = h
 	_corners[ck] = corners
@@ -577,6 +601,19 @@ func _corner_height(gx: int, gz: int) -> float:
 	var ck := Vector2i(mini(gx / CHUNK, CHUNKS - 1), mini(gz / CHUNK, CHUNKS - 1))
 	var corners := _chunk_corners(ck)
 	return corners[(gz - ck.y * CHUNK) * (CHUNK + 1) + (gx - ck.x * CHUNK)]
+
+
+## The blend weights for the four terrain types around a corner (see _corner_blend).
+static func _blend_of(types: Array) -> Color:
+	var c := Color(0, 0, 0, 1)
+	for t in types:
+		if t == SAND or t == WATER or t == DEEP:
+			c.r += 0.25
+		elif t == FOREST:
+			c.g += 0.25
+		elif t == ROCK:
+			c.b += 0.25
+	return c
 
 
 ## How much sand, forest floor and rock meet at a corner, for the terrain shader.
@@ -676,6 +713,17 @@ func _build_chunk_mesh(ck: Vector2i) -> void:
 			break
 	if not any_land:
 		return
+	var arrays := _terrain_arrays(ck, corners)
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mi.mesh = mesh
+	mi.material_override = _terrain_mat
+	_build_ice(ck, mi)
+
+
+## The terrain mesh data for one chunk: one smooth surface with shared corners,
+## smooth normals, and blend weights for the terrain shader.
+func _terrain_arrays(ck: Vector2i, corners: PackedFloat32Array) -> Array:
 	var w := CHUNK + 1
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
@@ -683,18 +731,36 @@ func _build_chunk_mesh(ck: Vector2i) -> void:
 	verts.resize(w * w)
 	normals.resize(w * w)
 	colors.resize(w * w)
+	# Corner heights with a one-corner border from the neighbouring chunks (for
+	# the normals), and the terrain under every corner (for the blend weights),
+	# each looked up once rather than four times per vertex.
+	var ew := w + 2
+	var near := PackedFloat32Array()
+	near.resize(ew * ew)
+	for ez in ew:
+		for ex in ew:
+			var cx := ex - 1
+			var cz := ez - 1
+			if cx >= 0 and cz >= 0 and cx < w and cz < w:
+				near[ez * ew + ex] = corners[cz * w + cx]
+			else:
+				near[ez * ew + ex] = _corner_height(ck.x * CHUNK + cx, ck.y * CHUNK + cz)
+	var tw := CHUNK + 2
+	var kinds := PackedByteArray()
+	kinds.resize(tw * tw)
+	for tz in tw:
+		for tx in tw:
+			kinds[tz * tw + tx] = terrain_at(Vector2i(ck.x * CHUNK - 1 + tx, ck.y * CHUNK - 1 + tz))
 	for cz in w:
 		for cx in w:
 			var gx := ck.x * CHUNK + cx
 			var gz := ck.y * CHUNK + cz
 			var i := cz * w + cx
 			verts[i] = Vector3(gx, corners[i], gz)
-			var hl := _corner_height(gx - 1, gz)
-			var hr := _corner_height(gx + 1, gz)
-			var hd := _corner_height(gx, gz - 1)
-			var hu := _corner_height(gx, gz + 1)
-			normals[i] = Vector3(hl - hr, 2.0, hd - hu).normalized()
-			colors[i] = _corner_blend(gx, gz)
+			var e := (cz + 1) * ew + (cx + 1)
+			normals[i] = Vector3(near[e - 1] - near[e + 1], 2.0, near[e - ew] - near[e + ew]).normalized()
+			var t := cz * tw + cx  # the tile up and to the left of this corner
+			colors[i] = _blend_of([kinds[t], kinds[t + 1], kinds[t + tw], kinds[t + tw + 1]])
 	var indices := PackedInt32Array()
 	indices.resize(CHUNK * CHUNK * 6)
 	var k := 0
@@ -714,11 +780,7 @@ func _build_chunk_mesh(ck: Vector2i) -> void:
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_COLOR] = colors
 	arrays[Mesh.ARRAY_INDEX] = indices
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	mi.mesh = mesh
-	mi.material_override = _terrain_mat
-	_build_ice(ck, mi)
+	return arrays
 
 
 ## A sheet of ice over the shallow water in a chunk, shown in winter.
@@ -1114,18 +1176,16 @@ func _queue_prop_chunks() -> void:
 			(_prop_chunks[ck]["node"] as Node3D).visible = rect.intersects(shown)
 
 
-## Builds queued chunks (a couple per frame, or all of them when `immediate`)
-## and rebuilds changed ones. Grass follows the player as before.
+## Builds queued chunks (one per frame, or all of them when `immediate`)
+## and rebuilds changed ones. Grass follows the player, and is gathered again
+## only when you move to a new chunk, the season turns, or a building changes.
 func _update_props(immediate: bool, moved: bool) -> void:
-	var changed := moved
 	if _props_dirty:
 		_props_dirty = false
-		changed = true
 		for ck in _prop_chunks:
 			_dirty_prop_chunks[ck] = true
 	for ck in _dirty_prop_chunks.keys():
 		_build_prop_chunk(ck)
-		changed = true
 	_dirty_prop_chunks.clear()
 	var budget := _prop_queue.size() if immediate else PROP_BUILDS_PER_FRAME
 	while budget > 0 and not _prop_queue.is_empty():
@@ -1133,8 +1193,10 @@ func _update_props(immediate: bool, moved: bool) -> void:
 		if not _prop_chunks.has(ck):
 			_build_prop_chunk(ck)
 		budget -= 1
-	if changed:
+	if moved or _grass_dirty:
 		_refresh_grass()
+	elif not immediate:
+		_grass_prepare()
 
 
 ## (Re)builds one chunk's props: one small MultiMesh per layer of each prop
@@ -1304,43 +1366,126 @@ func set_props_visible(on: bool) -> void:
 	_props_root.visible = on
 
 
+## Grass around the player: a circle GRASS_RADIUS tiles across, centred on
+## the chunk you're in. Each chunk's grass is worked out once (per season) as
+## ready-made MultiMesh data in rows, so following the player only copies rows.
 func _refresh_grass() -> void:
+	_grass_dirty = false
 	if season == "winter":
 		_grass.multimesh.instance_count = 0  # under the snow
 		return
 	var center := _view_chunk * CHUNK + Vector2i(CHUNK / 2, CHUNK / 2)
-	var xforms := []
-	var tints := []
+	var r2 := GRASS_RADIUS * GRASS_RADIUS
+	var out := PackedFloat32Array()
 	for dz in range(-GRASS_RADIUS, GRASS_RADIUS + 1):
-		for dx in range(-GRASS_RADIUS, GRASS_RADIUS + 1):
-			if dx * dx + dz * dz > GRASS_RADIUS * GRASS_RADIUS:
+		var z := center.y + dz
+		if z < 0 or z >= SIZE:
+			continue
+		var half := int(sqrt(float(r2 - dz * dz)))
+		while (half + 1) * (half + 1) + dz * dz <= r2:
+			half += 1
+		while half * half + dz * dz > r2:
+			half -= 1
+		var x0 := maxi(center.x - half, 0)
+		var x1 := mini(center.x + half, SIZE - 1)
+		for kx in range(x0 / CHUNK, x1 / CHUNK + 1):
+			var ck := Vector2i(kx, z / CHUNK)
+			var row: Array = _grass_rows(ck)[z - ck.y * CHUNK]
+			var xs: PackedInt32Array = row[0]
+			if xs.is_empty():
 				continue
-			var cell := center + Vector2i(dx, dz)
-			var t := terrain_at(cell)
-			if t != GRASS and t != FOREST:
-				continue
-			if structures.has(cell) or _poi_cells.has(cell):
-				continue
-			var clumps := 3 if t == GRASS else 1
-			for c in clumps:
-				var jx := _hash01(cell.x, cell.y, 20 + c)
-				var jz := _hash01(cell.x, cell.y, 30 + c)
-				var p := Vector2(cell.x + jx, cell.y + jz)
-				var y := height_at(p * TILE)
-				var s := 0.7 + _hash01(cell.x, cell.y, 40 + c) * 0.7
-				xforms.append(Transform3D(Basis(Vector3.UP, jx * TAU) * Basis.from_scale(Vector3(s, s, s)), Vector3(p.x, y - 0.02, p.y)))
-				var g := _hash01(cell.x, cell.y, 50 + c)
-				var tint := Color("50652c").lerp(Color("7a7a42"), g * 0.8) if t == GRASS else Color("3b4c25")
-				if season == "autumn":
-					tint = tint.lerp(Color("8a6a34"), 0.45)
-				elif season == "summer":
-					tint = tint.lerp(Color("8a8040"), 0.2)
-				tints.append(tint)
+			var a := xs.bsearch(x0, true)
+			var b := xs.bsearch(x1 + 1, true)
+			if b > a:
+				out.append_array((row[1] as PackedFloat32Array).slice(a * GRASS_FLOATS, b * GRASS_FLOATS))
 	var mm := _grass.multimesh
-	mm.instance_count = xforms.size()
-	for i in xforms.size():
-		mm.set_instance_transform(i, xforms[i])
-		mm.set_instance_color(i, tints[i])
+	mm.instance_count = out.size() / GRASS_FLOATS
+	if not out.is_empty():
+		mm.buffer = out
+
+
+## One chunk's grass, row by row: [cell x of each clump (ascending), and each
+## clump's MultiMesh data: a 3x4 transform then a colour, GRASS_FLOATS floats].
+func _grass_rows(ck: Vector2i) -> Array:
+	if not _grass_cache.has(ck):
+		_grass_work(ck, CHUNK)
+	return _grass_cache[ck]
+
+
+## Works out up to `budget` more rows of a chunk's grass. Returns how many it did.
+func _grass_work(ck: Vector2i, budget: int) -> int:
+	var rows: Array = _grass_partial.get(ck, [])
+	var done := 0
+	while rows.size() < CHUNK and done < budget:
+		rows.append(_grass_row(ck, rows.size()))
+		done += 1
+	if rows.size() == CHUNK:
+		_grass_partial.erase(ck)
+		_grass_cache[ck] = rows
+	else:
+		_grass_partial[ck] = rows
+	return done
+
+
+## Before you get there: works out the grass of the chunks just beyond the
+## patch around you, a few rows a frame, so moving on only copies ready rows.
+func _grass_prepare() -> void:
+	if season == "winter":
+		return
+	var budget := GRASS_ROWS_PER_FRAME
+	for r in range(0, 4):
+		for dz in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if maxi(absi(dx), absi(dz)) != r:
+					continue
+				var ck := _view_chunk + Vector2i(dx, dz)
+				if _grass_cache.has(ck) or not _chunk_in_bounds(ck):
+					continue
+				budget -= _grass_work(ck, budget)
+				if budget <= 0:
+					return
+
+
+## One row of a chunk's grass: [cell x of each clump, and their MultiMesh data].
+func _grass_row(ck: Vector2i, lz: int) -> Array:
+	var xs := PackedInt32Array()
+	var data := PackedFloat32Array()
+	for lx in CHUNK:
+		var cell := Vector2i(ck.x * CHUNK + lx, ck.y * CHUNK + lz)
+		var t := terrain_at(cell)
+		if t != GRASS and t != FOREST:
+			continue
+		if structures.has(cell) or _poi_cells.has(cell):
+			continue
+		var clumps := 3 if t == GRASS else 1
+		for c in clumps:
+			var jx := _hash01(cell.x, cell.y, 20 + c)
+			var jz := _hash01(cell.x, cell.y, 30 + c)
+			var p := Vector2(cell.x + jx, cell.y + jz)
+			var y := height_at(p * TILE)
+			var s := 0.7 + _hash01(cell.x, cell.y, 40 + c) * 0.7
+			var basis := Basis(Vector3.UP, jx * TAU) * Basis.from_scale(Vector3(s, s, s))
+			var origin := Vector3(p.x, y - 0.02, p.y)
+			var g := _hash01(cell.x, cell.y, 50 + c)
+			var tint := Color("50652c").lerp(Color("7a7a42"), g * 0.8) if t == GRASS else Color("3b4c25")
+			if season == "autumn":
+				tint = tint.lerp(Color("8a6a34"), 0.45)
+			elif season == "summer":
+				tint = tint.lerp(Color("8a8040"), 0.2)
+			xs.append(cell.x)
+			data.append_array(PackedFloat32Array([
+				basis.x.x, basis.y.x, basis.z.x, origin.x,
+				basis.x.y, basis.y.y, basis.z.y, origin.y,
+				basis.x.z, basis.y.z, basis.z.z, origin.z,
+				tint.r, tint.g, tint.b, tint.a]))
+	return [xs, data]
+
+
+## Something was built or taken down: that chunk's grass is worked out again.
+func _grass_changed(cell: Vector2i) -> void:
+	_grass_cache.erase(_chunk_of_cell(cell))
+	_grass_partial.erase(_chunk_of_cell(cell))
+	_grass_dirty = true
 
 
 func _hash01(x: int, y: int, salt: int) -> float:
@@ -1556,6 +1701,9 @@ func set_season(p_season: String) -> void:
 		if ice:
 			(ice as MeshInstance3D).visible = season == "winter"
 	_props_dirty = true
+	_grass_cache.clear()  # the grass is tinted by season
+	_grass_partial.clear()
+	_grass_dirty = true
 
 
 ## A prop part's colour this season, or a transparent colour to hide it.
