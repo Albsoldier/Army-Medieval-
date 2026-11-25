@@ -1,6 +1,6 @@
 # Islander: environment and vegetation prototype (phase 4A)
 
-**Status:** step 1 (audit) done; step 2 (assets) waiting on the asset download; steps 3–6 to follow.
+**Status:** prototype complete on branch `claude/env-prototype`, not merged. One pine, one oak, one boulder and one bush are replaced by textured CC0 models. Everything else is unchanged. `?nature=0` (or `-- --nature=0` natively) shows the old procedural props for comparison.
 
 Constraints for this phase: no changes to gameplay, combat, movement, networking, the Workers, Turso, saves, world generation, 3B prop culling, 3C terrain and grass streaming, or 3D draw-call work. Only four prop types are prototyped (one pine, one oak, one rock, one bush); everything else stays as it is.
 
@@ -58,11 +58,114 @@ Props have **no physics bodies**:
 
 So the meshes can change freely without affecting collision or interaction, as long as each prop keeps its tile.
 
+
 ## Step 2: assets
 
-*(To be filled in once the assets are in.)*
+### Sources checked
 
-Sources checked:
-- **Poly Haven (CC0):** unsuitable. Its trees are photoscanned at 7–17 million triangles (pine_tree_01 17.4 M, fir_tree_01 7.9 M) and even its rocks at 60 k+, with high-resolution photo textures. That's photoreal against the game's flat low-poly style, and far beyond what a browser can draw thousands of.
-- **Quaternius Stylized Nature MegaKit (CC0, confirmed on https://quaternius.com/packs/stylizednaturemegakit.html: "License CC0"):** 116 stylized models in glTF, including 40 trees, 27 rocks, and bushes. It matches the game's existing Quaternius characters. Its download goes through itch.io (https://quaternius.itch.io/stylized-nature-megakit).
-- **Quaternius low-poly nature models** in the CC0 bundle the characters came from (`@netforge/asset-library-files`): tree_pine 230, tree_oak 196, rock_large 80 and bush 32 triangles. Simpler than today's shapes, so little visual gain.
+| Source | Licence | Verdict |
+|---|---|---|
+| **Poly Haven** | CC0 | Unsuitable. Its trees are photoscans of 7–17 million triangles (`pine_tree_01` 17.4 M, `fir_tree_01` 7.9 M), its rocks 60 k+, all with large photo textures. That's photoreal against the game's stylised look, and far too heavy for thousands of instances in a browser. |
+| **Quaternius, Stylized Nature MegaKit** (Standard, free edition, 68 of 116 models) | **CC0 1.0** | **Chosen.** Stylised, game-ready, and the same author as the game's characters. The licence is stated on https://quaternius.com/packs/stylizednaturemegakit.html and in the kit's `License_Standard.txt`: "CC0 1.0 Universal ... Public Domain Dedication". That allows commercial use and redistribution, with no attribution required (credit is given anyway). |
+| Quaternius low-poly models in the `@netforge/asset-library-files` CC0 bundle | CC0 | Usable, but simpler than today's shapes (bush 32 triangles, rock 80), so little visual gain. |
+
+The kit was downloaded once, from https://quaternius.itch.io/stylized-nature-megakit (99 MB zip). **Only four models and five textures from it are in the repository.** The whole library was not imported.
+
+### The four assets
+
+Triangle counts are as used in the game. The far versions are described in step 4.
+
+| Replaces | MegaKit model | Surfaces | Triangles (near / far) | Vertices (near / far) | Procedural prop it replaces |
+|---|---|---|---|---|---|
+| `tree_pine` | `Pine_5` | bark + needles | 1,646 / 622 | 2,315 / 787 | 285 triangles, 269 vertices |
+| `tree_oak` | `CommonTree_5` | bark + leaves | 3,182 / 487 | 4,873 / 760 | 748 triangles, 487 vertices |
+| `rock` | `Rock_Medium_2` | rock | 244 (Godot LOD down to 31) | 249 | 274 triangles, 181 vertices |
+| `bush`, `bush_empty` | `Bush_Common_Flowers` | leaves + flowers | 1,368 / 413 | 2,515 / 760 | 540 + 204 triangles |
+
+Why these four:
+- **Pine:** the lightest of the five pines (`Pine_1` 3,947 triangles to `Pine_3` 4,964).
+- **Oak:** the lightest broad-leaved tree (`CommonTree_1` 6,265, `TwistedTree_*` 9,000–10,000).
+- **Rock:** lighter than the old one.
+- **Bush:** its flowers can play the berries: shown on a full bush, hidden once picked and in winter.
+
+| Texture | From | Size in game | Used by |
+|---|---|---|---|
+| `bark.png` | `Bark_NormalTree.png` (2048²) | 256² | pine and oak bark (one shared material) |
+| `pine_needles.png` | `Leaf_Pine_C.png` (2048²) | 256² | pine needles |
+| `leaves.png` | `Leaves_NormalTree_C.png` (1024²) | 512² | oak and bush leaves (one shared material) |
+| `flowers.png` | `Flowers.png` (1008×981) | 128² | bush flowers |
+| `rock.png` | `Rocks_Diffuse.png` (2048²) | 256² | boulders |
+
+Normal maps are not used. The textures are imported with mipmaps and GPU (S3TC/BPTC) compression. Source and licence for every file are also recorded in `game/models/CREDITS.md`.
+
+## Steps 3 and 4: integration and optimisation
+
+### Asset preparation (offline, repeatable)
+
+`last-light/tools/prepare_nature_models.py <MegaKit glTF folder> game/models/nature` writes everything in `game/models/nature/`:
+
+- **Scale.** Each model is scaled to the procedural prop it replaces (1 tile = 1 m): pine about 5.9 m tall, oak about 5.3 m, boulder 1.9 m × 0.85 m, bush 1.1 m. The game's own per-prop size (0.8–1.25×) and turn are applied on top, exactly as before.
+- **Per-vertex shader data in UV2:**
+  - bark and rock: (0, the kit's baked shading, dark where branches meet);
+  - leaves: (1, sway in metres, growing with height);
+  - flowers: (−1, sway).
+- **Leaf normals** are bent 80% towards "out from the middle of the crown". Leaf cards face every way, and this lights a crown as one soft shape instead of a dark, blotchy one.
+- **Textures** are shrunk. The see-through pixels of leaf textures are filled with the average leaf colour, so distant mip levels don't darken leaf edges.
+- **Far versions** (`*_far.glb`):
+  - leaf cards are kept or dropped whole: 40% of pine sprigs, 25% of oak cards, 30% of bush cards, spread evenly;
+  - each kept card is enlarged around its centre (1.45–1.8×) so the crown stays full;
+  - bark is merged on a 0.2–0.3 m grid, so thin twigs collapse and trunk and limbs remain.
+
+### Rendering architecture
+
+```
+world.gd  _build_prop_layers()
+  ├─ _merge_parts()          old procedural mesh per prop type (unchanged)
+  └─ _use_nature_models()    if nature_models: for pine, oak, rock, bush(+empty)
+        _merged_props[kind]  = models/nature/<name>.glb   (near model)
+        _nature_far[kind]    = models/nature/<name>_far.glb
+        _nature_shadow[kind] = the old procedural mesh     (shadow proxy; not rocks)
+        5 ShaderMaterials, one per texture, shared by all models and chunks
+
+world.gd  _build_prop_chunk(ck)   (phase 3B chunks, unchanged otherwise)
+  per prop type in the chunk:
+    MultiMeshInstance3D  kind           near model, no shadows, visible to 40 m
+    MultiMeshInstance3D  kind_far       far model,  no shadows, visible from 40 m
+    MultiMeshInstance3D  kind_shadow    old mesh,   shadows only
+      (all three share one instance buffer: place, turn, size, season data)
+```
+
+- **Placement, collision and interaction are untouched.**
+  - Instance transforms come from the same per-tile hashes.
+  - Blocking, felling, picking and building still use the tile grid (`SOLID_PROPS`, `is_walkable()`, `harvest()`). None of them read meshes.
+  - World generation, saves, 3C streaming and 3D merging don't change.
+- **Shaders** (`shaders/prop_tex_rigid.gdshader`, `prop_tex_leaves.gdshader`) include the same `props.gdshaderinc` as the procedural props. So every seasonal rule applies unchanged:
+  - summer olive tint;
+  - autumn oak colours (red, orange and gold per tree) and browning bushes;
+  - winter frost on pines, bushes and rocks;
+  - bare oaks in winter (the leaf cards are hidden, leaving the real branches);
+  - flowers hidden on picked bushes and in winter.
+
+  Texture colours are used as stored, like every other prop colour in the game.
+- **Leaves use cut-out (alpha scissor 0.35), not blending:** no sorting, depth writes, double-sided. Supported by the Compatibility renderer.
+
+### Optimisations, and what each was worth
+
+Measured on the forest view natively (Mesa llvmpipe, 1280×720, zoom 1.6):
+
+| Step | Frame time | Primitives | Draw calls |
+|---|---|---|---|
+| Old procedural props | 395–429 ms | 3.15 M | 419 |
+| Models, nothing else | 1,451 ms | 3.94 M | 423 |
+| … without Godot's automatic LOD | — | 13.1 M | 423 |
+| … leaves without cut-out (test only) | 1,170 ms | 3.94 M | 423 |
+| … with far versions beyond 40 m | 1,153 ms | 3.19 M | 423 |
+| **… and old shapes as shadow proxies (final)** | **679 ms** | **3.14 M** | **419** |
+| (near distance 25 m instead of 40 m) | 650 ms | 3.07 M | 419 |
+
+What the numbers showed:
+1. **Godot's automatic mesh LOD works in the Compatibility renderer** for MultiMeshes. The importer generates it for bark and rock: pine bark 488 → 344 → 172 → 86 triangles. Without it the forest would draw 13 M primitives.
+2. **Vertex count was the main cost, not the cut-out.** The kit's trees have 7–10× the vertices of the procedural ones, because leaf cards don't share corners. Every prop near the camera is drawn up to three times: the view plus two sun-shadow cascades. Collapsing every leaf in the shader saved little, because the vertices are still processed, and Godot's LOD only reduces triangles, not the vertex buffer. Hence the far versions, each with its own small vertex buffer.
+3. **Shadow passes were most of the remaining cost.** The models cast no shadows. The old procedural shapes are drawn into the shadow maps only, from the same instance data, so the trees' shadows are the same as before the prototype. A crown sits inside its proxy's shadow, so the leaf shader softens the sun's shadow on leaves to 35%. Lamps and torches light leaves as usual.
+4. **Draw calls are unchanged.** Each prop type is still one MultiMesh draw per surface per pass. The extra nodes are either hidden by visibility range (near/far) or drawn in place of the old shadow casters (proxies).
+5. Changing objects (felled trees, picked bushes) still rebuild only their chunk. All three instances of a prop type share one instance buffer.
