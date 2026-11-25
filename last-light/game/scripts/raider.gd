@@ -70,6 +70,10 @@ func _ready() -> void:
 	_left_hand = _body.bone_follower("Palm.L")
 	_head = _body.bone_follower("Head")
 	_build_kit(stats)
+	# Each piece of kit is one mesh (fewer draw calls), and so is a chief's mantle and cloak.
+	for i in _kit.size():
+		Art.bake(_kit[i], Art.parts_of(_kit[i]), "raider-kit:%s:%d" % [kind, i])
+	Art.bake(_model, Art.parts_of(_model), "raider-worn:" + kind)
 	position = world.to_3d(pos)
 
 

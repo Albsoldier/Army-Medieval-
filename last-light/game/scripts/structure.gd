@@ -99,7 +99,8 @@ var growth := 0.0  # fields: 0 just sown, 1 ripe
 
 var _flash := 0.0
 var _parts: Array = []
-var _crops: Array = []  # fields: the wheat stalks
+var _crop_field: MultiMeshInstance3D  # fields: all the wheat stalks, one instance each
+var _crop_spots: Array = []  # where each stalk stands (x, z)
 var _stage := -1
 
 
@@ -125,6 +126,10 @@ func _ready() -> void:
 	position = world.to_3d(pos)
 	rotation.y = 0.0
 	_build_model()
+	# One mesh and one shared material for the whole building, rather than a
+	# mesh and a material per part: a draw call instead of up to twenty.
+	var crops: Array = [_crop_field] if _crop_field else []
+	_parts = Art.bake(self, _parts, "structure:" + kind) + crops  # every building of a kind is built alike
 
 
 func is_lit() -> bool:
@@ -151,13 +156,15 @@ func set_growth(g: float) -> void:
 		return  # the wheat only looks different every 5%
 	_stage = stage
 	var ripe := growth >= 1.0
-	for c in _crops:
-		var stalk := c as MeshInstance3D
-		stalk.scale = Vector3(1, 0.15 + growth * 0.85, 1)
-		stalk.position.y = 0.12 + 0.3 * stalk.scale.y
-		var mat := stalk.material_override as StandardMaterial3D
-		if mat:
-			mat.albedo_color = Color("d9b44a") if ripe else Color("6f9a3a").lerp(Color("a8a648"), growth)
+	if _crop_field == null:
+		return
+	var height := 0.15 + growth * 0.85
+	var colour := Color("d9b44a") if ripe else Color("6f9a3a").lerp(Color("a8a648"), growth)
+	var mm := _crop_field.multimesh
+	for i in _crop_spots.size():
+		var spot: Vector2 = _crop_spots[i]
+		mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3(1, height, 1)), Vector3(spot.x, 0.12 + 0.3 * height, spot.y)))
+		mm.set_instance_color(i, colour)
 
 
 ## Towers: an arrow that flies from the top of the tower to `at`.
@@ -204,8 +211,8 @@ func make_ghost(valid: bool) -> void:
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	for mi in _parts:
-		(mi as MeshInstance3D).material_override = mat
-		(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		(mi as GeometryInstance3D).material_override = mat
+		(mi as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	for child in get_children():
 		var light := child as Light3D
 		if light:
@@ -380,10 +387,18 @@ func _build_model() -> void:
 			for r in 4:
 				_add(Art.box(Vector3(1.0, 0.05, 0.08)), Color("4a3326"), Vector3(0, 0.11, -0.375 + r * 0.25))
 				for k in 5:
-					var stalk := _add(Art.cylinder(0.035, 0.045, 0.6, 4), Color("6f9a3a"),
-						Vector3(-0.4 + k * 0.2 + (r % 2) * 0.05, 0.3, -0.375 + r * 0.25))
-					stalk.material_override = Art.material(Color("6f9a3a"))
-					_crops.append(stalk)
+					_crop_spots.append(Vector2(-0.4 + k * 0.2 + (r % 2) * 0.05, -0.375 + r * 0.25))
+			# The stalks are one MultiMesh: they grow and change colour together.
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			mm.use_colors = true
+			mm.mesh = Art.cylinder(0.035, 0.045, 0.6, 4)
+			mm.instance_count = _crop_spots.size()
+			_crop_field = MultiMeshInstance3D.new()
+			_crop_field.name = "Wheat"
+			_crop_field.multimesh = mm
+			_crop_field.material_override = Art.vertex_colour_material()  # instance colours, as sRGB, roughness 0.9
+			add_child(_crop_field)
 			set_growth(growth)
 		"house":
 			# A whitewashed cottage with a thatched roof and a chimney.
