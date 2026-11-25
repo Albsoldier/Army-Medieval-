@@ -72,7 +72,14 @@ var hurt_flash := 0.0
 var swing_time := 0.0
 
 const CharacterModel = preload("res://scripts/character_model.gd")
-const SURVIVOR := preload("res://models/adventurer.glb")
+const SURVIVOR := "res://models/adventurer.glb"
+## Character prototype (phase 4C, GRAPHICS_CHARACTER_PROTOTYPE.md): the player
+## is a ranger built from Quaternius's CC0 character kits (models/player, made
+## by tools/build_player_model.gd): one skinned mesh, one surface, one material,
+## and the same animation names, so nothing else changes. Off with ?player=0
+## (set before the player is made), to compare with the old adventurer.
+const RANGER := "res://models/player/ranger.scn"
+static var use_ranger := true
 
 var dead := false
 var _model: Node3D  # turns to face the walking direction
@@ -101,7 +108,7 @@ func _ready() -> void:
 	add_child(_model)
 	_body = CharacterModel.new()
 	_model.add_child(_body)
-	_body.build(SURVIVOR, 1.62, false, {
+	_body.build(load(RANGER if use_ranger else SURVIVOR), 1.62, false, {
 		"idle": ["Man_Idle", "Idle"],
 		"walk": ["Man_Walk", "Walk"],
 		"run": ["Man_Run", "Run"],

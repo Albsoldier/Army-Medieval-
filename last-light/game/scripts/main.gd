@@ -226,6 +226,11 @@ func _ready() -> void:
 		if arg.begins_with("--buildings="):
 			building_models = arg.trim_prefix("--buildings=")
 	Structure.use_models = building_models != "0"  # developers: ?buildings=0 shows the old buildings, for comparing
+	var player_model := PerfOverlay.url_value("player")
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--player="):
+			player_model = arg.trim_prefix("--player=")
+	Player.use_ranger = player_model != "0"  # developers: ?player=0 shows the old adventurer, for comparing
 	world.generate(world_seed)
 	var prop_chunk_override := prop_chunk_size_override()
 	if prop_chunk_override > 0:

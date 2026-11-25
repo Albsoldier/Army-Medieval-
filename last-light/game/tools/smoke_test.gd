@@ -197,6 +197,21 @@ func _run_game() -> void:
 	_check(dc_body.merged and dc_body._meshes.size() == 1 and body_mesh.mesh.get_surface_count() == 1 and body_mesh.skin != null
 		and body_mesh.skin.get_bind_count() == 5 * 62, "a soldier's body is one skinned surface, every part keeping its bones (was 15)")
 	_check(main.player._body.merged, "the player is one skinned surface too")
+	# Character prototype (phase 4C): the player is the ranger model, still one
+	# skinned surface with one material, with every animation and equipment bone.
+	var pc_body = main.player._body
+	var pc_mesh: MeshInstance3D = pc_body._meshes[0]
+	var pc_actions_ok := true
+	for pc_action in ["idle", "walk", "run", "punch", "slash", "death"]:
+		pc_actions_ok = pc_actions_ok and pc_body.has_action(pc_action)
+	_check(main.player.use_ranger and pc_body.skeleton.find_bone("neck_01") >= 0, "the player is the ranger model (its humanoid rig)")
+	_check(pc_body._meshes.size() == 1 and pc_mesh.mesh.get_surface_count() == 1 and pc_mesh.skin != null and pc_actions_ok
+		and main.player._right_hand != null and main.player._left_hand != null and main.player._torso != null and main.player._neck != null,
+		"the ranger is one skinned surface with one material, every animation, and hands, chest and neck for equipment")
+	main.player.set_first_person(true)
+	var pc_fp: bool = pc_mesh.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+	main.player.set_first_person(false)
+	_check(pc_fp and pc_mesh.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_ON, "in first person the ranger only casts a shadow")
 	# Skinning: every bind of the merged skin must still point at a bone of the skeleton.
 	var dc_skin: Skin = body_mesh.skin
 	var dc_bound := 0
@@ -1136,6 +1151,8 @@ func _run_game() -> void:
 	_check(copy_main.player.spear_tier == main.player.spear_tier and copy_main.player.sword_tier == main.player.sword_tier
 		and copy_main.player.armour_tier == main.player.armour_tier, "your spear, sword and armour keep their materials after reload")
 	_check(copy_main.player.equipped == main.player.equipped, "resumed holding the same tool (%s)" % copy_main.player.equipped)
+	_check(copy_main.player._body.merged and copy_main.player._body._meshes[0].mesh == main.player._body._meshes[0].mesh
+		and copy_main.player._body.has_action("slash"), "after loading, the player is the same ranger model, animations and all")
 	_check(copy_main.world.prop_type(tree_cell) == "stump", "felled tree is still a stump after reload")
 	_check(copy_main.campfires.size() == 1, "campfire is still there after reload")
 	_check(copy_main.buildings.size() == main.buildings.size(), "buildings are still there after reload (%d)" % copy_main.buildings.size())
