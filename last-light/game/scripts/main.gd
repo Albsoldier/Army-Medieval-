@@ -231,6 +231,17 @@ func _ready() -> void:
 		if arg.begins_with("--player="):
 			player_model = arg.trim_prefix("--player=")
 	Player.use_ranger = player_model != "0"  # developers: ?player=0 shows the old adventurer, for comparing
+	# The player's look (the ranger only), for trying the appearance options:
+	# ?hood=down&skin=light|medium|tan|dark|deep&outfit=earth&backpack=0. Not saved.
+	var look_options := {}
+	for key in ["hood", "skin", "outfit", "backpack"]:
+		var value: String = PerfOverlay.url_value(key)
+		for arg in OS.get_cmdline_user_args():
+			if arg.begins_with("--%s=" % key):
+				value = arg.trim_prefix("--%s=" % key)
+		if value != "":
+			look_options[key] = value
+	Player.appearance = Player.Appearance.from_options(look_options)
 	world.generate(world_seed)
 	var prop_chunk_override := prop_chunk_size_override()
 	if prop_chunk_override > 0:

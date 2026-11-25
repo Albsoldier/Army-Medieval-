@@ -83,6 +83,53 @@ func _run() -> void:
 			_look(0.6, 3.2, 1.0)
 			await _frames(3)
 			_save("gear-%s-%s" % [tool, pose[0]])
+	# Refinement (GRAPHICS_PLAYER_REFINEMENT.md): the ranger's armour in every
+	# tier, hood down, skin tones, the second outfit and the backpack.
+	if p._look_mesh != null:
+		var mi: GeometryInstance3D = p._look_mesh
+		p.equip("sword")
+		await _pose("idle", 0.6)
+		for tier in 4:
+			p.armour_tier = tier
+			for view in [["front", 0.35], ["back", PI - 0.35]]:
+				_look(float(view[1]), 2.4, 1.15)
+				await _frames(3)
+				_save("armour-%d-%s" % [tier, view[0]])
+		p.armour_on = false
+		await _frames(2)
+		for look in [["hood-up", {}], ["hood-down", {"hood": "down"}], ["earth", {"outfit": "earth"}],
+				["earth-hood-down", {"outfit": "earth", "hood": "down"}], ["no-backpack", {"backpack": "0"}]]:
+			p.Appearance.apply(mi, p.Appearance.from_options(look[1]))
+			for view in [["front", 0.35], ["side", PI / 2], ["back", PI - 0.35]]:
+				_look(float(view[1]), 2.6, 1.1)
+				await _frames(3)
+				_save("look-%s-%s" % [look[0], view[0]])
+		for tone in p.Appearance.SKIN_TONES:
+			p.Appearance.apply(mi, p.Appearance.from_options({"skin": tone, "hood": "down"}))
+			_look(0.25, 1.0, 1.5)
+			await _frames(3)
+			_save("skin-%s" % tone)
+		# Hood down through the animations: nothing comes loose.
+		p.Appearance.apply(mi, p.Appearance.from_options({"hood": "down"}))
+		p.armour_on = true
+		p.armour_tier = 1
+		for pose in [["run", 0.25], ["slash", 0.35], ["death", 99.0]]:
+			await _pose(str(pose[0]), float(pose[1]))
+			_look(0.8, 3.0, 1.0)
+			await _frames(3)
+			_save("hood-down-%s" % pose[0])
+		p.Appearance.apply(mi, p.appearance)
+		p.armour_on = true
+		p.armour_tier = 1
+	# Task 6: the mesh LODs a soldier version could start from, forced with
+	# the viewport's LOD threshold (higher: coarser levels sooner).
+	await _pose("idle", 0.6)
+	for lod in [["lod-full", 0.0], ["lod-1", 12.0], ["lod-2", 200.0]]:
+		root.get_viewport().mesh_lod_threshold = float(lod[1])
+		_look(0.35, 3.0, 1.0)
+		await _frames(3)
+		_save(lod[0])
+	root.get_viewport().mesh_lod_threshold = 1.0
 	# Hurt flash.
 	p.equip("sword")
 	await _pose("idle", 0.6)

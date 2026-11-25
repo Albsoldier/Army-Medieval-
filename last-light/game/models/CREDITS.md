@@ -70,9 +70,11 @@ allowed, no attribution required.
 
 | Kit | Files used | For |
 |---|---|---|
-| Modular Character Outfits – Fantasy (https://quaternius.com/packs/modularcharacteroutfitsfantasy.html) | `Exports/glTF (Godot-Unreal)/Outfits/Male_Ranger.gltf` and its `.bin` and textures (`T_Ranger_*`, `T_Regular_Male_*`) | the outfit and hands |
-| Universal Base Characters (https://quaternius.com/packs/universalbasecharacters.html) | `Base Characters/Godot - UE/Superhero_Male_FullBody.gltf` (head, eyes and eyebrows only) and `Hairstyles/Rigged to Head Bone/glTF (Godot -Unreal)/Hair_Beard.gltf`, with their textures | the head and beard |
+| Modular Character Outfits – Fantasy (https://quaternius.com/packs/modularcharacteroutfitsfantasy.html) | `Exports/glTF (Godot-Unreal)/Outfits/Male_Ranger.gltf` and its `.bin` and textures (`T_Ranger_*`, `T_Regular_Male_*`; `T_Ranger_3_BaseColor.png` for the beige and brown outfit) | the outfit, hands, hood and armour shell (made from the tunic's chest) |
+| Universal Base Characters (https://quaternius.com/packs/universalbasecharacters.html) | `Base Characters/Godot - UE/Superhero_Male_FullBody.gltf` (head, eyes and eyebrows only) `Hairstyles/Rigged to Head Bone/glTF (Godot -Unreal)/Hair_Beard.gltf` and `Hair_SimpleParted.gltf`, with their textures | the head, beard, and hair with the hood down |
 | Universal Animation Library (https://quaternius.com/packs/universalanimationlibrary.html) | `Unreal-Godot/UAL1_Standard.glb` (Idle, Walk, Jog_Fwd, Punch_Jab, Sword_Attack, Death01) | the animations |
 
 The textures were packed into `player/player_colour.png`, `player_normal.png` and `player_orm.png` (one
-atlas, downscaled) and every part merged into one skinned mesh. See `last-light/GRAPHICS_CHARACTER_PROTOTYPE.md`.
+atlas, downscaled), plus `player_outfit_earth.png` (the second outfit), and every part merged into one
+skinned mesh. The backpack is the one from `adventurer.glb` (see above), moved onto this skeleton. See
+`last-light/GRAPHICS_CHARACTER_PROTOTYPE.md` and `last-light/GRAPHICS_PLAYER_REFINEMENT.md`.
