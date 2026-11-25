@@ -50,13 +50,13 @@ Sizes of the three prototyped types (old):
 
 | Type | KayKit model | Changes | Size (w × h × d) | Triangles | Surfaces |
 |---|---|---|---|---|---|
-| Cottage | `building_home_A_yellow` (half-timbered, straw-yellow roof like the old thatch) | Scaled 1.15× | 0.91 × 1.07 × 0.98 m | 1,011 (Godot LOD 727) | 1 |
-| Stone wall | `wall_straight` | Cut to 1 m (the pack's walls run 2 m along hexagon edges; only 3 of its 504 triangles crossed the cut) and raised 1.25× | 1.00 × 1.37 × 0.80 m | 259 | 1 |
-| Archer tower | `building_tower_A_red` (stone tower, red roof like the old one) | Tower and roof merged into one mesh; 0.95× wide, 1.3× tall | 0.94 × 2.85 × 1.10 m | 2,138 (Godot LOD 1,376) | 1 |
+| Cottage | `building_home_A_yellow` (half-timbered, straw-yellow roof like the old thatch) | Scaled 1.84× | 1.46 × 1.71 × 1.57 m | 1,011 (Godot LOD 727) | 1 |
+| Stone wall | `wall_straight` | Cut to 1 m (the pack's walls run 2 m along hexagon edges; only 3 of its 504 triangles crossed the cut), raised 1.6× and thickened 1.25× | 1.00 × 1.76 × 1.00 m | 259 | 1 |
+| Archer tower | `building_tower_A_red` (stone tower, red roof like the old one) | Tower and roof merged into one mesh; 1.3× wide, 1.8× tall | 1.29 × 3.95 × 1.50 m | 2,138 (Godot LOD 1,376) | 1 |
 
-- **Same tile, same placement.** Each model is centred on its tile like the old one, with the front facing +z.
+- **Same tile, same placement, drawn larger.** Each model is centred on its tile like the old one, with the front facing +z. After a first review ("make them larger") they were scaled up so they stand taller than the people. The cottage and tower now overhang their tile by up to 0.25 m each side. That changes only how they look: collision, placement and building rules still use the one tile, so two cottages built side by side can touch or overlap a little.
 - **Walls still turn.** They run east–west, and turn north–south with `line_up()` exactly as before.
-- **The tower is lower than the old one** (2.85 m against 3.95 m). It's kept within its tile rather than stretched. Arrows still fly from 3 m up, now from the top of the roof.
+- **The tower is as tall as the old one** (3.95 m). Arrows still fly from 3 m up, from its upper windows.
 
 ## Step 4: implementation and optimisation
 
@@ -117,7 +117,7 @@ Images in `perf/buildings/`:
 
 - **Fit:** the half-timbered cottages, crenellated stone wall and stone tower read clearly as medieval. They sit well with the stylised low-poly Quaternius characters and the MegaKit nature.
 - **Style:** KayKit's palette is brighter and more pastel than the old flat colours, most noticeably the wall's terracotta walkway and pale stone. The unconverted buildings around them (wooden walls, gates, barracks) still look like the old primitives, which is expected until more types are converted.
-- **Scale:** footprints match the old buildings. Like the old ones, the cottage is small next to a 1.58 m character (the game's one-tile scale).
+- **Scale:** the models were enlarged after a first review. Cottages (1.71 m) now stand taller than a 1.58 m character, walls are 1.76 m and the tower 3.95 m. Cottages and towers overhang their tile slightly (images are of the larger versions).
 
 ## Step 7: performance
 
@@ -132,6 +132,9 @@ Images in `perf/buildings/`:
 All three new models share **one** material, against the old ones' one shared vertex-colour material plus the cottage window's glow material.
 
 ### Browser benchmark
+
+Measured before the models were enlarged. Enlarging changes only their vertex positions, not their triangles, surfaces or materials; only their shadows and screen coverage grow a little.
+
 
 The same web build, with `?buildings=0` (old) and without, run in the project's benchmark (`perf/run_web_bench.cjs`, Chromium and ANGLE on Mesa llvmpipe, 1280×720, fixed seed). Results are in `perf/buildings/web-buildings0.json` and `web-buildings1.json`. The benchmark village has 4 cottages and an archer tower among 46 buildings (its walls are wooden), so the village rows measure 5 converted buildings.
 
@@ -159,6 +162,6 @@ How to read this:
 
 ## Recommendation
 
-1. **Review the look** in the images, or live with `?buildings=0` for comparison after a merge. In particular: the brighter KayKit palette, the lost night window glow, and the lower tower.
+1. **Review the look** in the images, or live with `?buildings=0` for comparison after a merge. In particular: the brighter KayKit palette, the lost night window glow, and buildings now overhanging their tile.
 2. **If the style is right**, the same pipeline (`prepare_building_models.py`, `BUILDING_MODELS`) converts the other types. KayKit has matching models for most of them: barracks, blacksmith (forge), market, tavern, well, wooden fences and gates, walls with gates, and destroyed and scaffolding states for future damage and construction visuals.
 3. **For richer cottages later,** Quaternius's Medieval Village MegaKit can assemble larger, more detailed houses, at the cost of a few materials per building.

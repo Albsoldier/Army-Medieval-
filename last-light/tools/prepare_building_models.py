@@ -8,8 +8,9 @@ Usage:
 For each building it:
   * merges every node of the model into one mesh with one surface (they all
     use the pack's one texture atlas), applying the node transforms;
-  * scales and turns it to the tile the old building filled (1 tile = 1 m,
-    the front facing +z like the old models);
+  * scales and turns it (1 tile = 1 m, the front facing +z like the old
+    models). Cottages and towers are drawn larger than their tile, which only
+    changes how they look: collision and placement stay on the one tile;
   * for the wall, keeps a 1 m section of the pack's 2 m wall (the pack's
     walls follow hexagon edges; the game's walls are one tile long);
   * writes a .glb with no textures (the game loads the shared atlas itself).
@@ -27,9 +28,9 @@ from PIL import Image
 
 # kind -> (source model, scale (x, y, z), turn about y in degrees, keep x in [lo, hi] then centre)
 MODELS = {
-    "cottage": ("yellow/building_home_A_yellow", (1.15, 1.15, 1.15), 0.0, None),
-    "stone_wall": ("neutral/wall_straight", (1.0, 1.25, 1.0), 0.0, (0.0, 1.0)),
-    "archer_tower": ("red/building_tower_A_red", (0.95, 1.3, 0.95), 0.0, None),
+    "cottage": ("yellow/building_home_A_yellow", (1.84, 1.84, 1.84), 0.0, None),
+    "stone_wall": ("neutral/wall_straight", (1.0, 1.6, 1.25), 0.0, (0.0, 1.0)),
+    "archer_tower": ("red/building_tower_A_red", (1.3, 1.8, 1.3), 0.0, None),
 }
 
 ATLAS_SIZE = 128
