@@ -41,3 +41,22 @@ shrunk and normal maps dropped. See `last-light/GRAPHICS_ENVIRONMENT_PROTOTYPE.m
 | `leaves.png` | `glTF/Leaves_NormalTree_C.png` (1024 → 512 px) | oak and bush leaves |
 | `flowers.png` | `glTF/Flowers.png` (1008×981 → 128 px) | bush flowers |
 | `rock.png` | `glTF/Rocks_Diffuse.png` (2048 → 256 px) | boulders |
+
+## Building models (`buildings/`, building prototype)
+
+From the **KayKit Medieval Hexagon Pack (1.0)** by **Kay Lousberg** (www.kaylousberg.com),
+https://github.com/KayKit-Game-Assets/KayKit-Medieval-Hexagon-Pack-1.0 (also on
+https://kaylousberg.itch.io/kaykit-medieval-hexagon). Licence: **CC0 1.0 Universal**, as stated in the
+pack's `LICENSE.txt`: "This content is free to use in personal, educational and commercial projects."
+Redistribution allowed; crediting Kay Lousberg is appreciated but not required.
+
+Converted by `last-light/tools/prepare_building_models.py`: every node merged into one mesh, scaled
+to the one-tile buildings they replace, and the wall cut to a 1 m section. See
+`last-light/GRAPHICS_BUILDING_PROTOTYPE.md`.
+
+| File | Original | Used for |
+|---|---|---|
+| `cottage.glb` | `Assets/gltf/buildings/yellow/building_home_A_yellow.gltf` | cottages |
+| `stone_wall.glb` | `Assets/gltf/buildings/neutral/wall_straight.gltf` (one half) | stone walls |
+| `archer_tower.glb` | `Assets/gltf/buildings/red/building_tower_A_red.gltf` | archer towers |
+| `hexagons_medieval.png` | `Assets/gltf/buildings/neutral/hexagons_medieval.png` (unchanged) | the shared palette atlas |
