@@ -18,6 +18,7 @@ const Horse = preload("res://scripts/horse.gd")
 const Settler = preload("res://scripts/settler.gd")
 const PerfOverlay = preload("res://scripts/perf_overlay.gd")
 const PerfBench = preload("res://scripts/perf_bench.gd")
+const GpuValidation = preload("res://scripts/gpu_validation.gd")
 ## The sun's shadow setups compared in GRAPHICS_SHADOWS.md: cascades (splits)
 ## and shadow-map atlas size. All keep the 70 m shadow distance.
 const SUN_SHADOWS := {
@@ -214,6 +215,12 @@ func _ready() -> void:
 
 	world = World.new()
 	add_child(world)
+	var nature := PerfOverlay.url_value("nature")
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--nature="):
+			nature = arg.trim_prefix("--nature=")
+	if nature == "0":
+		world.nature_models = false  # developers: the procedural trees, rocks and bushes, for comparing
 	world.generate(world_seed)
 	var prop_chunk_override := prop_chunk_size_override()
 	if prop_chunk_override > 0:
@@ -274,7 +281,9 @@ func _ready() -> void:
 		var overlay: PerfOverlay = PerfOverlay.new()
 		overlay.shown = PerfOverlay.requested()
 		add_child(overlay)
-	if PerfBench.requested():
+	if GpuValidation.requested():
+		add_child(GpuValidation.new())  # developers: ?gpuval=1, the real-GPU test of the nature models
+	elif PerfBench.requested():
 		add_child(PerfBench.new())
 
 	if api.player_name == "":

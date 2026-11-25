@@ -282,6 +282,7 @@ func _sample(scene: String, from: Vector2, velocity: Vector2, seconds_to_run: fl
 	var crossing_ms: Array = []
 	var render_cpu: Array = []
 	var render_gpu: Array = []
+	var process_ms: Array = []
 	var vp := get_viewport().get_viewport_rid()
 	var chunks := 0
 	var start := Time.get_ticks_usec()
@@ -302,6 +303,7 @@ func _sample(scene: String, from: Vector2, velocity: Vector2, seconds_to_run: fl
 		objs.append(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_OBJECTS_IN_FRAME))
 		render_cpu.append(RenderingServer.viewport_get_measured_render_time_cpu(vp) + RenderingServer.get_frame_setup_time_cpu())
 		render_gpu.append(RenderingServer.viewport_get_measured_render_time_gpu(vp))
+		process_ms.append(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)
 		if main.world._view_chunk != last_chunk:
 			last_chunk = main.world._view_chunk
 			chunks += 1
@@ -319,6 +321,8 @@ func _sample(scene: String, from: Vector2, velocity: Vector2, seconds_to_run: fl
 		"frame_ms_p95": snappedf(_pct(sorted, 0.95), 0.01),
 		"frame_ms_p99": snappedf(_pct(sorted, 0.99), 0.01),
 		"frame_ms_max": snappedf(float(sorted[-1]) if not sorted.is_empty() else 0.0, 0.01),
+		# 1% low: the frame rate of the slowest 1% of frames (their average frame time).
+		"fps_1pct_low": snappedf(1000.0 / maxf(_avg(sorted.slice(sorted.size() - maxi(sorted.size() / 100, 1))), 0.001), 0.1),
 		"frames_over_33ms": ms.filter(func(f): return f > 33.4).size(),
 		"frames_over_50ms": ms.filter(func(f): return f > 50.0).size(),
 		"draw_calls_avg": roundi(_avg(draws)),
@@ -329,6 +333,7 @@ func _sample(scene: String, from: Vector2, velocity: Vector2, seconds_to_run: fl
 		"process_ms": snappedf(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, 0.01),
 		"render_cpu_ms_avg": snappedf(_avg(render_cpu), 0.01),
 		"render_gpu_ms_avg": snappedf(_avg(render_gpu), 0.01),
+		"cpu_process_ms_avg": snappedf(_avg(process_ms), 0.01),  # game logic per frame (CPU)
 		"shadow_preset": main.sun_shadow_preset,
 		"shadow_mode": main.sun.directional_shadow_mode,
 		"shadow_atlas": int(main.SUN_SHADOWS[main.sun_shadow_preset]["atlas"]),

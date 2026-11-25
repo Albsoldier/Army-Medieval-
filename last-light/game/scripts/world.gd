@@ -109,6 +109,26 @@ var prop_chunk := PROP_CHUNK_DEFAULT  # prop chunk size in tiles; set before the
 ## rather than one per part. Set before the first update_view.
 var prop_grouping := true
 var _merged_props: Dictionary = {}  # kind -> ArrayMesh: every part of the type, rigid and leaf surfaces
+## Environment prototype (phase 4A): these prop types are drawn with textured
+## models from Quaternius's Stylized Nature MegaKit (models/nature, CC0) instead
+## of their procedural parts. Same places, sizes, seasons and collision; only
+## the mesh changes. Picked bushes use the bush model with its flowers hidden.
+## Set before generate(); ?nature=0 turns it off. See GRAPHICS_ENVIRONMENT_PROTOTYPE.md.
+const NATURE_MODELS := {"tree_pine": "pine", "tree_oak": "oak", "rock": "rock", "bush": "bush", "bush_empty": "bush"}
+## Which texture each of their surfaces uses (by the model's material name).
+const NATURE_TEXTURES := {"Bark_NormalTree": "bark", "Leaves_Pine": "pine_needles",
+	"Leaves_NormalTree": "leaves", "Flowers": "flowers", "Rocks": "rock"}
+var nature_models := true
+## The models' far versions (fewer, larger leaf cards; simpler bark, each with
+## its own small vertex buffer) are drawn for chunks further than this from the
+## camera: kind -> ArrayMesh. Rocks rely on Godot's automatic mesh LOD alone.
+const NATURE_NEAR := 40.0
+var _nature_far: Dictionary = {}
+## The models don't cast shadows themselves: their leaf cards would need the
+## cut-out shader in every shadow pass. Instead each chunk draws the type's old
+## procedural mesh into the shadow maps only (same instances, same seasons):
+## kind -> ArrayMesh. The shadows stay what they were before the prototype.
+var _nature_shadow: Dictionary = {}
 var _prop_queue: Array = []  # chunks in view that still need building, nearest first
 var _dirty_prop_chunks: Dictionary = {}  # chunk -> true: rebuild (something there changed)
 var _props_root: Node3D
@@ -955,6 +975,8 @@ func _build_prop_layers() -> void:
 	leaf_mat.shader = preload("res://shaders/prop_leaves.gdshader")
 	for kind in DRAW_TYPES:
 		_merged_props[kind] = _merge_parts(kind, parts[kind], rigid_mat, leaf_mat)
+	if nature_models:
+		_use_nature_models()
 	# Grass clumps around the player.
 	_grass = MultiMeshInstance3D.new()
 	_grass.name = "Grass"
@@ -968,6 +990,44 @@ func _build_prop_layers() -> void:
 	_grass.material_override = gmat
 	_grass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_grass)
+
+
+## Swaps the merged meshes of NATURE_MODELS' prop types for the textured
+## models. Each model has the same two kinds of surface as a merged prop (rigid
+## and leaves), so a chunk still draws one MultiMesh per type, and the textures
+## and materials are shared by every model that uses them.
+func _use_nature_models() -> void:
+	var rigid := preload("res://shaders/prop_tex_rigid.gdshader")
+	var leaves := preload("res://shaders/prop_tex_leaves.gdshader")
+	var materials := {}
+	var meshes := {}
+	_nature_far.clear()
+	_nature_shadow.clear()
+	for kind in NATURE_MODELS:
+		var file: String = NATURE_MODELS[kind]
+		if kind != "rock":  # rocks are solid: they cast their own shadow
+			_nature_shadow[kind] = _merged_props[kind]  # the procedural mesh, before it's swapped
+		for variant in [file, file + "_far"]:
+			if meshes.has(variant) or not ResourceLoader.exists("res://models/nature/%s.glb" % variant):
+				continue
+			var scene := load("res://models/nature/%s.glb" % variant) as PackedScene
+			var root := scene.instantiate()
+			var mesh := (root.find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D).mesh as ArrayMesh
+			root.free()
+			for s in mesh.get_surface_count():
+				var mat_name := mesh.surface_get_material(s).resource_name
+				var tex: String = NATURE_TEXTURES[mat_name]
+				if not materials.has(tex):
+					var mat := ShaderMaterial.new()
+					mat.resource_name = mat_name  # the imported mesh is cached: found by the same name next time
+					mat.shader = rigid if tex in ["bark", "rock"] else leaves
+					mat.set_shader_parameter("albedo", load("res://models/nature/%s.png" % tex))
+					materials[tex] = mat
+				mesh.surface_set_material(s, materials[tex])
+			meshes[variant] = mesh
+		_merged_props[kind] = meshes[file]
+		if meshes.has(file + "_far"):
+			_nature_far[kind] = meshes[file + "_far"]
 
 
 ## Five thin blades leaning out from one root.
@@ -1084,6 +1144,8 @@ func _prop_instance_params(kind: String, cell: Vector2i) -> Array:
 				hide_berries = 1.0
 			if kind in ["rock", "iron_rock", "gold_rock", "stump"]:
 				frost = 0.3
+	if kind == "bush_empty" and nature_models:
+		hide_berries = 1.0  # a picked bush is the bush model without its flowers
 	var shade := (_hash01(cell.x, cell.y, 6) - 0.5) * 0.22
 	return [tint, Color(shade, frost, hide_leaves, hide_berries)]
 
@@ -1254,6 +1316,16 @@ func _build_prop_chunk(ck: Vector2i) -> void:
 			ginst.multimesh = gm
 			ginst.extra_cull_margin = 0.5  # leaves sway a little outside their resting bounds
 			node.add_child(ginst)
+			if _nature_shadow.has(kind):
+				ginst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				node.add_child(_prop_copy(kind + "_shadow", _nature_shadow[kind], gm, GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY))
+			if _nature_far.has(kind):
+				# The same props drawn with the far model once the chunk is
+				# NATURE_NEAR from the camera; only one of the two is ever drawn.
+				ginst.visibility_range_end = NATURE_NEAR
+				var finst := _prop_copy(kind + "_far", _nature_far[kind], gm, GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+				finst.visibility_range_begin = NATURE_NEAR
+				node.add_child(finst)
 			continue
 		for layer in _prop_defs[kind]:
 			var layer_parts: Array = layer["parts"]
@@ -1290,6 +1362,25 @@ func _build_prop_chunk(ck: Vector2i) -> void:
 			node.add_child(inst)
 	node.visible = _prop_chunk_rect(ck).intersects(_prop_window(0))
 	_prop_chunks[ck] = {"node": node, "props": total, "tris": tris, "bounds": bounds if has_bounds else null}
+
+
+## Another MultiMeshInstance3D drawing the same props as `source` (same
+## places, sizes and seasonal data) with a different mesh: the nature models'
+## far versions and shadow proxies.
+func _prop_copy(copy_name: String, mesh: Mesh, source: MultiMesh, shadows: GeometryInstance3D.ShadowCastingSetting) -> MultiMeshInstance3D:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.use_custom_data = true
+	mm.mesh = mesh
+	mm.instance_count = source.instance_count
+	mm.buffer = source.buffer
+	var inst := MultiMeshInstance3D.new()
+	inst.name = copy_name
+	inst.multimesh = mm
+	inst.extra_cull_margin = 0.5  # leaves sway a little outside their resting bounds
+	inst.cast_shadow = shadows
+	return inst
 
 
 var _mesh_tris: Dictionary = {}  # mesh instance id -> triangle count
