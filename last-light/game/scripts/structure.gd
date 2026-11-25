@@ -84,6 +84,16 @@ const RECIPES := {
 const TORCH_RADIUS := 80.0
 ## Walls and gates turn to line up with the walls next to them.
 const LINES_UP := ["wood_wall", "stone_wall", "gate", "oil_gate"]  # game pixels: wolves won't come closer to a lit torch post
+## Building prototype (phase 4B, GRAPHICS_BUILDING_PROTOTYPE.md): these types
+## are drawn with models from Kay Lousberg's KayKit Medieval Hexagon Pack
+## (models/buildings, CC0) instead of their primitive parts. Every one is one
+## mesh with one surface (the cottage adds one for its glowing windows), and
+## all share one material and one small palette texture. Same tile, hit points, preview, damage lean and collision as before.
+const BUILDING_MODELS := {"house": "cottage", "stone_wall": "stone_wall", "archer_tower": "archer_tower"}
+## Off with ?buildings=0 (set before any building is made), to compare.
+static var use_models := true
+static var _model_meshes: Dictionary = {}  # model name -> Mesh, shared by every building of a kind
+static var _model_material: StandardMaterial3D
 
 var world: World
 var kind := ""
@@ -102,6 +112,7 @@ var _parts: Array = []
 var _crop_field: MultiMeshInstance3D  # fields: all the wheat stalks, one instance each
 var _crop_spots: Array = []  # where each stalk stands (x, z)
 var _stage := -1
+var _model: MeshInstance3D  # the building model, when this type has one
 
 
 static func info(type_name: String) -> Dictionary:
@@ -130,6 +141,8 @@ func _ready() -> void:
 	# mesh and a material per part: a draw call instead of up to twenty.
 	var crops: Array = [_crop_field] if _crop_field else []
 	_parts = Art.bake(self, _parts, "structure:" + kind) + crops  # every building of a kind is built alike
+	if _model:
+		_parts.append(_model)  # already one mesh and one shared material: nothing to bake
 
 
 func is_lit() -> bool:
@@ -174,7 +187,7 @@ func shoot(at: Vector3) -> void:
 	add_child(arrow)
 	Art.part(arrow, Art.cylinder(0.012, 0.012, 0.7, 4), Color("caa472"), Vector3.ZERO, Vector3(PI / 2, 0, 0))
 	Art.part(arrow, Art.cylinder(0.0, 0.03, 0.08, 4), Color("8a8f95"), Vector3(0, 0, 0.38), Vector3(PI / 2, 0, 0))
-	var from := global_position + Vector3(0, 3.0, 0)
+	var from := global_position + Vector3(0, 4.4 if _model else 3.0, 0)  # from the top-floor windows of the tower model
 	arrow.global_position = from
 	if from.distance_to(at) > 0.1:
 		arrow.look_at(at, Vector3.UP, true)
@@ -252,7 +265,44 @@ func _add(mesh: Mesh, color: Color, offset: Vector3, rot: Vector3 = Vector3.ZERO
 	return mi
 
 
+## The shared mesh and material of a building model (loaded once).
+static func _model_mesh(model: String) -> Mesh:
+	if not _model_meshes.has(model):
+		var scene := load("res://models/buildings/%s.glb" % model) as PackedScene
+		var root := scene.instantiate()
+		_model_meshes[model] = (root.find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D).mesh
+		root.free()
+	return _model_meshes[model]
+
+
+static func _building_material() -> StandardMaterial3D:
+	if _model_material == null:
+		_model_material = StandardMaterial3D.new()
+		_model_material.albedo_texture = load("res://models/buildings/hexagons_medieval.png")
+		_model_material.roughness = 0.9  # like every other building
+	return _model_material
+
+
+## A model surface's material: the shared building material, or for window
+## panes (the cottage's "WindowGlow" surface) the same shared glowing material
+## the old cottage's window used, for the same soft glow at night.
+static func _surface_material(mesh: Mesh, surface: int) -> Material:
+	var source := mesh.surface_get_material(surface)
+	if source and source.resource_name == "WindowGlow":
+		return Art.shared_material(Color(1.0, 0.85, 0.5), 0.8)
+	return _building_material()
+
+
 func _build_model() -> void:
+	if use_models and BUILDING_MODELS.has(kind):
+		_model = MeshInstance3D.new()
+		_model.name = "Model"
+		_model.mesh = _model_mesh(BUILDING_MODELS[kind])
+		for i in _model.mesh.get_surface_count():
+			_model.set_surface_override_material(i, _surface_material(_model.mesh, i))
+		add_child(_model)
+		_update_wear()
+		return
 	match kind:
 		"wood_wall":
 			# A palisade of sharpened logs.

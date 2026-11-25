@@ -1086,6 +1086,38 @@ func _run_game() -> void:
 	main.action_cooldown = 0.0
 	main._interact()
 	_check(main.riding_horse == null and not main.player.riding and wild.visible, "E again: you get off, and the horse waits")
+	# Building prototype (phase 4B): cottages, stone walls and archer towers are
+	# KayKit models: one mesh and one shared material each, and otherwise the
+	# same buildings (hit points, blocking, previews, damage).
+	var bp_cells: Array = _free_cells(world, world.cell_of(home_pos) + Vector2i(5, -5), 3, cells)
+	var bp: Array = []
+	for bi in 3:
+		bp.append(main._add_structure(["house", "stone_wall", "archer_tower"][bi], bp_cells[bi]))
+	await process_frame
+	var bp_ok := true
+	for b in bp:
+		bp_ok = bp_ok and b._model != null and b._parts == [b._model] and b._model.mesh.get_surface_count() == (2 if b.kind == "house" else 1) \
+			and b._model.get_surface_override_material(0) == StructureScript._building_material() and b.hp == StructureScript.max_hp(b.kind) \
+			and not world.is_walkable(world.cell_center(b.cell))
+	var bp_house2 = main._add_structure("house", _free_cells(world, bp_cells[0], 1, cells + bp_cells)[0])
+	await process_frame
+	_check(bp_ok and bp_house2._model.mesh == bp[0]._model.mesh, "cottages, stone walls and towers are the new models: one shared mesh and material each, same hit points, and they block")
+	var bp_glow: Material = bp[0]._model.get_surface_override_material(1)
+	_check(bp_glow == load("res://scripts/art.gd").shared_material(Color(1.0, 0.85, 0.5), 0.8) and (bp_glow as BaseMaterial3D).emission_enabled
+		and bp_house2._model.get_surface_override_material(1) == bp_glow,
+		"cottage windows glow with the old window's shared material")
+	bp[0].damage(StructureScript.max_hp("house") * 0.6)
+	var bp_ghost = StructureScript.new()
+	bp_ghost.setup(world, "archer_tower", bp_cells[2] + Vector2i(0, 1))
+	main.entities.add_child(bp_ghost)
+	bp_ghost.make_ghost(false)
+	_check(bp[0].rotation.z > 0.05 and (bp_ghost._model.material_override as BaseMaterial3D).transparency != BaseMaterial3D.TRANSPARENCY_DISABLED
+		and bp_ghost._model.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,
+		"a damaged cottage leans, and a tower's build preview is see-through")
+	bp_ghost.queue_free()
+	main._remove_structure(bp_house2.cell)
+	await process_frame
+	_check(not is_instance_valid(bp_house2) and not main.buildings.values().has(bp_house2), "taking a new cottage down removes it")
 	main._mount(wild)
 	main.player.pos = home_pos
 	main.save_game()
@@ -1121,6 +1153,11 @@ func _run_game() -> void:
 	_check(purge_gold < 0 or (copy_main.buildings.has(purge_cell) and copy_main._vault_gold(copy_main.buildings[purge_cell]) == main._vault_gold(main.buildings[purge_cell])
 		and copy_main.purged_day == main.purged_day), "the vault keeps its gold after reload, and you can't purge twice in a day")
 	_check(not copy_main.world.is_walkable(world.cell_center(cells[0])), "walls still block after reload")
+	var bp_reloaded := true
+	for b in bp:
+		var rb = copy_main.buildings.get(b.cell)
+		bp_reloaded = bp_reloaded and rb != null and rb.kind == b.kind and rb._model != null and is_equal_approx(rb.hp, b.hp)
+	_check(bp_reloaded, "the new cottage, wall and tower load back as models with the same damage")
 	_check(copy_main.player.has_axe and copy_main.player.armour and copy_main.player.lantern, "tools are still yours after reload")
 	_check(copy_main.poi_looted.has(first_camp["id"]) and copy_main.poi_found.has(shrine_data["id"]), "found and looted places are remembered")
 	_check(copy_main.world.explored.size() >= world.explored.size(), "the explored map is restored")

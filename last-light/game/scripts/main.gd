@@ -221,6 +221,11 @@ func _ready() -> void:
 			nature = arg.trim_prefix("--nature=")
 	if nature == "0":
 		world.nature_models = false  # developers: the procedural trees, rocks and bushes, for comparing
+	var building_models := PerfOverlay.url_value("buildings")
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--buildings="):
+			building_models = arg.trim_prefix("--buildings=")
+	Structure.use_models = building_models != "0"  # developers: ?buildings=0 shows the old buildings, for comparing
 	world.generate(world_seed)
 	var prop_chunk_override := prop_chunk_size_override()
 	if prop_chunk_override > 0:
