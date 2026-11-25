@@ -215,6 +215,15 @@ func _ready() -> void:
 	world = World.new()
 	add_child(world)
 	world.generate(world_seed)
+	var prop_chunk_override := prop_chunk_size_override()
+	if prop_chunk_override > 0:
+		world.prop_chunk = prop_chunk_override
+	var grouping := PerfOverlay.url_value("propgroup")
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--propgroup="):
+			grouping = arg.trim_prefix("--propgroup=")
+	if grouping == "0":
+		world.prop_grouping = false  # developers: one MultiMesh per part, for comparing
 	_make_camps()
 	_make_herds()
 
@@ -700,6 +709,15 @@ func apply_sun_shadows(preset: String) -> void:
 	sun.directional_shadow_mode = p["mode"]
 	RenderingServer.directional_shadow_atlas_set_size(int(p["atlas"]), true)
 	sun_shadow_preset = preset
+
+
+## Developers can try another prop chunk size (tiles): ?propchunk=40, or -- --propchunk=40.
+static func prop_chunk_size_override() -> int:
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--propchunk="):
+			return clampi(arg.trim_prefix("--propchunk=").to_int(), 8, 128)
+	var v := PerfOverlay.url_value("propchunk")
+	return clampi(v.to_int(), 8, 128) if v != "" else 0
 
 
 ## Developers can try another preset: index.html?shadows=B, or -- --shadows=B.
