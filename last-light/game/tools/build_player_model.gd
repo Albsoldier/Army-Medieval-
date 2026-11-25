@@ -28,8 +28,8 @@ const REGIONS := {
 	"MI_Hair_1": Rect2(0.5, 0.5, 0.25, 0.5),
 	"MI_Eyes": Rect2(0.75, 0.5, 0.125, 0.25),
 }
-const COLOUR_SIZE := Vector2i(2048, 1024)  # the outfit gets 1024 x 1024 of it
-const DETAIL_SIZE := Vector2i(1024, 512)  # normal and roughness/metal maps
+const COLOUR_SIZE := Vector2i(1024, 512)  # the outfit gets 512 x 512 of it
+const DETAIL_SIZE := Vector2i(512, 256)  # normal and roughness/metal maps
 const HAIR_TINT := Color(0.36, 0.25, 0.17)  # the base hair texture is grey: a dark brown beard
 const HEAD_BONES := ["Head", "neck_01"]
 
