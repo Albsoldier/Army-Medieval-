@@ -161,9 +161,10 @@ func _ready() -> void:
 			_build_spear()
 	# Each piece of kit is one mesh (fewer draw calls), and so are the pieces
 	# worn on the body (a cloak, a quiver of arrows).
-	for piece in _kit:
-		Art.bake(piece, Art.parts_of(piece))
-	Art.bake(_model, Art.parts_of(_model))
+	# Every soldier of a kind wears the same kit, so they share the merged meshes.
+	for i in _kit.size():
+		Art.bake(_kit[i], Art.parts_of(_kit[i]), "kit:%s:%d" % [kind, i])
+	Art.bake(_model, Art.parts_of(_model), "worn:" + kind)
 	# With up to a hundred soldiers, shadows cost too much.
 	for mi in find_children("*", "MeshInstance3D", true, false):
 		(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

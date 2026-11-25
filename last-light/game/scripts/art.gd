@@ -76,6 +76,7 @@ static func omni(color: Color, light_range: float, energy: float) -> OmniLight3D
 
 static var _shared_vertex_mat: StandardMaterial3D
 static var _shared_mats: Dictionary = {}  # "colour|emission|unshaded" -> material
+static var _baked_meshes: Dictionary = {}  # bake key -> merged mesh, shared by identical models
 
 
 ## One material for every merged part: the part colours are in the vertices.
@@ -102,7 +103,9 @@ static func shared_material(color: Color, emission: float = 0.0, unshaded: bool 
 ## mesh drawn with one shared material, each part keeping its colour, place
 ## and turn. Glowing and unshaded parts can't share it: they stay separate, on
 ## shared materials. Returns the meshes `node` is now drawn with.
-static func bake(node: Node3D, parts: Array) -> Array:
+## `key` names models that are always built the same way (a kind of building,
+## a soldier's helmet): they then share one merged mesh instead of a copy each.
+static func bake(node: Node3D, parts: Array, key: String = "") -> Array:
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
@@ -145,6 +148,8 @@ static func bake(node: Node3D, parts: Array) -> Array:
 		mi.queue_free()
 	if merged == 0:
 		return kept
+	if key != "" and _baked_meshes.has(key):
+		return _add_baked(node, _baked_meshes[key], shadow, kept)
 	var out := []
 	out.resize(Mesh.ARRAY_MAX)
 	out[Mesh.ARRAY_VERTEX] = verts
@@ -153,6 +158,12 @@ static func bake(node: Node3D, parts: Array) -> Array:
 	out[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out)
+	if key != "":
+		_baked_meshes[key] = mesh
+	return _add_baked(node, mesh, shadow, kept)
+
+
+static func _add_baked(node: Node3D, mesh: Mesh, shadow: GeometryInstance3D.ShadowCastingSetting, kept: Array) -> Array:
 	var baked := MeshInstance3D.new()
 	baked.name = "Baked"
 	baked.mesh = mesh

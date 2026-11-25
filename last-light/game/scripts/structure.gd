@@ -129,7 +129,7 @@ func _ready() -> void:
 	# One mesh and one shared material for the whole building, rather than a
 	# mesh and a material per part: a draw call instead of up to twenty.
 	var crops: Array = [_crop_field] if _crop_field else []
-	_parts = Art.bake(self, _parts) + crops
+	_parts = Art.bake(self, _parts, "structure:" + kind) + crops  # every building of a kind is built alike
 
 
 func is_lit() -> bool:

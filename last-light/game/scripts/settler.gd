@@ -65,7 +65,7 @@ func _ready() -> void:
 		add_child(_hat)
 		Art.part(_hat, Art.cylinder(0.26, 0.26, 0.03, 10), Color("d9c27a"), Vector3(0, 0.1, 0))
 		Art.part(_hat, Art.cylinder(0.1, 0.13, 0.12, 8), Color("cdb46c"), Vector3(0, 0.17, 0))
-		Art.bake(_hat, Art.parts_of(_hat))  # brim and crown as one mesh
+		Art.bake(_hat, Art.parts_of(_hat), "straw-hat")  # brim and crown as one mesh
 	position = world.to_3d(pos)
 
 

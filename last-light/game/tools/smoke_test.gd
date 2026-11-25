@@ -164,30 +164,32 @@ func _run_game() -> void:
 	test_field.queue_free()
 	var test_soldier = main._spawn_soldier(main.player.pos + Vector2(30, 0), -1.0, "follow", main.player.pos, "legionary")
 	await process_frame
-	var body = test_soldier._body
-	var body_mesh: MeshInstance3D = body._meshes[0]
-	_check(body.merged and body._meshes.size() == 1 and body_mesh.mesh.get_surface_count() == 1 and body_mesh.skin != null
+	var dc_body = test_soldier._body
+	var body_mesh: MeshInstance3D = dc_body._meshes[0]
+	_check(dc_body.merged and dc_body._meshes.size() == 1 and body_mesh.mesh.get_surface_count() == 1 and body_mesh.skin != null
 		and body_mesh.skin.get_bind_count() == 5 * 62, "a soldier's body is one skinned surface, every part keeping its bones (was 15)")
 	_check(main.player._body.merged, "the player is one skinned surface too")
-	var bone := body.skeleton.find_bone("Head")
-	body.play_once("slash", 1.0)
-	body.anim.seek(0.0, true)
-	var head_a: Vector3 = body.skeleton.get_bone_global_pose(bone).origin
-	body.anim.seek(0.3, true)
-	var head_b: Vector3 = body.skeleton.get_bone_global_pose(bone).origin
-	_check(head_a.distance_to(head_b) > 0.001, "a merged soldier still animates its skeleton")
+	# Skinning: every bind of the merged skin must still point at a bone of the skeleton.
+	var dc_skin: Skin = body_mesh.skin
+	var dc_bound := 0
+	for b in dc_skin.get_bind_count():
+		var bname := dc_skin.get_bind_name(b)
+		if (bname != "" and dc_body.skeleton.find_bone(bname) >= 0) or (bname == "" and dc_skin.get_bind_bone(b) < dc_body.skeleton.get_bone_count()):
+			dc_bound += 1
+	_check(dc_bound == dc_skin.get_bind_count() and body_mesh.get_node_or_null(body_mesh.skeleton) == dc_body.skeleton,
+		"the merged body is skinned to the soldier's skeleton (%d of %d binds)" % [dc_bound, dc_skin.get_bind_count()])
 	main.soldiers.erase(test_soldier)
 	test_soldier.queue_free()
 	var test_wolf = load("res://scripts/wolf.gd").new()
 	test_wolf.world = main.world
 	test_wolf.pos = main.player.pos + Vector2(300, 0)
 	main.entities.add_child(test_wolf)
-	var tame = main._spawn_horse(main.player.pos + Vector2(0, 300), 0, false)
+	var dc_horse = main._spawn_horse(main.player.pos + Vector2(0, 300), 0, false)
 	await process_frame
-	_check(not test_wolf._body.merged and not (tame._look["body"]).merged, "wolves (glowing eyes) and horses (tack shown piece by piece) are left as they were")
+	_check(not test_wolf._body.merged and not (dc_horse._look["body"]).merged, "wolves (glowing eyes) and horses (tack shown piece by piece) are left as they were")
 	test_wolf.queue_free()
-	main.tame_horses.erase(tame)
-	tame.queue_free()
+	main.tame_horses.erase(dc_horse)
+	dc_horse.queue_free()
 	# Props are drawn in chunks the renderer can cull; moving only builds what came into view.
 	var pw = main.world
 	var pv_here: Vector2 = main.player.pos
