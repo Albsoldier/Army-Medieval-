@@ -52,7 +52,8 @@ func _ready() -> void:
 static func build_model(parent: Node3D, coat_color: Color, saddled: bool) -> Dictionary:
 	var body: CharacterModel = CharacterModel.new()
 	parent.add_child(body)
-	body.build(HORSE_MODEL, 0.0, false, {"idle": ["Idle"], "walk": ["Walk"], "run": ["Run"]})
+	# Not merged: the tack meshes are shown or hidden, and coloured, one by one.
+	body.build(HORSE_MODEL, 0.0, false, {"idle": ["Idle"], "walk": ["Walk"], "run": ["Run"]}, {}, false)
 	body.scale = Vector3.ONE * SIZE
 	for mi in body.find_children("*", "MeshInstance3D", true, false):
 		var mesh_instance := mi as MeshInstance3D
