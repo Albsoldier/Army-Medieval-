@@ -70,7 +70,7 @@ Sizes of the three prototyped types (old):
 - **In the game** (`structure.gd`, `BUILDING_MODELS`):
   - `_build_model()` adds one `MeshInstance3D` named `Model`, using a mesh loaded once and shared by every building of that type, with **one `StandardMaterial3D` shared by all three types** (the atlas, roughness 0.9 like every other building).
   - It skips the primitive parts entirely. `Art.bake()` finds nothing to merge, and the model is added to the building's drawn parts afterwards. So previews, the hit flash, the damage lean and removal all work on it unchanged.
-- **Phase 3D architecture kept.** One surface and one shared material per building, no more than the baked buildings. The cottage drops from 2 surfaces to 1: the old glowing window was a separate surface.
+- **Phase 3D architecture kept.** One surface and one shared material per building, no more than the baked buildings. The cottage has a second small surface for its glowing windows, drawn with the old window's shared glow material, exactly like the old cottage.
 - **Texture atlas.** All three share one 128² palette atlas, imported with mipmaps and GPU (S3TC/BPTC) compression. No normal maps, no transparency.
 - **LOD.** Godot's automatic mesh LOD, generated at import, verified working in the Compatibility renderer in phase 4A. The cottage drops to 727 triangles and the tower to 1,376 at a distance. The wall is too simple to reduce.
 - **Collision** stays tile-based, as before. The models have no collision shapes and need none.
@@ -102,7 +102,7 @@ Seen in the renders (`tools/building_shots.gd`), at close, middle and far zoom a
 - the torch post still lights the buildings at night.
 
 **Differences found:**
-- **No lit windows at night.** The old cottage had a softly glowing window at night. The KayKit atlas uses shaded gradients, so its window glass can't be picked out cleanly to make it glow. A follow-up could add a small glowing window quad, at the same cost as before (one extra shared-material surface).
+- **Night window glow: restored.** The first build lost the old cottage's softly glowing window. The prep script now copies the cottage model's window-glass triangles (5 arched windows, 45 triangles, told apart by their grey in the atlas) 4 mm in front of the glass, into a second surface of the same mesh. The game draws that surface with **the very same shared glowing material the old cottage window used** (`Art.shared_material(Color(1.0, 0.85, 0.5), 0.8)`), so it adds no new material. A cottage is again 2 surfaces, exactly like the old one. See `perf/buildings/night-window-glow.png`.
 - **Headless test noise.** In headless test runs only (Godot's dummy renderer), the phase 4A far-version and shadow-proxy instances log "Cannot set a buffer on a Multimesh…" because the dummy renderer doesn't keep instance buffers. It never appears with a real renderer (browser benchmark, native renders, the GPU-validation self-check), so players are unaffected.
 
 ## Step 6: visual validation
@@ -125,11 +125,11 @@ Images in `perf/buildings/`:
 
 | Type | Surfaces (draw calls per pass) | Materials | Triangles | Godot LOD | Lights |
 |---|---|---|---|---|---|
-| Cottage | 2 → **1** | 2 → 1 | 92 → 1,011 | 727 | 0 → 0 |
+| Cottage | 2 → 2 (building + glowing windows) | 2 → 2 (both shared) | 92 → 1,056 (1,011 + 45 glass) | 727 | 0 → 0 |
 | Stone wall | 1 → 1 | 1 → 1 | 72 → 259 | — | 0 → 0 |
 | Archer tower | 1 → 1 | 1 → 1 | 436 → 2,138 | 1,376 | 0 → 0 |
 
-All three new models share **one** material, against the old ones' one shared vertex-colour material plus the cottage window's glow material.
+All three new models share **one** building material. The cottage's windows reuse the old window's shared glow material. The audit and benchmark below were measured before the window glow was restored, which adds one 45-triangle surface per cottage: the same as the old cottage's window.
 
 ### Browser benchmark
 
@@ -154,7 +154,7 @@ The same web build, with `?buildings=0` (old) and without, run in the project's 
 | Video memory, village | 39.6 MB | 39.8 MB | +0.2 MB (vertex buffers) |
 
 How to read this:
-- **Draw calls fell slightly** (−1%) and mesh surfaces by 4. The cottages no longer need a separate glowing-window surface.
+- **Draw calls fell slightly** (−1%) and mesh surfaces by 4, because the first build had no glowing-window surface. With the glow restored, cottages are back to 2 surfaces, so draw calls match the old buildings.
 - **Primitives rose by 0.5–1%** in the village scenes. The models have more triangles, but 5 buildings are a small share of a village frame, and Godot's LOD trims them at a distance.
 - **Frame times are within noise.** Differences go both ways, and the same scene varied by up to ±10% between runs on this software renderer.
 - **Memory and download cost almost nothing**, once the atlas was shrunk. With the pack's 1024² atlas, the first run cost +0.8 MB of download and +0.6 MB of texture memory.
@@ -162,6 +162,6 @@ How to read this:
 
 ## Recommendation
 
-1. **Review the look** in the images, or live with `?buildings=0` for comparison after a merge. In particular: the brighter KayKit palette, the lost night window glow, and buildings now overhanging their tile.
+1. **Review the look** in the images, or live with `?buildings=0` for comparison after a merge. In particular: the brighter KayKit palette, and buildings now overhanging their tile.
 2. **If the style is right**, the same pipeline (`prepare_building_models.py`, `BUILDING_MODELS`) converts the other types. KayKit has matching models for most of them: barracks, blacksmith (forge), market, tavern, well, wooden fences and gates, walls with gates, and destroyed and scaffolding states for future damage and construction visuals.
 3. **For richer cottages later,** Quaternius's Medieval Village MegaKit can assemble larger, more detailed houses, at the cost of a few materials per building.

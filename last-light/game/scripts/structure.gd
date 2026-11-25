@@ -87,8 +87,8 @@ const LINES_UP := ["wood_wall", "stone_wall", "gate", "oil_gate"]  # game pixels
 ## Building prototype (phase 4B, GRAPHICS_BUILDING_PROTOTYPE.md): these types
 ## are drawn with models from Kay Lousberg's KayKit Medieval Hexagon Pack
 ## (models/buildings, CC0) instead of their primitive parts. Every one is one
-## mesh with one surface, and all share one material and one small palette
-## texture. Same tile, hit points, preview, damage lean and collision as before.
+## mesh with one surface (the cottage adds one for its glowing windows), and
+## all share one material and one small palette texture. Same tile, hit points, preview, damage lean and collision as before.
 const BUILDING_MODELS := {"house": "cottage", "stone_wall": "stone_wall", "archer_tower": "archer_tower"}
 ## Off with ?buildings=0 (set before any building is made), to compare.
 static var use_models := true
@@ -283,12 +283,23 @@ static func _building_material() -> StandardMaterial3D:
 	return _model_material
 
 
+## A model surface's material: the shared building material, or for window
+## panes (the cottage's "WindowGlow" surface) the same shared glowing material
+## the old cottage's window used, for the same soft glow at night.
+static func _surface_material(mesh: Mesh, surface: int) -> Material:
+	var source := mesh.surface_get_material(surface)
+	if source and source.resource_name == "WindowGlow":
+		return Art.shared_material(Color(1.0, 0.85, 0.5), 0.8)
+	return _building_material()
+
+
 func _build_model() -> void:
 	if use_models and BUILDING_MODELS.has(kind):
 		_model = MeshInstance3D.new()
 		_model.name = "Model"
 		_model.mesh = _model_mesh(BUILDING_MODELS[kind])
-		_model.material_override = _building_material()
+		for i in _model.mesh.get_surface_count():
+			_model.set_surface_override_material(i, _surface_material(_model.mesh, i))
 		add_child(_model)
 		_update_wear()
 		return

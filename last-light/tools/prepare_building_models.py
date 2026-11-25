@@ -13,7 +13,10 @@ For each building it:
     changes how they look: collision and placement stay on the one tile;
   * for the wall, keeps a 1 m section of the pack's 2 m wall (the pack's
     walls follow hexagon edges; the game's walls are one tile long);
-  * writes a .glb with no textures (the game loads the shared atlas itself).
+  * writes a .glb with no textures (the game loads the shared atlas itself);
+  * for the cottage, adds a second surface: copies of its window glass, just
+    in front of it, which the game draws with the shared glowing material the
+    old cottage's window used (its night-time glow).
 It also writes the atlas, hexagons_medieval.png. The pack's is a 1024x1024
 palette of flat colour blocks; at 128x128 no colour the three models use moves
 by more than 1/255, and it's 64 times less texture memory and download.
@@ -34,6 +37,9 @@ MODELS = {
 }
 
 ATLAS_SIZE = 128
+# Buildings whose windows glow at night, and the greys of window glass in the game's atlas.
+WINDOW_GLOW = {"cottage"}
+GLASS = {(0x8f, 0x86, 0x7e), (0x92, 0x8a, 0x81), (0x99, 0x91, 0x89), (0x9a, 0x93, 0x8b)}
 
 FMT = {5126: ("f", 4), 5125: ("I", 4), 5123: ("H", 2), 5121: ("B", 1)}
 WIDTH = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
@@ -138,7 +144,8 @@ def convert(pos, nrm, uv, idx, scale, turn, keep):
     return P, N, U, I
 
 
-def write_glb(path, name, P, N, U, I):
+def write_glb(path, name, surfaces):
+    """surfaces: [(material name, positions, normals, uvs, indices)], one primitive each."""
     data = bytearray()
     views, accessors = [], []
 
@@ -158,12 +165,15 @@ def write_glb(path, name, P, N, U, I):
         accessors.append(acc)
         return len(accessors) - 1
 
-    prim = {"attributes": {"POSITION": add(P, 5126, "VEC3", 34962, True), "NORMAL": add(N, 5126, "VEC3", 34962),
-                           "TEXCOORD_0": add(U, 5126, "VEC2", 34962)},
-            "indices": add(I, 5123 if len(P) < 65536 else 5125, "SCALAR", 34963), "material": 0}
+    prims, materials = [], []
+    for mat, P, N, U, I in surfaces:
+        prims.append({"attributes": {"POSITION": add(P, 5126, "VEC3", 34962, True), "NORMAL": add(N, 5126, "VEC3", 34962),
+                                     "TEXCOORD_0": add(U, 5126, "VEC2", 34962)},
+                      "indices": add(I, 5123 if len(P) < 65536 else 5125, "SCALAR", 34963), "material": len(materials)})
+        materials.append({"name": mat})
     out = {"asset": {"version": "2.0", "generator": "Islander prepare_building_models.py"},
            "scene": 0, "scenes": [{"nodes": [0]}], "nodes": [{"mesh": 0, "name": name}],
-           "meshes": [{"name": name, "primitives": [prim]}], "materials": [{"name": "hexagons_medieval"}],
+           "meshes": [{"name": name, "primitives": prims}], "materials": materials,
            "accessors": accessors, "bufferViews": views, "buffers": [{"byteLength": len(data)}]}
     js = json.dumps(out, separators=(",", ":")).encode()
     js += b" " * (-len(js) % 4)
@@ -173,17 +183,46 @@ def write_glb(path, name, P, N, U, I):
     open(path, "wb").write(glb)
 
 
+def window_panes(P, N, U, I, atlas):
+    """Copies of the window-glass triangles, 4 mm in front of the glass, for the
+    night-time glow (drawn by the game with the old cottage window's shared
+    glowing material). Glass is told apart by its grey in the atlas, on walls."""
+    W, H = atlas.size
+    out_p, out_n, out_u, out_i = [], [], [], []
+    for t in range(0, len(I), 3):
+        n = N[I[t]]
+        if abs(n[1]) > 0.2:
+            continue  # floors, roofs and ledges, not walls
+        u = sum(U[I[t + k]][0] for k in range(3)) / 3.0
+        v = sum(U[I[t + k]][1] for k in range(3)) / 3.0
+        if atlas.getpixel((min(int(u * W), W - 1), min(int(v * H), H - 1))) not in GLASS:
+            continue
+        for k in range(3):
+            p, nk = P[I[t + k]], N[I[t + k]]
+            out_p.append(tuple(p[j] + nk[j] * 0.004 for j in range(3)))
+            out_n.append(nk)
+            out_u.append(U[I[t + k]])
+            out_i.append(len(out_i))
+    return out_p, out_n, out_u, out_i
+
+
 def main():
     src_dir, out_dir = sys.argv[1], sys.argv[2]
     os.makedirs(out_dir, exist_ok=True)
+    source_atlas = Image.open(os.path.join(src_dir, "neutral", "hexagons_medieval.png")).convert("RGB")
+    atlas = source_atlas.resize((ATLAS_SIZE, ATLAS_SIZE), Image.BOX)  # the game's atlas
     for kind, (name, scale, turn, keep) in MODELS.items():
         P, N, U, I = convert(*load(src_dir, name), scale, turn, keep)
-        write_glb(os.path.join(out_dir, kind + ".glb"), kind, P, N, U, I)
+        surfaces = [("hexagons_medieval", P, N, U, I)]
+        if kind in WINDOW_GLOW:
+            panes = window_panes(P, N, U, I, atlas)
+            surfaces.append(("WindowGlow", *panes))
+            print("%-13s    window panes: %d triangles" % (kind, len(panes[3]) // 3))
+        write_glb(os.path.join(out_dir, kind + ".glb"), kind, surfaces)
         size = [max(p[k] for p in P) - min(p[k] for p in P) for k in range(3)]
         print("%-13s <- %-34s %5d triangles %5d vertices  size %.2f x %.2f x %.2f m" % (
             kind, name, len(I) // 3, len(P), size[0], size[1], size[2]))
-    atlas = Image.open(os.path.join(src_dir, "neutral", "hexagons_medieval.png")).convert("RGB")
-    atlas.resize((ATLAS_SIZE, ATLAS_SIZE), Image.BOX).save(os.path.join(out_dir, "hexagons_medieval.png"), optimize=True)
+    atlas.save(os.path.join(out_dir, "hexagons_medieval.png"), optimize=True)
 
 
 if __name__ == "__main__":

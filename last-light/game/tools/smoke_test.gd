@@ -1096,12 +1096,16 @@ func _run_game() -> void:
 	await process_frame
 	var bp_ok := true
 	for b in bp:
-		bp_ok = bp_ok and b._model != null and b._parts == [b._model] and b._model.mesh.get_surface_count() == 1 \
-			and b._model.material_override == StructureScript._building_material() and b.hp == StructureScript.max_hp(b.kind) \
+		bp_ok = bp_ok and b._model != null and b._parts == [b._model] and b._model.mesh.get_surface_count() == (2 if b.kind == "house" else 1) \
+			and b._model.get_surface_override_material(0) == StructureScript._building_material() and b.hp == StructureScript.max_hp(b.kind) \
 			and not world.is_walkable(world.cell_center(b.cell))
 	var bp_house2 = main._add_structure("house", _free_cells(world, bp_cells[0], 1, cells + bp_cells)[0])
 	await process_frame
 	_check(bp_ok and bp_house2._model.mesh == bp[0]._model.mesh, "cottages, stone walls and towers are the new models: one shared mesh and material each, same hit points, and they block")
+	var bp_glow: Material = bp[0]._model.get_surface_override_material(1)
+	_check(bp_glow == load("res://scripts/art.gd").shared_material(Color(1.0, 0.85, 0.5), 0.8) and (bp_glow as BaseMaterial3D).emission_enabled
+		and bp_house2._model.get_surface_override_material(1) == bp_glow,
+		"cottage windows glow with the old window's shared material")
 	bp[0].damage(StructureScript.max_hp("house") * 0.6)
 	var bp_ghost = StructureScript.new()
 	bp_ghost.setup(world, "archer_tower", bp_cells[2] + Vector2i(0, 1))
