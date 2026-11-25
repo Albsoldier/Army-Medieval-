@@ -43,7 +43,7 @@ func _run() -> void:
 		_goto_step(0)
 		return
 	_step = int(step_text)
-	var on := main.world.nature_models
+	var on: bool = main.world.nature_models
 	_show("GPU validation: page %d of %d (%s). Measuring, please don't touch the mouse or keyboard." % [
 		_step + 1, _pages(), "nature models" if on else "old props"])
 	await _frames(5)
