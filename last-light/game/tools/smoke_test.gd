@@ -232,6 +232,16 @@ func _run_game() -> void:
 	pc_ap.apply(pc_mesh, pc_look)
 	_check(float(pc_mesh.get_instance_shader_parameter("hood_up")) == 0.0 and float(pc_mesh.get_instance_shader_parameter("outfit")) == 1.0
 		and float(pc_mesh.get_instance_shader_parameter("backpack_on")) == 0.0, "the look is set on the player's mesh")
+	# Hood (GRAPHICS_PLAYER_HOOD.md): hood up has its hood and cropped hair;
+	# hood down has the lowered hood (the same hood, folded) and its hair.
+	var hd_count := {}
+	var hd_uv2: PackedVector2Array = pc_mesh.mesh.surface_get_arrays(0)[Mesh.ARRAY_TEX_UV2]
+	var hd_idx: PackedInt32Array = pc_mesh.mesh.surface_get_arrays(0)[Mesh.ARRAY_INDEX]
+	for t in range(0, hd_idx.size(), 3):
+		var hd_part := int(hd_uv2[hd_idx[t]].x)
+		hd_count[hd_part] = hd_count.get(hd_part, 0) + 1
+	_check(int(hd_count.get(2, 0)) > 2000 and int(hd_count.get(3, 0)) > 2500 and not main.dev_look,
+		"hood up and hood down are both in the one surface (%d and %d triangles); the F8 hood switch is off unless ?devlook=1" % [hd_count.get(2, 0), hd_count.get(3, 0)])
 	pc_ap.apply(pc_mesh, main.player.appearance)
 	_check(float(pc_mesh.get_instance_shader_parameter("hood_up")) == 1.0 and float(pc_mesh.get_instance_shader_parameter("backpack_on")) == 1.0,
 		"by default the hood is up and the backpack on")

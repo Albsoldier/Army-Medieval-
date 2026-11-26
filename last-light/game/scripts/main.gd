@@ -177,6 +177,7 @@ var _fields: Array = []  # farm fields
 var _village_spots: Array = []  # where settlers like to go
 var _village_timer := 0.0
 var bench_mode := false  # the developer benchmark is running: never save
+var dev_look := false  # developers: F8 switches the ranger's hood (?devlook=1)
 var sun_shadow_preset := ""  # which SUN_SHADOWS preset is in use
 var camps: Array = []
 var camps_cleared := {}  # camp id -> the day you cleared it
@@ -242,6 +243,13 @@ func _ready() -> void:
 		if value != "":
 			look_options[key] = value
 	Player.appearance = Player.Appearance.from_options(look_options)
+	# Developers: ?devlook=1 (or --devlook=1) lets F8 switch the hood up and
+	# down while playing, to compare the two (GRAPHICS_PLAYER_HOOD.md).
+	var dev_look_flag := PerfOverlay.url_value("devlook")
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--devlook="):
+			dev_look_flag = arg.trim_prefix("--devlook=")
+	dev_look = dev_look_flag != "" and dev_look_flag != "0"
 	world.generate(world_seed)
 	var prop_chunk_override := prop_chunk_size_override()
 	if prop_chunk_override > 0:
@@ -520,6 +528,14 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	var dev_key := event as InputEventKey
+	if dev_look and dev_key and dev_key.pressed and not dev_key.echo and dev_key.keycode == KEY_F8 \
+			and player and player._look_mesh:
+		Player.appearance["hood"] = not bool(Player.appearance.get("hood", true))
+		Player.Appearance.apply(player._look_mesh, Player.appearance)
+		hud.toast("Hood %s (developer view, F8)" % ("up" if Player.appearance["hood"] else "down"))
+		get_viewport().set_input_as_handled()
+		return
 	var drag := event as InputEventMouseMotion
 	if drag and first_person and (Input.mouse_mode == Input.MOUSE_MODE_CAPTURED or drag.button_mask & MOUSE_BUTTON_MASK_RIGHT):
 		cam_yaw = wrapf(cam_yaw - drag.relative.x * MOUSE_LOOK, -PI, PI)

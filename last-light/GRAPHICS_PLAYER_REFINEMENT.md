@@ -35,6 +35,8 @@ This builds on the character prototype ([GRAPHICS_CHARACTER_PROTOTYPE.md](GRAPHI
 
 ### Task 2: Hood
 
+> **Superseded:** the hood down is now a folded-down hood, and the hood up has cropped hair under it. See [GRAPHICS_PLAYER_HOOD.md](GRAPHICS_PLAYER_HOOD.md).
+
 The kit's hood is one mesh (`Male_Ranger_Head_Hood`, 2,136 triangles). Its triangles weighted to the head are the hood itself (1,514); the rest is the cowl over the shoulders (622).
 
 - **Hood up** shows everything, as before.

@@ -8,8 +8,10 @@
 ##     names player.gd already asks for (Idle, Walk, Run, Punch_Right,
 ##     Sword_Slash, Death).
 ## All of them share one 65-bone humanoid skeleton, so no retargeting is needed.
-## Refinement (GRAPHICS_PLAYER_REFINEMENT.md) adds, in the same surface: hair
-## for the hood down (Hair_SimpleParted), a fitted armour shell made from the
+## Refinement (GRAPHICS_PLAYER_REFINEMENT.md, GRAPHICS_PLAYER_HOOD.md) adds, in
+## the same surface: the hood down (the kit's hood folded down onto the
+## shoulders, with Hair_SimpleParted) and cropped hair under the hood up
+## (Hair_Buzzed), a fitted armour shell made from the
 ## tunic's chest, the old adventurer's backpack moved onto this skeleton, and a
 ## second outfit texture (the kit's beige and brown dye, T_Ranger_3). Each
 ## vertex is labelled with its part in UV2, and shaders/character_atlas.gdshader
@@ -42,13 +44,23 @@ const HEAD_BONES := ["Head", "neck_01"]
 ## Parts (UV2.x), as character_atlas.gdshader knows them.
 const PART_CLOTH := 0
 const PART_SKIN := 1
-const PART_HOOD := 2  # drawn with the hood up
-const PART_HAIR := 3  # drawn with the hood down
+const PART_HOOD := 2  # drawn with the hood up: the hood over the head, cropped hair
+const PART_HAIR := 3  # drawn with the hood down: the hood folded down, hair
 const PART_ARMOUR := 4
 const PART_BACKPACK := 5
 ## Parts simplified (the share of triangles kept at most): small on screen,
 ## and modelled finely enough to cost far more than they show.
 const SIMPLIFY := {"Male_Ranger_Feet_Boots": 0.3, "Male_Ranger_Arms_Bracer": 0.55}
+## The lowered hood: how far it turns down (degrees), over how much height
+## above the neckline the fold happens, how long the fold hangs (a share of
+## the hood's height) at the sides and at the back, how much of the hood's
+## thickness is kept, and how far it keeps off the clothes (beyond the armour).
+const HOOD_FOLD_ANGLE := 165.0
+const HOOD_FOLD_HEIGHT := 0.03
+const HOOD_SIDE_LENGTH := 0.22
+const HOOD_BACK_LENGTH := 0.7
+const HOOD_THICKNESS := 0.015
+const HOOD_CLEARANCE := 0.006
 ## The tunic triangles that become the armour shell, and how far out it sits.
 const ARMOUR_BONES := ["spine_01", "spine_02", "spine_03", "clavicle_l", "clavicle_r"]
 const ARMOUR_OFFSET := 0.014
@@ -79,6 +91,7 @@ func _run() -> void:
 	var body := _load(dir.path_join("Superhero_Male_FullBody.gltf"))
 	var beard := _load(dir.path_join("Hair_Beard.gltf"))
 	var hair := _load(dir.path_join("Hair_SimpleParted.gltf"))
+	var buzzed := _load(dir.path_join("Hair_Buzzed.gltf"))
 	var library := _load(dir.path_join("UAL1_Standard.glb"))
 	# The parts: [MeshInstance3D, how its triangles are kept and labelled].
 	var parts := []
@@ -90,6 +103,8 @@ func _run() -> void:
 		parts.append([mi, "whole"])
 	for mi in hair.find_children("*", "MeshInstance3D", true, false):
 		parts.append([mi, "hair"])
+	for mi in buzzed.find_children("*", "MeshInstance3D", true, false):
+		parts.append([mi, "hood hair"])  # cropped hair under the hood: no bare scalp at the brow
 	_build_atlases(parts, dir)
 	_merge(parts)
 	_add_armour(ranger.find_child("Male_Ranger_Body", true, false))
@@ -301,11 +316,166 @@ func _merge(parts: Array) -> void:
 					label = -1  # the rest of the full body: the outfit covers it
 				elif mode == "hair":
 					label = PART_HAIR
+				elif mode == "hood hair":
+					label = PART_HOOD
 				elif mode == "outfit" and mi.name == "Male_Ranger_Head_Hood" and on_head >= 1:
 					label = PART_HOOD  # over the head; the part on the shoulders stays
 				tri_part[t] = label
 			var kept := _append(a, binds, r, tri_part, 0.0, Callable(), mat.resource_name == "MI_Eyes")
+			if mode == "outfit" and mi.name == "Male_Ranger_Head_Hood":
+				_add_lowered_hood(a, binds, r, tri_part, parts)
 			print("part: ", mi.name, "/", s, " ", kept, " of ", tri_part.size(), " triangles")
+
+
+## How far out the outfit reaches around the neck and shoulders: for each
+## 10 degrees around the neck and 2 cm of height, the largest distance from
+## the neck's axis (within 0.3 m of it), so the lowered hood can lie on top.
+func _outfit_profile(parts: Array, axis: Vector3) -> Dictionary:
+	var out := {}
+	for part in parts:
+		if part[1] != "outfit" or (part[0] as Node).name == "Male_Ranger_Head_Hood":
+			continue
+		var mi: MeshInstance3D = part[0]
+		for s in mi.mesh.get_surface_count():
+			for p in mi.mesh.surface_get_arrays(s)[Mesh.ARRAY_VERTEX]:
+				var r := Vector2(p.x - axis.x, p.z - axis.z).length()
+				if r < 0.3 and p.y > 1.2:
+					var key := _profile_key(atan2(p.x - axis.x, p.z - axis.z), p.y)
+					out[key] = maxf(out.get(key, 0.0), r)
+	return out
+
+
+func _profile_key(az: float, y: float) -> Vector2i:
+	return Vector2i(int(floor(fposmod(az, TAU) / deg_to_rad(10.0))), int(floor(y / 0.02)))
+
+
+## Hood down. The kit has the hood up only (there is no lowered hood in the
+## free Standard edition), so the lowered hood is made from the hood itself:
+## the part over the head is turned down around the neckline, the way a hood
+## falls when pushed back. At each point around the neck the fabric above the
+## neckline folds outward and down over a horizontal axis along the neckline,
+## so its lining shows, it drapes over the shoulders and hangs lower at the
+## back (where the hood is deepest). The neckline stays joined to the cowl,
+## and the drape is kept outside the clothes (and the armour). The folded copy
+## is drawn with the hood down (PART_HAIR), the original with the hood up
+## (PART_HOOD). Folded vertices take the skinning of the neckline they hang
+## from, with the head's share moved to the upper spine, so the drape moves
+## with the shoulders and not with the head.
+func _add_lowered_hood(a: Array, binds: Array, r: Rect2, tri_part: PackedInt32Array, parts: Array) -> void:
+	var pv: PackedVector3Array = a[Mesh.ARRAY_VERTEX]
+	var pn: PackedVector3Array = a[Mesh.ARRAY_NORMAL]
+	var pt: PackedFloat32Array = a[Mesh.ARRAY_TANGENT]
+	var pb: PackedInt32Array = a[Mesh.ARRAY_BONES]
+	var pw: PackedFloat32Array = a[Mesh.ARRAY_WEIGHTS]
+	var pi: PackedInt32Array = a[Mesh.ARRAY_INDEX]
+	# The neckline: vertices shared by the hood over the head and the cowl.
+	var over := {}
+	var cowl := {}
+	for t in tri_part.size():
+		for k in 3:
+			if tri_part[t] == PART_HOOD:
+				over[pi[t * 3 + k]] = true
+			else:
+				cowl[pi[t * 3 + k]] = true
+	var ring := []
+	var axis := Vector3.ZERO
+	for i in over:
+		if cowl.has(i):
+			ring.append(i)
+			axis += pv[i]
+	axis /= ring.size()
+	# The outer neckline vertex for each 10 degrees around the neck.
+	var by_angle := {}
+	for i in ring:
+		var bin := int(floor(fposmod(atan2(pv[i].x - axis.x, pv[i].z - axis.z), TAU) / deg_to_rad(10.0)))
+		var rad := Vector2(pv[i].x - axis.x, pv[i].z - axis.z).length()
+		if not by_angle.has(bin) or rad > float(by_angle[bin][1]):
+			by_angle[bin] = [i, rad]
+	var profile := _outfit_profile(parts, axis)
+	var head: int = (binds[0] as Array).find("Head")
+	var spine: int = (binds[0] as Array).find("spine_03")
+	assert(head >= 0 and spine >= 0, "the hood has no Head or spine_03 bind")
+	var nv := pv.duplicate()
+	var nn := pn.duplicate()
+	var nt := pt.duplicate()
+	var nb := pb.duplicate()
+	var nw := pw.duplicate()
+	for i in over:
+		var az := atan2(pv[i].x - axis.x, pv[i].z - axis.z)
+		# The neckline point on this side of the neck (the nearest one around).
+		var bin := int(floor(fposmod(az, TAU) / deg_to_rad(10.0)))
+		var base := -1
+		for step in 36:
+			for b in [bin + step, bin - step]:
+				var key := posmod(b, 36)
+				if base < 0 and by_angle.has(key):
+					base = by_angle[key][0]
+			if base >= 0:
+				break
+		var bp := pv[base]
+		var h := pv[i].y - bp.y
+		var f := smoothstep(0.0, HOOD_FOLD_HEIGHT, h)
+		if f <= 0.0:
+			continue
+		var out := Vector3(bp.x - axis.x, 0.0, bp.z - axis.z).normalized()
+		var along := Vector3.UP.cross(out).normalized()  # the fold axis, along the neckline
+		# Deeper at the back (the hood's bag), shorter at the sides and front.
+		var back := clampf(-out.z, 0.0, 1.0)
+		var length := lerpf(HOOD_SIDE_LENGTH, HOOD_BACK_LENGTH, back)
+		var off := pv[i] - bp
+		var thick := clampf(off.dot(out), -HOOD_THICKNESS, HOOD_THICKNESS)
+		var local := out * thick + Vector3.UP * h * lerpf(1.0, length, f)
+		var turn := Basis(along, deg_to_rad(HOOD_FOLD_ANGLE) * f)
+		var p2 := bp + turn * local
+		# Outside the clothes and the armour on them.
+		var reach: float = profile.get(_profile_key(atan2(p2.x - axis.x, p2.z - axis.z), p2.y), 0.0)
+		var rad := Vector2(p2.x - axis.x, p2.z - axis.z)
+		var want := reach + ARMOUR_OFFSET + HOOD_CLEARANCE
+		if reach > 0.0 and rad.length() < want:
+			rad = rad.normalized() * want
+			p2 = Vector3(axis.x + rad.x, p2.y, axis.z + rad.y)
+		nv[i] = p2
+		nn[i] = turn * pn[i]
+		var tg := turn * Vector3(pt[i * 4], pt[i * 4 + 1], pt[i * 4 + 2])
+		nt[i * 4] = tg.x
+		nt[i * 4 + 1] = tg.y
+		nt[i * 4 + 2] = tg.z
+		# Skinned like the neckline it hangs from, the head's share on the upper spine.
+		var wsum := {}
+		for c in 4:
+			var bone := pb[base * 4 + c]
+			var wt := pw[base * 4 + c]
+			if bone == head:
+				bone = spine
+			wsum[bone] = wsum.get(bone, 0.0) + wt
+		var own := {}
+		for c in 4:
+			own[pb[i * 4 + c]] = own.get(pb[i * 4 + c], 0.0) + pw[i * 4 + c]
+		var mixed := {}
+		for bone in own:
+			mixed[bone] = mixed.get(bone, 0.0) + own[bone] * (1.0 - f)
+		for bone in wsum:
+			mixed[bone] = mixed.get(bone, 0.0) + wsum[bone] * f
+		var order := mixed.keys()
+		order.sort_custom(func(x, y): return mixed[x] > mixed[y])
+		var total := 0.0
+		for c in 4:
+			total += mixed[order[c]] if c < order.size() else 0.0
+		for c in 4:
+			nb[i * 4 + c] = order[c] if c < order.size() else 0
+			nw[i * 4 + c] = mixed[order[c]] / total if c < order.size() else 0.0
+	var b2 := a.duplicate()
+	b2[Mesh.ARRAY_VERTEX] = nv
+	b2[Mesh.ARRAY_NORMAL] = nn
+	b2[Mesh.ARRAY_TANGENT] = nt
+	b2[Mesh.ARRAY_BONES] = nb
+	b2[Mesh.ARRAY_WEIGHTS] = nw
+	var down := PackedInt32Array()
+	down.resize(tri_part.size())
+	for t in tri_part.size():
+		down[t] = PART_HAIR if tri_part[t] == PART_HOOD else -1
+	var kept := _append(b2, binds, r, down)
+	print("lowered hood: ", kept, " triangles, neckline ", ring.size(), " vertices around ", axis)
 
 
 ## The triangles of a simplified version of a surface (Godot's own mesh
