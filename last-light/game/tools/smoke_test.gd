@@ -194,8 +194,40 @@ func _run_game() -> void:
 	await process_frame
 	var dc_body = test_soldier._body
 	var body_mesh: MeshInstance3D = dc_body._meshes[0]
-	_check(dc_body.merged and dc_body._meshes.size() == 1 and body_mesh.mesh.get_surface_count() == 1 and body_mesh.skin != null
-		and body_mesh.skin.get_bind_count() == 5 * 62, "a soldier's body is one skinned surface, every part keeping its bones (was 15)")
+	# The adventurer's merged skin keeps every part's 62 binds; the phase 4D
+	# legionary was merged ahead of time with shared binds (fewer).
+	var dc_binds_ok: bool = body_mesh.skin != null and (body_mesh.skin.get_bind_count() <= 130 if test_soldier.uses_new_model()
+		else body_mesh.skin.get_bind_count() == 5 * 62)
+	_check(dc_body.merged and dc_body._meshes.size() == 1 and body_mesh.mesh.get_surface_count() == 1 and dc_binds_ok,
+		"a soldier's body is one skinned surface, every part keeping its bones (was 15)")
+	# Phase 4D (GRAPHICS_PHASE_4D_LEGIONARY.md): the standard legionary's new
+	# body: the humanoid rig, one light surface and the shared character
+	# material, the same four animations and kit bones, iron plates on, no
+	# shadows; the other kinds keep the adventurer.
+	if test_soldier.uses_new_model():
+		var lg_tris: int = (body_mesh.mesh.surface_get_arrays(0)[Mesh.ARRAY_INDEX] as PackedInt32Array).size() / 3
+		var lg_mat := body_mesh.mesh.surface_get_material(0) as ShaderMaterial
+		var lg_actions := true
+		for lg_action in ["idle", "run", "slash", "death"]:
+			lg_actions = lg_actions and dc_body.has_action(lg_action)
+		_check(dc_body.skeleton.find_bone("neck_01") >= 0 and lg_tris < 7000 and lg_mat != null
+			and lg_mat.shader.resource_path.ends_with("character_atlas.gdshader") and lg_actions
+			and (RenderingServer.mesh_get_surface(body_mesh.mesh.get_rid(), 0).get("lods", []) as Array).size() >= 1,
+			"the legionary is the new body: humanoid rig, one surface of %d triangles with LODs, the shared material, all four animations" % lg_tris)
+		_check(test_soldier._right_hand != null and test_soldier._left_hand != null and test_soldier._head != null
+			and test_soldier._shield != null and test_soldier._spear != null and test_soldier._helmet != null
+			and float(body_mesh.get_instance_shader_parameter("armour_on")) == 1.0,
+			"the legionary keeps its spear, shield and helmet on hand and head bones, and wears its iron plates")
+		var lg_shadow := true
+		for lg_mi in test_soldier.find_children("*", "MeshInstance3D", true, false):
+			lg_shadow = lg_shadow and (lg_mi as MeshInstance3D).cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_check(lg_shadow, "legionaries still cast no shadows (crowds)")
+		var lg_archer = main._spawn_soldier(main.player.pos + Vector2(40, 0), -1.0, "follow", main.player.pos, "archer")
+		await process_frame
+		_check(not lg_archer.uses_new_model() and lg_archer._body.skeleton.find_bone("neck_01") < 0,
+			"archers (and the other kinds) keep the old body for now")
+		main.soldiers.erase(lg_archer)
+		lg_archer.queue_free()
 	_check(main.player._body.merged, "the player is one skinned surface too")
 	# Character prototype (phase 4C): the player is the ranger model, still one
 	# skinned surface with one material, with every animation and equipment bone.

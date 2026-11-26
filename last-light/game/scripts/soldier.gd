@@ -8,6 +8,23 @@ const Art = preload("res://scripts/art.gd")
 const CharacterModel = preload("res://scripts/character_model.gd")
 const Wolf = preload("res://scripts/wolf.gd")
 const SURVIVOR := preload("res://models/adventurer.glb")
+## Phase 4D (GRAPHICS_PHASE_4D_LEGIONARY.md): the standard legionary's body is
+## built from the same CC0 kits as the player's ranger (tools/build_legionary_model.gd):
+## one skinned surface, one shared material, ~5.5k triangles, LODs. The other
+## kinds keep the adventurer for now. Off with ?legionary=0 (set before
+## soldiers are made), to compare with the old look.
+const LEGIONARY := "res://models/soldiers/legionary.scn"
+const Appearance = preload("res://scripts/character_appearance.gd")
+static var use_legionary_model := true
+## The legionary's iron plates (Gear's iron armour colours, as the player's shell).
+const LEGIONARY_IRON := [Color("7d8186"), Color("5d6166"), 0.8]
+## The kit (helmet, shield) is placed on bones that sit differently in the new
+## rig: its head bone is lower in the head and its hand bone is at the wrist,
+## not the palm. These keep the kit where it was on the body: the helmet's lift
+## and size (the adventurer's head was larger), and the shield's lift.
+const NEW_HELMET_LIFT := 0.05
+const NEW_HELMET_SCALE := 0.88
+const NEW_SHIELD_LIFT := 0.16
 const Horse = preload("res://scripts/horse.gd")
 
 const MAX_ARMY := 100
@@ -134,11 +151,18 @@ func _ready() -> void:
 	_model.add_child(_body)
 	var tunic := {"legionary": "8b2e2e", "archer": "4f5d2f", "cavalry": "7a2a3a", "centurion": "6e1f1f"}
 	var cloth := Color(tunic.get(kind, "8b2e2e"))
-	_body.build(SURVIVOR, 1.62, false, {
+	var actions := {
 		"idle": ["Man_Idle", "Idle"], "run": ["Man_Run", "Run"], "slash": ["Man_SwordSlash", "Sword_Slash"],
 		"death": ["Man_Death", "Death"],
-	}, {"Shirt": {"color": cloth}, "Green": {"color": cloth}, "LightGreen": {"color": cloth.lightened(0.12)},
-		"Pants": {"color": Color("3a2a1a")}, "Brown": {"color": Color("3a2a1a")}})
+	}
+	if uses_new_model():
+		_body.build(load(LEGIONARY), 1.62, false, actions)
+		var iron: Array = LEGIONARY_IRON
+		Appearance.set_armour(_body._meshes[0], true, iron[0], iron[1], float(iron[2]))
+	else:
+		_body.build(SURVIVOR, 1.62, false, actions,
+			{"Shirt": {"color": cloth}, "Green": {"color": cloth}, "LightGreen": {"color": cloth.lightened(0.12)},
+			"Pants": {"color": Color("3a2a1a")}, "Brown": {"color": Color("3a2a1a")}})
 	_right_hand = _body.bone_follower("Palm.R")
 	_left_hand = _body.bone_follower("Palm.L")
 	_head = _body.bone_follower("Head")
@@ -182,6 +206,11 @@ func _ready() -> void:
 	add_child(_label)
 	hp = minf(hp, max_hp())
 	position = world.to_3d(pos)
+
+
+## True if this soldier wears the phase 4D body (the standard legionary only).
+func uses_new_model() -> bool:
+	return kind == "legionary" and use_legionary_model
 
 
 static func _ring_mesh() -> Mesh:
@@ -505,8 +534,12 @@ func _animate(delta: float) -> void:
 	if _shield and _left_hand:
 		# Held in front, slightly turned; a shield wall locks them square.
 		var angle := 0.0 if formation == "shield wall" and mode != "guard" else 0.35
-		_shield.global_transform = Transform3D(turn * Basis(Vector3.UP, angle), _left_hand.global_position + turn * Vector3(0.05, 0.05, 0.14))
+		var lift := NEW_SHIELD_LIFT if uses_new_model() else 0.0
+		_shield.global_transform = Transform3D(turn * Basis(Vector3.UP, angle), _left_hand.global_position + turn * Vector3(0.05, 0.05 + lift, 0.14))
 	if _bow and _left_hand:
 		_bow.global_transform = Transform3D(turn * Basis(Vector3.UP, PI / 2), _left_hand.global_position)
 	if _helmet and _head:
-		_helmet.global_transform = Transform3D(turn, _head.global_position + Vector3(0, 0.06, 0))
+		if uses_new_model():
+			_helmet.global_transform = Transform3D(turn.scaled(Vector3.ONE * NEW_HELMET_SCALE), _head.global_position + Vector3(0, 0.06 + NEW_HELMET_LIFT, 0))
+		else:
+			_helmet.global_transform = Transform3D(turn, _head.global_position + Vector3(0, 0.06, 0))
