@@ -46,6 +46,23 @@ func _run() -> void:
 	# 1. Empty area: open grassland with few props.
 	_go(spots["empty"])
 	await _measure("empty_area")
+	# Phase 4E.1 (GRAPHICS_PHASE_4E1_SWORDS.md), only with ?swordbench=1 (or
+	# --swordbench): you hold the iron sword from here on, and ten raiders with
+	# their axes stand round you (out of the fight: drawn, not hunting).
+	if "--swordbench" in OS.get_cmdline_user_args() or PerfOverlay.url_flag("swordbench"):
+		main.player.sword_tier = 0
+		main.player.equip("sword")
+		await _measure("player_sword")
+		var bench_raiders := []
+		for k in 10:
+			var spot: Vector2 = main.world.random_walkable_near(main.player.pos, 30.0, 90.0, main.rng)
+			var r = main._spawn_raider("raider_chief" if k == 0 else "raider", spot if spot != Vector2.INF else main.player.pos)
+			main.wolves.erase(r)
+			r._animate(0.016)
+			bench_raiders.append(r)
+		await _measure("raiders_10")
+		for r in bench_raiders:
+			r.queue_free()
 	# Phase 4D (GRAPHICS_PHASE_4D_LEGIONARY.md), only with ?legionbench=1 (or
 	# --legionbench): 1, 10 and 30 legionaries following you on open ground.
 	# Phase 4D.2 (GRAPHICS_PHASE_4D2_CENTURION.md), only with ?centurionbench=1

@@ -6,6 +6,11 @@ extends "res://scripts/wolf.gd"
 
 const Art = preload("res://scripts/art.gd")
 const SURVIVOR := preload("res://models/raider.glb")  # a hooded fighter in leather and iron
+## Phase 4E.1 (GRAPHICS_PHASE_4E1_SWORDS.md): a modelled bearded axe, rough
+## and rusty, on the shared weapons material (tools/build_weapon_models.gd).
+## Off with ?swords=0, to compare with the old one.
+const AXE_MODEL := "res://models/weapons/raider_axe.res"
+static var use_new_weapons := true
 
 const RAIDERS := {
 	"raider": {"name": "raider", "hp": 14, "bite": 14.0, "speed": 80.0, "height": 1.66,
@@ -90,8 +95,14 @@ func _build_kit(stats: Dictionary) -> void:
 	Art.part(_shield, Art.sphere(0.07, 4, 8), Color("8a8f95"), Vector3(0, 0, 0.03))
 	Art.part(_shield, Art.cylinder(0.31, 0.31, 0.02, 12), Color("3d2a18"), Vector3(0, 0, -0.005), Vector3(PI / 2, 0, 0))
 	_axe = _piece()
-	Art.part(_axe, Art.cylinder(0.025, 0.025, 0.8, 5), Color("6b4a2b"), Vector3(0, 0.28, 0))
-	Art.part(_axe, Art.box(Vector3(0.04, 0.2, 0.22)), Color("8a8f95"), Vector3(0, 0.6, 0.1))
+	if use_new_weapons:
+		# One mesh on the shared weapons material (not baked: it is already one surface).
+		var axe := MeshInstance3D.new()
+		axe.mesh = load(AXE_MODEL)
+		_axe.add_child(axe)
+	else:
+		Art.part(_axe, Art.cylinder(0.025, 0.025, 0.8, 5), Color("6b4a2b"), Vector3(0, 0.28, 0))
+		Art.part(_axe, Art.box(Vector3(0.04, 0.2, 0.22)), Color("8a8f95"), Vector3(0, 0.6, 0.1))
 	if kind == "raider_chief":
 		var mantle := Art.part(_model, Art.box(Vector3(0.62, 0.22, 0.4)), Color("3a2c20"), Vector3(0, 1.5, -0.02))
 		mantle.scale = Vector3(1, 1, 1)

@@ -698,6 +698,38 @@ func _run_game() -> void:
 		_check(not main.player._armour.visible, "the ranger wears its own armour, not the boxy breastplate")
 	else:
 		_check(main.player._armour.visible, "the adventurer (--player=0) wears the breastplate")
+	# Phase 4E.1 (GRAPHICS_PHASE_4E1_SWORDS.md): each sword tier is its own
+	# modelled weapon, one mesh on the shared weapons material, as is the axe;
+	# the swords' damage is unchanged.
+	var wp = main.player
+	var wp_tier: int = wp.sword_tier
+	if wp.use_new_weapons:
+		var wp_ok := true
+		var wp_mat: Material = null
+		for t in 3:
+			wp.sword_tier = t
+			wp._restyle_gear()
+			var m: Mesh = wp._sword_mesh.mesh
+			wp_ok = wp_ok and m.resource_path == wp.SWORD_MODELS[t] and m.get_surface_count() == 1 \
+				and wp._sword.get_child_count() == 1
+			wp_mat = m.surface_get_material(0) if wp_mat == null else wp_mat
+			wp_ok = wp_ok and m.surface_get_material(0) == wp_mat
+		var wp_axe: MeshInstance3D = wp._axe.get_child(0)
+		_check(wp_ok and wp._axe.get_child_count() == 1 and wp_axe.mesh.surface_get_material(0) == wp_mat,
+			"each sword tier is its own one-mesh weapon (gladius, spatha, gilded), and the axe too, all on one material")
+		var wp_raider = main._spawn_raider("raider", main.player.pos + Vector2(400, 400))
+		await process_frame
+		var wp_raxe := wp_raider._axe.get_child(0) as MeshInstance3D
+		_check(wp_raider._axe.get_child_count() == 1 and wp_raxe.mesh.resource_path == wp_raider.AXE_MODEL
+			and wp_raxe.mesh.surface_get_material(0) == wp_mat, "raiders carry the modelled axe, on the same material")
+		main.wolves.erase(wp_raider)
+		wp_raider.queue_free()
+	else:
+		_check(wp._sword.get_child_count() == 5 and wp._axe.get_child_count() == 2, "--swords=0: the old sword and axe")
+	wp.sword_tier = wp_tier
+	wp._restyle_gear()
+	var wp_damage: Array = Gear.SWORD.map(func(g): return int(g["damage"]))
+	_check(wp_damage == [6, 10, 15], "sword damage is unchanged (%s)" % str(wp_damage))
 	main.hud.close_inventory()
 	_check(not main.hud.is_modal(), "the inventory closes")
 	main._on_hotbar_slot(2)

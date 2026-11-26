@@ -242,6 +242,12 @@ func _ready() -> void:
 		if arg.begins_with("--centurion="):
 			centurion_model = arg.trim_prefix("--centurion=")
 	Soldier.use_centurion_model = centurion_model != "0"  # developers: ?centurion=0 shows the old centurion, for comparing
+	var sword_models := PerfOverlay.url_value("swords")
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--swords="):
+			sword_models = arg.trim_prefix("--swords=")
+	Player.use_new_weapons = sword_models != "0"  # developers: ?swords=0 shows the old swords and axes, for comparing
+	Raider.use_new_weapons = Player.use_new_weapons
 	# The player's look (the ranger only), for trying the appearance options:
 	# ?hood=down&skin=light|medium|tan|dark|deep&outfit=earth&backpack=0. Not saved.
 	var look_options := {}

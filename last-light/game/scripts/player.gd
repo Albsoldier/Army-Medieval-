@@ -85,6 +85,15 @@ static var use_ranger := true
 ## by the ranger's own armour shell, coloured for its tier.
 const Appearance = preload("res://scripts/character_appearance.gd")
 static var appearance: Dictionary = Appearance.DEFAULT.duplicate()
+## Phase 4E.1 (GRAPHICS_PHASE_4E1_SWORDS.md): modelled swords and axe on one
+## shared weapons material (tools/build_weapon_models.gd): each sword tier is
+## its own weapon (iron: a gladius; steel: a spatha; gilded: a sword with gilded
+## fittings), one mesh each. Off with ?swords=0, to compare with the old ones.
+const SWORD_MODELS := ["res://models/weapons/gladius.res", "res://models/weapons/spatha.res",
+	"res://models/weapons/gilded_sword.res"]
+const AXE_MODEL := "res://models/weapons/axe.res"
+static var use_new_weapons := true
+var _sword_mesh: MeshInstance3D  # the sword shown (new weapons only)
 var _look_mesh: GeometryInstance3D  # the ranger's mesh (null for the adventurer)
 var _armour_look := ""  # which armour the ranger's shell shows
 
@@ -143,19 +152,29 @@ func _ready() -> void:
 	_sword = Node3D.new()
 	_sword.top_level = true
 	add_child(_sword)
-	Art.part(_sword, Art.box(Vector3(0.05, 0.75, 0.012)), Color("9ea2a8"), Vector3(0, 0.5, 0))
-	Art.part(_sword, Art.cylinder(0.0, 0.025, 0.08, 4), Color("9ea2a8"), Vector3(0, 0.91, 0))
-	Art.part(_sword, Art.box(Vector3(0.2, 0.035, 0.04)), Color("5a3d22"), Vector3(0, 0.12, 0))
-	Art.part(_sword, Art.cylinder(0.018, 0.018, 0.16, 5), Color("3d2a18"), Vector3(0, 0.03, 0))
-	Art.part(_sword, Art.sphere(0.03, 3, 6), Color("5a3d22"), Vector3(0, -0.06, 0))
+	if use_new_weapons:
+		_sword_mesh = MeshInstance3D.new()  # its mesh is chosen by tier (_restyle_gear)
+		_sword_mesh.mesh = load(SWORD_MODELS[0])
+		_sword.add_child(_sword_mesh)
+	else:
+		Art.part(_sword, Art.box(Vector3(0.05, 0.75, 0.012)), Color("9ea2a8"), Vector3(0, 0.5, 0))
+		Art.part(_sword, Art.cylinder(0.0, 0.025, 0.08, 4), Color("9ea2a8"), Vector3(0, 0.91, 0))
+		Art.part(_sword, Art.box(Vector3(0.2, 0.035, 0.04)), Color("5a3d22"), Vector3(0, 0.12, 0))
+		Art.part(_sword, Art.cylinder(0.018, 0.018, 0.16, 5), Color("3d2a18"), Vector3(0, 0.03, 0))
+		Art.part(_sword, Art.sphere(0.03, 3, 6), Color("5a3d22"), Vector3(0, -0.06, 0))
 	_sword.visible = false
 
 	# The axe: a short haft with an iron head on one side.
 	_axe = Node3D.new()
 	_axe.top_level = true
 	add_child(_axe)
-	Art.part(_axe, Art.cylinder(0.03, 0.03, 0.85, 6), Color("a07548"), Vector3(0, 0.3, 0))
-	Art.part(_axe, Art.box(Vector3(0.06, 0.22, 0.28)), Color("c4c8ce"), Vector3(0, 0.62, 0.13))
+	if use_new_weapons:
+		var axe_mesh := MeshInstance3D.new()
+		axe_mesh.mesh = load(AXE_MODEL)
+		_axe.add_child(axe_mesh)
+	else:
+		Art.part(_axe, Art.cylinder(0.03, 0.03, 0.85, 6), Color("a07548"), Vector3(0, 0.3, 0))
+		Art.part(_axe, Art.box(Vector3(0.06, 0.22, 0.28)), Color("c4c8ce"), Vector3(0, 0.62, 0.13))
 	_axe.visible = false
 
 	# The pickaxe: a haft with a curved iron head across the top.
@@ -475,7 +494,9 @@ func _restyle_gear() -> void:
 	if spear_tier >= 0:
 		var g := Gear.info("spear", spear_tier)
 		_tint(_spear, [g["shaft"], g["tip"]])
-	if sword_tier >= 0:
+	if sword_tier >= 0 and _sword_mesh:
+		_sword_mesh.mesh = load(SWORD_MODELS[clampi(sword_tier, 0, SWORD_MODELS.size() - 1)])
+	elif sword_tier >= 0:
 		var g := Gear.info("sword", sword_tier)
 		_tint(_sword, [g["blade"], g["blade"], g["hilt"], g["hilt"].darkened(0.3), g["hilt"]])
 	if armour_tier >= 0:
