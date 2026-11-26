@@ -25,6 +25,16 @@ const LEGIONARY_IRON := [Color("7d8186"), Color("5d6166"), 0.8]
 const NEW_HELMET_LIFT := 0.05
 const NEW_HELMET_SCALE := 0.88
 const NEW_SHIELD_LIFT := 0.16
+## Phase 4D.2 (GRAPHICS_PHASE_4D2_CENTURION.md): the centurion's body is the
+## legionary's with an officer's kit built into the same surface (a crested
+## galea, phalerae, a red cloak; tools/build_centurion_model.gd), drawn with
+## the legionary's own material. Off with ?centurion=0, to compare.
+const CENTURION := "res://models/soldiers/centurion.scn"
+static var use_centurion_model := true
+## The centurion's plates: steel with gold trim (Gear's steel and gilded colours).
+const CENTURION_STEEL := [Color("c4cad2"), Color("e0b43c"), 0.85]
+## One material for legionaries and centurions: the legionary's (see _share_material).
+static var _soldier_material: Material
 const Horse = preload("res://scripts/horse.gd")
 
 const MAX_ARMY := 100
@@ -156,9 +166,12 @@ func _ready() -> void:
 		"death": ["Man_Death", "Death"],
 	}
 	if uses_new_model():
-		_body.build(load(LEGIONARY), 1.62, false, actions)
-		var iron: Array = LEGIONARY_IRON
-		Appearance.set_armour(_body._meshes[0], true, iron[0], iron[1], float(iron[2]))
+		var centurion := kind == "centurion"
+		var scene: PackedScene = load(CENTURION if centurion else LEGIONARY)
+		_share_material(scene)
+		_body.build(scene, 1.62, false, actions)
+		var plates: Array = CENTURION_STEEL if centurion else LEGIONARY_IRON
+		Appearance.set_armour(_body._meshes[0], true, plates[0], plates[1], float(plates[2]))
 	else:
 		_body.build(SURVIVOR, 1.62, false, actions,
 			{"Shirt": {"color": cloth}, "Green": {"color": cloth}, "LightGreen": {"color": cloth.lightened(0.12)},
@@ -174,11 +187,13 @@ func _ready() -> void:
 			_build_helmet(Color("8f8f95"), false)
 			_build_spear()
 		"centurion":
-			_build_helmet(Color("b8b8bf"), true)
+			if not uses_new_model():
+				# The new body has its crested helmet and cloak built in.
+				_build_helmet(Color("b8b8bf"), true)
+				var cloak := Art.part(_model, Art.box(Vector3(0.42, 0.75, 0.04)), Color("9e2a24"), Vector3(0, 0.95, -0.17), Vector3(0.12, 0, 0))
+				cloak.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			_build_shield(Color("6e1f1f"))
 			_build_spear()
-			var cloak := Art.part(_model, Art.box(Vector3(0.42, 0.75, 0.04)), Color("9e2a24"), Vector3(0, 0.95, -0.17), Vector3(0.12, 0, 0))
-			cloak.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_:
 			_build_helmet(Color("a07a3a"), false)
 			_build_shield(Color("8e2323"))
@@ -208,9 +223,26 @@ func _ready() -> void:
 	position = world.to_3d(pos)
 
 
-## True if this soldier wears the phase 4D body (the standard legionary only).
+## True if this soldier wears a phase 4D body (the standard legionary, 4D;
+## the centurion, 4D.2). Every other kind keeps the adventurer.
 func uses_new_model() -> bool:
-	return kind == "legionary" and use_legionary_model
+	return (kind == "legionary" and use_legionary_model) or (kind == "centurion" and use_centurion_model)
+
+
+## Legionaries and centurions are drawn with one material: the centurion's
+## mesh is given the legionary's material instance (same shader, same atlas)
+## the first time it is used. Without the legionary model (?legionary=0) the
+## centurion keeps its own copy, with the same textures.
+static func _share_material(scene: PackedScene) -> void:
+	if _soldier_material != null or not use_legionary_model or scene.resource_path != CENTURION:
+		return
+	# Every instance of a loaded scene shares its mesh, so this is done once.
+	var legionary: Node = (load(LEGIONARY) as PackedScene).instantiate()
+	_soldier_material = (legionary.find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D).mesh.surface_get_material(0)
+	legionary.free()
+	var probe: Node = scene.instantiate()
+	(probe.find_children("*", "MeshInstance3D", true, false)[0] as MeshInstance3D).mesh.surface_set_material(0, _soldier_material)
+	probe.free()
 
 
 static func _ring_mesh() -> Mesh:

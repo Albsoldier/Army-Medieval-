@@ -94,3 +94,7 @@ from the same CC0 Quaternius kits as the player (free Standard editions from qua
 The textures are packed into `soldiers/legionary_colour.png`, `legionary_normal.png` and `legionary_orm.png`
 (one small atlas, downscaled). See `last-light/GRAPHICS_PHASE_4D_LEGIONARY.md`.
 
+`soldiers/centurion.scn` (phase 4D.2) is built by `game/tools/build_centurion_model.gd` from the same files as the
+legionary (no other assets). Its crested helmet, phalerae and cloak are made in that tool, and it uses the
+legionary's atlas: it adds no textures. See `last-light/GRAPHICS_PHASE_4D2_CENTURION.md`.
+

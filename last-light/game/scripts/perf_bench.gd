@@ -48,10 +48,15 @@ func _run() -> void:
 	await _measure("empty_area")
 	# Phase 4D (GRAPHICS_PHASE_4D_LEGIONARY.md), only with ?legionbench=1 (or
 	# --legionbench): 1, 10 and 30 legionaries following you on open ground.
-	if "--legionbench" in OS.get_cmdline_user_args() or PerfOverlay.url_flag("legionbench"):
+	# Phase 4D.2 (GRAPHICS_PHASE_4D2_CENTURION.md), only with ?centurionbench=1
+	# (or --centurionbench): the same with centurions (more than the game allows,
+	# one per barracks, to measure a crowd of them).
+	for bench_kind in [["legionbench", "legionary", "legion"], ["centurionbench", "centurion", "centurion"]]:
+		if not ("--" + bench_kind[0] in OS.get_cmdline_user_args() or PerfOverlay.url_flag(bench_kind[0])):
+			continue
 		for n in [1, 10, 30]:
-			_recruit(n - main.soldiers.size(), "legionary")
-			await _measure("legion_%d" % n)
+			_recruit(n - main.soldiers.size(), bench_kind[1])
+			await _measure("%s_%d" % [bench_kind[2], n])
 		for s in main.soldiers.duplicate():
 			main.soldiers.erase(s)
 			s.queue_free()

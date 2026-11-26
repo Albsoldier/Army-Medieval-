@@ -222,6 +222,35 @@ func _run_game() -> void:
 		for lg_mi in test_soldier.find_children("*", "MeshInstance3D", true, false):
 			lg_shadow = lg_shadow and (lg_mi as MeshInstance3D).cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_check(lg_shadow, "legionaries still cast no shadows (crowds)")
+		# Phase 4D.2 (GRAPHICS_PHASE_4D2_CENTURION.md): the centurion is the
+		# legionary's body with a crested helmet, phalerae and a cloak in the same
+		# surface, drawn with the legionary's own material.
+		var ce = main._spawn_soldier(main.player.pos + Vector2(50, 0), -1.0, "follow", main.player.pos, "centurion")
+		await process_frame
+		var ce_mesh: MeshInstance3D = ce._body._meshes[0]
+		if ce.uses_new_model():
+			var ce_tris: int = ce_mesh.mesh.surface_get_array_index_len(0) / 3
+			var ce_actions := true
+			for ce_action in ["idle", "run", "slash", "death"]:
+				ce_actions = ce_actions and ce._body.has_action(ce_action)
+			_check(ce._body.merged and ce._body._meshes.size() == 1 and ce_mesh.mesh.get_surface_count() == 1
+				and ce._body.skeleton.find_bone("neck_01") >= 0 and ce_tris > lg_tris and ce_tris < 7000 and ce_actions
+				and (RenderingServer.mesh_get_surface(ce_mesh.mesh.get_rid(), 0).get("lods", []) as Array).size() >= 1,
+				"the centurion is the new body: one surface of %d triangles with LODs (helmet, crest, cloak built in), all four animations" % ce_tris)
+			_check(ce_mesh.mesh.surface_get_material(0) == body_mesh.mesh.surface_get_material(0),
+				"legionaries and centurions share one material")
+			_check(ce._helmet == null and ce._shield != null and ce._spear != null and ce._right_hand != null and ce._left_hand != null
+				and float(ce_mesh.get_instance_shader_parameter("armour_on")) == 1.0
+				and (ce_mesh.get_instance_shader_parameter("armour_color") as Color).is_equal_approx(ce.CENTURION_STEEL[0]),
+				"the centurion keeps its spear and shield on the hand bones and wears steel plates trimmed in gold")
+			var ce_shadow := true
+			for ce_mi in ce.find_children("*", "MeshInstance3D", true, false):
+				ce_shadow = ce_shadow and (ce_mi as MeshInstance3D).cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_check(ce_shadow, "centurions cast no shadows, like the rest of the army")
+		else:
+			_check(ce._helmet != null and ce._body.skeleton.find_bone("neck_01") < 0, "--centurion=0: the old centurion, its crested helmet a separate piece")
+		main.soldiers.erase(ce)
+		ce.queue_free()
 		var lg_archer = main._spawn_soldier(main.player.pos + Vector2(40, 0), -1.0, "follow", main.player.pos, "archer")
 		await process_frame
 		_check(not lg_archer.uses_new_model() and lg_archer._body.skeleton.find_bone("neck_01") < 0,
