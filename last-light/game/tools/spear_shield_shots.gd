@@ -194,6 +194,7 @@ func _copy(node: Node3D, parent: Node3D) -> Node3D:
 	var c := node.duplicate() as Node3D
 	c.top_level = false
 	for mi in c.find_children("*", "MeshInstance3D", true, false):
+		(mi as MeshInstance3D).visible = true  # (4E.5: a batched piece's own mesh is hidden)
 		if (mi as MeshInstance3D).material_override:
 			(mi as MeshInstance3D).material_override = (mi as MeshInstance3D).material_override.duplicate()
 	parent.add_child(c)

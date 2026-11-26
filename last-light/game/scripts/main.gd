@@ -18,6 +18,7 @@ const Horse = preload("res://scripts/horse.gd")
 const Settler = preload("res://scripts/settler.gd")
 const PerfOverlay = preload("res://scripts/perf_overlay.gd")
 const PerfBench = preload("res://scripts/perf_bench.gd")
+const KitBatcher = preload("res://scripts/kit_batcher.gd")
 const GpuValidation = preload("res://scripts/gpu_validation.gd")
 ## The sun's shadow setups compared in GRAPHICS_SHADOWS.md: cascades (splits)
 ## and shadow-map atlas size. All keep the 70 m shadow distance.
@@ -292,6 +293,16 @@ func _ready() -> void:
 	_make_camps()
 	_make_herds()
 
+	# Phase 4E.5: soldiers' and raiders' kit drawn in batches, one per kind of
+	# piece (kit_batcher.gd). Developers: ?kitbatch=0 draws each piece on its own, for comparing.
+	var kit_batch := PerfOverlay.url_value("kitbatch")
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--kitbatch="):
+			kit_batch = arg.trim_prefix("--kitbatch=")
+	KitBatcher.enabled = kit_batch != "0"
+	var kit_batcher := KitBatcher.new()
+	kit_batcher.name = "KitBatcher"
+	add_child(kit_batcher)
 	entities = Node3D.new()
 	add_child(entities)
 

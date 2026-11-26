@@ -4,6 +4,7 @@
 ## their own camp: they never leave it and never touch your buildings.
 extends "res://scripts/wolf.gd"
 
+const KitBatcher = preload("res://scripts/kit_batcher.gd")
 const Art = preload("res://scripts/art.gd")
 const SURVIVOR := preload("res://models/raider.glb")  # a hooded fighter in leather and iron
 ## Phase 4E.1 (GRAPHICS_PHASE_4E1_SWORDS.md): a modelled bearded axe, rough
@@ -83,6 +84,8 @@ func _ready() -> void:
 	for i in _kit.size():
 		Art.bake(_kit[i], Art.parts_of(_kit[i]), "raider-kit:%s:%d" % [kind, i])
 	Art.bake(_model, Art.parts_of(_model), "raider-worn:" + kind)
+	for piece in _kit:
+		KitBatcher.adopt(piece)  # phase 4E.5: drawn in batches, one per kind of piece
 	position = world.to_3d(pos)
 
 

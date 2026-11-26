@@ -774,6 +774,74 @@ func _run_game() -> void:
 	_check(ss_damage == [2, 3, 5, 8, 12] and is_equal_approx(Gear.SPEAR_REACH, 34.0)
 		and is_equal_approx(float(SoldierScript.KINDS["legionary"]["reach"]), 26.0),
 		"spear damage and reach are unchanged (%s)" % str(ss_damage))
+	# Phase 4E.5 (GRAPHICS_PHASE_4E5_EQUIPMENT_OPTIMIZATION.md): soldiers' and
+	# raiders' kit drawn in batches, one per kind of piece, at the pieces' own
+	# places; far-away and dead soldiers' kit left out. Off with --kitbatch=0.
+	var kb_script = load("res://scripts/kit_batcher.gd")
+	var kb_army := []
+	for k in 3:
+		kb_army.append(main._spawn_soldier(main.player.pos + Vector2(-60 + k * 20, 40), -1.0, "follow", main.player.pos, "legionary"))
+	await process_frame
+	await process_frame
+	var kb_shield := (kb_army[0]._shield.get_child(kb_army[0]._shield.get_child_count() - 1) as MeshInstance3D)  # (the old shield's merged board, last)
+	if kb_script.enabled:
+		var kb = main.get_node("KitBatcher")
+		# What is drawn: each batch's instance transforms, as sent to the renderer
+		# (read from the batcher: a headless run's renderer keeps no MultiMesh data).
+		var kb_drawn_at := func(mesh: Mesh) -> Array:
+			var at := []
+			for group: Dictionary in kb._groups.values():
+				var mm: MultiMesh = (group["mmi"] as MultiMeshInstance3D).multimesh
+				if mm.mesh != mesh:
+					continue
+				var b: PackedFloat32Array = group["buffer"]
+				for i in mm.visible_instance_count:
+					var k := i * 12
+					at.append(Transform3D(Basis(Vector3(b[k], b[k + 4], b[k + 8]), Vector3(b[k + 1], b[k + 5], b[k + 9]),
+						Vector3(b[k + 2], b[k + 6], b[k + 10])), Vector3(b[k + 3], b[k + 7], b[k + 11])))
+			return at
+		var kb_count := func() -> int:
+			return (kb_drawn_at.call(kb_shield.mesh) as Array).size()
+		var kb_placed: bool = (kb_drawn_at.call(kb_shield.mesh) as Array).any(func(t): return (t as Transform3D).is_equal_approx(kb_shield.global_transform))
+		_check(not kb_shield.visible and kb_count.call() >= 3 and kb_placed and kb_shield.get_parent().visible,
+			"kit drawn in batches: the legion's shields are one MultiMesh, each at its soldier's shield (%d)" % kb_count.call())
+		var kb_before: int = kb_count.call()
+		kb_army[1].set_shown(false)
+		kb_army[2].hp = 0.0
+		for piece in kb_army[2]._kit:
+			(piece as Node3D).visible = false
+		await process_frame
+		await process_frame
+		_check(kb_count.call() == kb_before - 2, "a hidden or dead soldier's kit is left out of the batch (%d -> %d)" % [kb_before, kb_count.call()])
+		# On the move, every piece drawn is exactly where its soldier holds it, this frame.
+		main.player.pos += Vector2(40, 0)
+		for f in 20:
+			await process_frame
+		var kb_drawn := 0
+		var kb_exact := true
+		var kb_meshes := {}
+		for group: Dictionary in kb._groups.values():
+			kb_meshes[(group["mmi"] as MultiMeshInstance3D).multimesh.mesh] = true
+		for mesh in kb_meshes:
+			var wanted := []
+			for s in main.soldiers + main.wolves:
+				if not ("_kit" in s):
+					continue
+				for piece in s._kit:
+					for mi in (piece as Node3D).get_children():
+						if mi is MeshInstance3D and (mi as MeshInstance3D).mesh == mesh and (piece as Node3D).is_visible_in_tree():
+							wanted.append((mi as MeshInstance3D).global_transform)
+			var drawn: Array = kb_drawn_at.call(mesh)
+			kb_exact = kb_exact and wanted.size() == drawn.size()
+			for t in drawn:
+				kb_exact = kb_exact and wanted.any(func(w): return (w as Transform3D).is_equal_approx(t))
+				kb_drawn += 1
+		_check(kb_exact and kb_drawn > 0, "while the army moves, each batched piece is drawn exactly at its own place (%d pieces)" % kb_drawn)
+	else:
+		_check(kb_shield.visible and main.get_node("KitBatcher").get_child_count() == 0, "--kitbatch=0: each piece drawn on its own")
+	for s in kb_army:
+		main.soldiers.erase(s)
+		s.queue_free()
 	main.hud.close_inventory()
 	_check(not main.hud.is_modal(), "the inventory closes")
 	main._on_hotbar_slot(2)

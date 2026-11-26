@@ -47,6 +47,8 @@ const SHIELD_MODELS := {"legionary": "res://models/weapons/scutum.res",
 static var use_new_spears := true
 static var use_new_shields := true
 const Horse = preload("res://scripts/horse.gd")
+## Phase 4E.5: the kit is drawn in batches, one per kind of piece (kit_batcher.gd).
+const KitBatcher = preload("res://scripts/kit_batcher.gd")
 
 const MAX_ARMY := 100
 const PER_BARRACKS := 10
@@ -218,6 +220,8 @@ func _ready() -> void:
 	# With up to a hundred soldiers, shadows cost too much.
 	for mi in find_children("*", "MeshInstance3D", true, false):
 		(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for piece in _kit:
+		KitBatcher.adopt(piece)
 	_ring = Art.part(self, _ring_mesh(), Color(0.45, 1.0, 0.45), Vector3(0, 0.06, 0), Vector3.ZERO, 0.0, true)
 	_ring.visible = false
 	_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

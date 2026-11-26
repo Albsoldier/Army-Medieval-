@@ -281,7 +281,7 @@ func _blade(base: float, length: float, half_width: Callable, half_thick: Callab
 ## (sx, sz) into an oval; caps where a ring at either end is not a point.
 ## u runs round, v along; smooth: one smoothing group (or a new one per band).
 func _lathe(rings: Array, segs: int, region: String, sx := 1.0, sz := 1.0, smooth := true, turn := 0.0,
-		v_scale := 1.0, xf := Transform3D.IDENTITY) -> void:
+		v_scale := 1.0, xf := Transform3D.IDENTITY, caps := 3) -> void:
 	var group := _group
 	_group += 1
 	for i in rings.size() - 1:
@@ -304,7 +304,8 @@ func _lathe(rings: Array, segs: int, region: String, sx := 1.0, sz := 1.0, smoot
 		_group += rings.size()
 	for end in [0, rings.size() - 1]:
 		var ring: Array = rings[end]
-		if float(ring[1]) < 0.0005:
+		# caps: 1 the first ring's, 2 the last's (4E.5: leave out caps hidden inside other parts).
+		if float(ring[1]) < 0.0005 or not (caps & (1 if end == 0 else 2)):
 			continue
 		var cap := _group
 		_group += 1
@@ -321,7 +322,7 @@ func _lathe(rings: Array, segs: int, region: String, sx := 1.0, sz := 1.0, smoot
 
 ## A box (crisp faces) from `lo` to `hi`, its x and z sizes scaled by taper at
 ## the top (for guards that narrow or flare).
-func _box(lo: Vector3, hi: Vector3, region: String, top_scale := Vector2.ONE) -> void:
+func _box(lo: Vector3, hi: Vector3, region: String, top_scale := Vector2.ONE, skip: Array = []) -> void:
 	var c := (lo + hi) * 0.5
 	var corner := func(ix: int, iy: int, iz: int) -> Vector3:
 		var p := Vector3(lo.x if ix == 0 else hi.x, lo.y if iy == 0 else hi.y, lo.z if iz == 0 else hi.z)
@@ -338,6 +339,8 @@ func _box(lo: Vector3, hi: Vector3, region: String, top_scale := Vector2.ONE) ->
 		[Vector3.FORWARD, [[0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0]]],
 	]
 	for f in faces:
+		if f[0] in skip:  # 4E.5: a face hidden against another part
+			continue
 		var q := []
 		for idx in f[1]:
 			q.append(corner.call(idx[0], idx[1], idx[2]))
@@ -731,10 +734,14 @@ func _spear(kind: String) -> ArrayMesh:
 	match kind:
 		"spear_pilum":
 			# Shaft, thicker towards the collar; an iron butt-spike.
-			_lathe([[bottom, r * 0.9], [bottom + 0.1, r], [top - 0.05, r * 1.15], [top, r * 1.2]], 8, wood, 1.0, 1.0)
-			_lathe([[bottom - 0.05, 0.002], [bottom - 0.02, r * 0.85], [bottom + 0.04, r * 1.0]], 8, "darksteel")
+			# (4E.5: the shaft's ends are inside the butt-spike and the collar: no caps.)
+			_lathe([[bottom, r * 0.9], [bottom + 0.1, r], [top - 0.05, r * 1.15], [top, r * 1.2]], 8, wood, 1.0, 1.0,
+				true, 0.0, 1.0, Transform3D.IDENTITY, 0)
+			_lathe([[bottom - 0.05, 0.002], [bottom - 0.02, r * 0.85], [bottom + 0.04, r * 1.0]], 8, "darksteel",
+				1.0, 1.0, true, 0.0, 1.0, Transform3D.IDENTITY, 2)
 			_box(Vector3(-0.022, top - 0.005, -0.022), Vector3(0.022, top + 0.055, 0.022), "darksteel", Vector2(0.75, 0.75))  # collar
-			_lathe([[top + 0.05, 0.0075], [top + 0.25, 0.0062], [top + 0.4, 0.0058]], 6, "iron")  # the long iron shank
+			_lathe([[top + 0.05, 0.0075], [top + 0.25, 0.0062], [top + 0.4, 0.0058]], 6, "iron",
+				1.0, 1.0, true, 0.0, 1.0, Transform3D.IDENTITY, 0)  # the long iron shank (its ends in the collar and the point)
 			_blade(top + 0.4, 0.075, func(t): return lerpf(0.011, 0.0, t) + 0.0003, func(t): return lerpf(0.011, 0.0, t) + 0.0003,
 				_diamond, 6, "iron")  # small pyramidal point
 		"spear_officer", "spear_iron", "spear_steel", "spear_gilded", "spear_lance":
@@ -742,7 +749,8 @@ func _spear(kind: String) -> ArrayMesh:
 				"spear_gilded": "steel", "spear_lance": "steel"}[kind]
 			var socket: String = {"spear_officer": "bronze", "spear_iron": "iron", "spear_steel": "darksteel",
 				"spear_gilded": "gold", "spear_lance": "darksteel"}[kind]
-			_lathe([[bottom, r * 0.95], [bottom + 0.1, r], [top, r * 0.92]], 8, wood, 1.0, 1.0)
+			_lathe([[bottom, r * 0.95], [bottom + 0.1, r], [top, r * 0.92]], 8, wood, 1.0, 1.0,
+				true, 0.0, 1.0, Transform3D.IDENTITY, 0)  # its ends inside the butt cap and the socket
 			_lathe([[bottom - 0.035, 0.004], [bottom - 0.01, r * 1.05], [bottom + 0.05, r * 1.1]], 8, socket)  # butt cap
 			_lathe([[top - 0.09, r * 1.12], [top, r * 1.1], [top + 0.035, r * 0.7]], 8, socket)  # socket
 			var length: float = {"spear_officer": 0.21, "spear_iron": 0.2, "spear_steel": 0.24, "spear_gilded": 0.23,
@@ -759,10 +767,13 @@ func _spear(kind: String) -> ArrayMesh:
 				_lathe([[-0.12, r * 1.16], [0.14, r * 1.16]], 8, "leather")  # the grip, where the hand holds it
 		"spear_wooden":
 			# One length of wood, its point shaped and hardened in the fire (charred).
-			_lathe([[bottom, r * 0.95], [bottom + 0.1, r], [top - 0.04, r * 0.95]], 8, "wood")
-			_lathe([[top - 0.04, r * 0.95], [top + 0.06, r * 0.75], [top + 0.18, r * 0.3], [top + 0.24, 0.0005]], 8, "darkwood")
+			_lathe([[bottom, r * 0.95], [bottom + 0.1, r], [top - 0.04, r * 0.95]], 8, "wood",
+				1.0, 1.0, true, 0.0, 1.0, Transform3D.IDENTITY, 1)  # (no cap where the point joins)
+			_lathe([[top - 0.04, r * 0.95], [top + 0.06, r * 0.75], [top + 0.18, r * 0.3], [top + 0.24, 0.0005]], 8, "darkwood",
+				1.0, 1.0, true, 0.0, 1.0, Transform3D.IDENTITY, 0)
 		"spear_flint":
-			_lathe([[bottom, r * 0.95], [bottom + 0.1, r], [top, r * 0.9]], 8, "shaft")
+			_lathe([[bottom, r * 0.95], [bottom + 0.1, r], [top, r * 0.9]], 8, "shaft",
+				1.0, 1.0, true, 0.0, 1.0, Transform3D.IDENTITY, 1)  # its top inside the binding
 			# A knapped flint head, thick, bound on with sinew.
 			_blade(top - 0.02, 0.17, _leaf(0.027, 0.32), func(t): return lerpf(0.0085, 0.003, t), _diamond, 8, "flint")
 			_lathe([[top - 0.07, r * 1.12], [top + 0.02, r * 1.25], [top + 0.035, r * 0.9]], 8, "binding")
@@ -786,7 +797,7 @@ func _scutum(officer: bool) -> ArrayMesh:
 	var face := "face_centurion" if officer else "face_legion"
 	var edging := "sgold" if officer else "siron"
 	var nx := 12
-	var ny := 6
+	var ny := 1  # 4E.5: the board curves only across, so one row down its height is the same shape (was 6)
 	var curve := func(x: float) -> float: return -radius + sqrt(radius * radius - x * x)  # 0 at the middle
 	for side: float in [1.0, -1.0]:
 		var group := _group
@@ -828,14 +839,16 @@ func _scutum(officer: bool) -> ArrayMesh:
 			_uv(edging, 0.8, float(k + 1) / rim.size()), _uv(edging, 0.8, float(k) / rim.size()), out, edge_group)
 	# The boss: a square plate and a dome (lathed along +z), at the front's middle.
 	var plate := 0.085
-	_box(Vector3(-plate, -plate, t * 0.5 - 0.001), Vector3(plate, plate, t * 0.5 + 0.005), edging if officer else "sbronze")
+	_box(Vector3(-plate, -plate, t * 0.5 - 0.001), Vector3(plate, plate, t * 0.5 + 0.005), edging if officer else "sbronze",
+		Vector2.ONE, [Vector3.FORWARD])  # (its back is against the board)
 	var to_front := Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0, 0, t * 0.5 + 0.004))
 	_lathe([[0.0, 0.07], [0.012, 0.066], [0.03, 0.05], [0.045, 0.026], [0.05, 0.0]], 14,
-		"sgold" if officer else "siron", 1.0, 1.0, true, 0.0, 1.0, to_front)
+		"sgold" if officer else "siron", 1.0, 1.0, true, 0.0, 1.0, to_front, 0)  # (its base is on the plate)
 	# The grip behind the boss.
 	_box(Vector3(-0.08, -0.016, -t * 0.5 - 0.03), Vector3(0.08, 0.016, -t * 0.5 - 0.012), "sleather")
 	for x: float in [-0.075, 0.075]:
-		_box(Vector3(x - 0.008, -0.016, -t * 0.5 - 0.012), Vector3(x + 0.008, 0.016, -t * 0.5), "siron")
+		_box(Vector3(x - 0.008, -0.016, -t * 0.5 - 0.012), Vector3(x + 0.008, 0.016, -t * 0.5), "siron",
+			Vector2.ONE, [Vector3.BACK, Vector3.FORWARD])  # (against the board and the grip)
 	_atlas = "weapons"
 	return _end()
 
@@ -868,6 +881,8 @@ func _round_shield(chief: bool) -> ArrayMesh:
 						var region := face if side > 0.0 else "planks"
 						uvs.append(_uv(region, 0.5 + p.x / (2.0 * radius) * (1.0 if side > 0.0 else 0.9), 0.5 - p.y / (2.0 * radius)))
 				var out := Vector3(0, 0, side)
+				if k == 0 and side > 0.0:
+					continue  # 4E.5: the front's middle is under the boss
 				if k == 0:
 					_tri(pts[0], pts[3], pts[2], uvs[0], uvs[3], uvs[2], out, group)
 				else:
@@ -887,7 +902,7 @@ func _round_shield(chief: bool) -> ArrayMesh:
 			_uv(rim_region, 0.8, float(s + 1) / segs), _uv(rim_region, 0.8, float(s) / segs), (p0 + p1) * 0.5, rim_group)
 	var to_front := Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3(0, 0, dome + t * 0.5 - 0.004))
 	_lathe([[0.0, 0.08], [0.01, 0.075], [0.035, 0.055], [0.06, 0.02], [0.065, 0.0]], 12,
-		"siron" if chief else "srust", 1.0, 1.0, true, 0.0, 1.0, to_front)
+		"siron" if chief else "srust", 1.0, 1.0, true, 0.0, 1.0, to_front, 0)  # (its base is sunk into the face)
 	_box(Vector3(-0.07, -0.015, -t * 0.5 - 0.028), Vector3(0.07, 0.015, -t * 0.5 - 0.01), "sleather")
 	_atlas = "weapons"
 	return _end()
