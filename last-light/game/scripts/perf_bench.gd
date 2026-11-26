@@ -46,6 +46,15 @@ func _run() -> void:
 	# 1. Empty area: open grassland with few props.
 	_go(spots["empty"])
 	await _measure("empty_area")
+	# Phase 4D (GRAPHICS_PHASE_4D_LEGIONARY.md), only with ?legionbench=1 (or
+	# --legionbench): 1, 10 and 30 legionaries following you on open ground.
+	if "--legionbench" in OS.get_cmdline_user_args() or PerfOverlay.url_flag("legionbench"):
+		for n in [1, 10, 30]:
+			_recruit(n - main.soldiers.size(), "legionary")
+			await _measure("legion_%d" % n)
+		for s in main.soldiers.duplicate():
+			main.soldiers.erase(s)
+			s.queue_free()
 	# 2. Forest: the densest woods near the start.
 	_go(spots["forest"])
 	await _measure("forest")
@@ -218,12 +227,13 @@ func _build_village(centre: Vector2) -> void:
 	_note("village_built", {"structures": main.buildings.size(), "settlers": main.settlers.size()})
 
 
-func _recruit(n: int) -> void:
+## Recruits n soldiers, a mixed army (or only `only`, a kind).
+func _recruit(n: int, only := "") -> void:
 	var kinds := ["legionary", "legionary", "legionary", "legionary", "legionary", "legionary", "archer", "archer", "cavalry", "centurion"]
 	for i in n:
 		var spot: Vector2 = main.world.random_walkable_near(main.player.pos, 20.0, 80.0, main.rng)
 		main._spawn_soldier(spot if spot != Vector2.INF else main.player.pos, -1.0, "follow", main.player.pos,
-			kinds[main.soldiers.size() % kinds.size()])
+			only if only != "" else kinds[main.soldiers.size() % kinds.size()])
 	main._reassign_slots()
 
 

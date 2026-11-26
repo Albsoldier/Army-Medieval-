@@ -78,3 +78,19 @@ The textures were packed into `player/player_colour.png`, `player_normal.png` an
 atlas, downscaled), plus `player_outfit_earth.png` (the second outfit), and every part merged into one
 skinned mesh. The backpack is the one from `adventurer.glb` (see above), moved onto this skeleton. See
 `last-light/GRAPHICS_CHARACTER_PROTOTYPE.md` and `last-light/GRAPHICS_PLAYER_REFINEMENT.md`.
+
+## Soldiers (`soldiers/`, phase 4D)
+
+`soldiers/legionary.scn` (the standard legionary's body) is built by `game/tools/build_legionary_model.gd`
+from the same CC0 Quaternius kits as the player (free Standard editions from quaternius.itch.io; each kit's
+`License` file states **CC0 1.0 Universal**: commercial use and redistribution allowed, no attribution required):
+
+| Kit | Files used | For |
+|---|---|---|
+| Modular Character Outfits – Fantasy | `Exports/glTF (Godot-Unreal)/Outfits/Male_Peasant.gltf`, its `.bin` and textures (`T_Peasant_*`, `T_Regular_Male_*`) | the tunic (dyed legion red), arms, trousers and boots; the iron plates are made from the tunic |
+| Universal Base Characters | `Superhero_Male_FullBody.gltf` (head, eyes and eyebrows only), `Hair_Buzzed.gltf`, with their textures | the head and cropped hair |
+| Universal Animation Library | `UAL1_Standard.glb` (Idle, Walk, Jog_Fwd, Sword_Attack, Death01) | the animations |
+
+The textures are packed into `soldiers/legionary_colour.png`, `legionary_normal.png` and `legionary_orm.png`
+(one small atlas, downscaled). See `last-light/GRAPHICS_PHASE_4D_LEGIONARY.md`.
+
