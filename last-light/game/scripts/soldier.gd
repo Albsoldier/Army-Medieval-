@@ -35,6 +35,17 @@ static var use_centurion_model := true
 const CENTURION_STEEL := [Color("c4cad2"), Color("e0b43c"), 0.85]
 ## One material for legionaries and centurions: the legionary's (see _share_material).
 static var _soldier_material: Material
+## Phase 4E.2 (GRAPHICS_PHASE_4E2_SPEARS_SHIELDS.md): modelled spears and
+## shields (tools/build_weapon_models.gd), one mesh each on the shared weapons
+## and shields materials: the legionaries' pilum and painted scutum, the
+## centurion's bronze-fitted hasta and officer's scutum, the cavalry's lance.
+## Off with ?spears=0 and ?shields=0 (each on its own), to compare.
+const SPEAR_MODELS := {"legionary": "res://models/weapons/spear_pilum.res",
+	"centurion": "res://models/weapons/spear_officer.res", "cavalry": "res://models/weapons/spear_lance.res"}
+const SHIELD_MODELS := {"legionary": "res://models/weapons/scutum.res",
+	"centurion": "res://models/weapons/scutum_centurion.res"}
+static var use_new_spears := true
+static var use_new_shields := true
 const Horse = preload("res://scripts/horse.gd")
 
 const MAX_ARMY := 100
@@ -483,6 +494,9 @@ func _build_helmet(metal: Color, transverse: bool) -> void:
 ## A tall red shield with gold trim.
 func _build_shield(color: Color) -> void:
 	_shield = _piece()
+	if use_new_shields and SHIELD_MODELS.has(kind):
+		_shield.add_child(_kit_mesh(SHIELD_MODELS[kind]))
+		return
 	Art.part(_shield, Art.box(Vector3(0.52, 0.86, 0.05)), color, Vector3.ZERO)
 	Art.part(_shield, Art.box(Vector3(0.56, 0.05, 0.06)), Color("c9a24a"), Vector3(0, 0.42, 0))
 	Art.part(_shield, Art.box(Vector3(0.56, 0.05, 0.06)), Color("c9a24a"), Vector3(0, -0.42, 0))
@@ -492,9 +506,20 @@ func _build_shield(color: Color) -> void:
 
 func _build_spear() -> void:
 	_spear = _piece()
+	if use_new_spears and SPEAR_MODELS.has(kind):
+		_spear.add_child(_kit_mesh(SPEAR_MODELS[kind]))
+		return
 	var length := 2.2 if kind == "cavalry" else 1.6
 	Art.part(_spear, Art.cylinder(0.022, 0.022, length, 5), Color("caa472"), Vector3(0, length * 0.19, 0))
 	Art.part(_spear, Art.cylinder(0.0, 0.05, 0.2, 5), Color("c9ccd1"), Vector3(0, length * 0.69 + 0.1, 0))
+
+
+## A modelled piece of kit: one mesh, its material on the mesh (so Art.bake,
+## which merges procedural parts, leaves it as it is).
+func _kit_mesh(path: String) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = load(path)
+	return mi
 
 
 ## A leather cap, a bow and a quiver of arrows.

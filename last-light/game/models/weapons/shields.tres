@@ -1,0 +1,13 @@
+[gd_resource type="StandardMaterial3D" load_steps=3 format=3]
+
+[ext_resource type="Texture2D" path="res://models/weapons/shields_colour.png" id="1_r4ep8"]
+[ext_resource type="Texture2D" path="res://models/weapons/shields_orm.png" id="2_ajlg3"]
+
+[resource]
+resource_name = "Shields_Atlas"
+albedo_texture = ExtResource("1_r4ep8")
+metallic = 1.0
+metallic_texture = ExtResource("2_ajlg3")
+metallic_texture_channel = 2
+roughness_texture = ExtResource("2_ajlg3")
+roughness_texture_channel = 1
