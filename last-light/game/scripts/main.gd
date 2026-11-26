@@ -237,6 +237,11 @@ func _ready() -> void:
 		if arg.begins_with("--legionary="):
 			legionary_model = arg.trim_prefix("--legionary=")
 	Soldier.use_legionary_model = legionary_model != "0"  # developers: ?legionary=0 shows the old legionary, for comparing
+	var centurion_model := PerfOverlay.url_value("centurion")
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--centurion="):
+			centurion_model = arg.trim_prefix("--centurion=")
+	Soldier.use_centurion_model = centurion_model != "0"  # developers: ?centurion=0 shows the old centurion, for comparing
 	# The player's look (the ranger only), for trying the appearance options:
 	# ?hood=down&skin=light|medium|tan|dark|deep&outfit=earth&backpack=0. Not saved.
 	var look_options := {}
