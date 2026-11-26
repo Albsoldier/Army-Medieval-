@@ -29,7 +29,7 @@ uniform sampler2D orm_tex : hint_default_white, filter_linear_mipmap, repeat_dis
 instance uniform float hood_up = 1.0;
 instance uniform float armour_on = 0.0;
 instance uniform float backpack_on = 1.0;
-instance uniform float outfit = 0.0;  // 0: the original, 1: outfit_tex
+instance uniform float outfit = 0.0;  // 0: the original (green), 1: outfit_tex (beige and brown)
 // Multiplies skin albedo (linear). It keeps the texture's own shading, pores
 // and blush, unlike painting over it; 1 is the texture as made.
 instance uniform vec3 skin_gain = vec3(1.0);
@@ -62,10 +62,16 @@ void vertex() {
 }
 
 void fragment() {
-	// Both outfits are sampled (outside any branch, so mipmaps stay right) and one is kept.
-	vec3 base = texture(albedo_tex, UV).rgb;
-	vec3 alt = texture(outfit_tex, vec2(UV.x * 2.0, UV.y)).rgb;
-	vec3 col = mix(base, alt, outfit * step(UV.x, 0.5));
+	// The second outfit (GRAPHICS_PLAYER_OUTFITS.md) replaces the clothing half
+	// of the atlas. `outfit` is the same over the whole character, so this
+	// branch is uniform: mipmaps stay right, and the original outfit doesn't
+	// pay for the second texture. The result is as before: the alternative
+	// texture where UV.x < 0.5 (clothing), the atlas elsewhere (skin, hair, eyes).
+	vec3 col = texture(albedo_tex, UV).rgb;
+	if (outfit > 0.5) {
+		vec3 alt = texture(outfit_tex, vec2(UV.x * 2.0, UV.y)).rgb;
+		col = mix(col, alt, step(UV.x, 0.5));
+	}
 	vec3 orm = texture(orm_tex, UV).rgb;
 	vec3 nrm = texture(normal_tex, UV).rgb;
 	float rough = orm.g * 0.85;

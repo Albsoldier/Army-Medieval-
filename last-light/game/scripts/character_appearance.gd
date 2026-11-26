@@ -22,7 +22,10 @@ const SKIN_TONES := {
 	"dark": Color8(147, 98, 65),
 	"deep": Color8(131, 85, 56),
 }
-const OUTFITS := ["ranger", "earth"]  # earth: the kit's beige and brown dye of the same clothes
+## Outfits: the same clothes in the kit's two colourways (GRAPHICS_PLAYER_OUTFITS.md).
+## ranger: the original green; earth: beige linen and brown leathers (T_Ranger_3).
+const OUTFITS := ["ranger", "earth"]
+const OUTFIT_NAMES := {"ranger": "green (original)", "earth": "beige and brown"}
 const DEFAULT := {"hood": true, "skin": "medium", "outfit": "ranger", "backpack": true}
 
 
@@ -51,7 +54,8 @@ static func skin_gain(tone: String) -> Vector3:
 	return Vector3(a.r / b.r, a.g / b.g, a.b / b.b)
 
 
-## A look from URL-style options (?hood=down&skin=dark&outfit=earth&backpack=0);
+## A look from URL-style options (?hood=down&skin=dark&outfit=earth&backpack=0;
+## outfit=beige also works);
 ## unknown values are ignored.
 static func from_options(options: Dictionary) -> Dictionary:
 	var look := DEFAULT.duplicate()
@@ -59,8 +63,13 @@ static func from_options(options: Dictionary) -> Dictionary:
 		look["hood"] = str(options["hood"]) not in ["down", "0", "off"]
 	if SKIN_TONES.has(str(options.get("skin", ""))):
 		look["skin"] = str(options["skin"])
-	if str(options.get("outfit", "")) in OUTFITS:
-		look["outfit"] = str(options["outfit"])
+	var outfit := str(options.get("outfit", ""))
+	if outfit in ["beige", "brown"]:
+		outfit = "earth"
+	elif outfit in ["green", "original"]:
+		outfit = "ranger"
+	if outfit in OUTFITS:
+		look["outfit"] = outfit
 	if options.has("backpack"):
 		look["backpack"] = str(options["backpack"]) not in ["0", "off"]
 	return look

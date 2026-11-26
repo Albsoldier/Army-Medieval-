@@ -242,7 +242,17 @@ func _run_game() -> void:
 		hd_count[hd_part] = hd_count.get(hd_part, 0) + 1
 	_check(int(hd_count.get(2, 0)) > 2000 and int(hd_count.get(3, 0)) > 2500 and not main.dev_look,
 		"hood up and hood down are both in the one surface (%d and %d triangles); the F8 hood switch is off unless ?devlook=1" % [hd_count.get(2, 0), hd_count.get(3, 0)])
+	# Outfits (GRAPHICS_PLAYER_OUTFITS.md): the kit's two colourways of the same
+	# clothes, one texture each for the clothing only, chosen per character.
+	var of_mat := pc_mesh.mesh.surface_get_material(0) as ShaderMaterial
+	var of_alt := of_mat.get_shader_parameter("outfit_tex") as Texture2D
+	var of_main := of_mat.get_shader_parameter("albedo_tex") as Texture2D
+	_check(of_alt != null and of_alt.get_width() * 2 == of_main.get_width() and of_alt.get_height() == of_main.get_height()
+		and pc_ap.OUTFIT_NAMES.size() == pc_ap.OUTFITS.size()
+		and pc_ap.from_options({"outfit": "beige"})["outfit"] == "earth" and pc_ap.from_options({"outfit": "green"})["outfit"] == "ranger",
+		"the beige and brown outfit is one texture for the clothing half of the atlas, chosen by name (earth or beige)")
 	pc_ap.apply(pc_mesh, main.player.appearance)
+	_check(float(pc_mesh.get_instance_shader_parameter("outfit")) == 0.0, "by default the ranger wears the original green outfit")
 	_check(float(pc_mesh.get_instance_shader_parameter("hood_up")) == 1.0 and float(pc_mesh.get_instance_shader_parameter("backpack_on")) == 1.0,
 		"by default the hood is up and the backpack on")
 	# Skinning: every bind of the merged skin must still point at a bone of the skeleton.
