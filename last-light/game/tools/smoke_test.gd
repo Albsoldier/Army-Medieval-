@@ -730,6 +730,50 @@ func _run_game() -> void:
 	wp._restyle_gear()
 	var wp_damage: Array = Gear.SWORD.map(func(g): return int(g["damage"]))
 	_check(wp_damage == [6, 10, 15], "sword damage is unchanged (%s)" % str(wp_damage))
+	# Phase 4E.2 (GRAPHICS_PHASE_4E2_SPEARS_SHIELDS.md): spears and shields are
+	# modelled, one mesh each on shared materials; damage and reach unchanged.
+	var ss_tier: int = wp.spear_tier
+	if wp.use_new_spears:
+		var ss_ok := true
+		for t in 5:
+			wp.spear_tier = t
+			wp._restyle_gear()
+			ss_ok = ss_ok and wp._spear_mesh.mesh.resource_path == wp.SPEAR_MODELS[t] and wp._spear.get_child_count() == 1
+		_check(ss_ok, "each spear tier is its own one-mesh spear (wooden, flint, iron, steel, gilded)")
+	else:
+		_check(wp._spear.get_child_count() == 2, "--spears=0: the old spear")
+	wp.spear_tier = ss_tier
+	wp._restyle_gear()
+	var ss_kit := {}
+	for ss_kind in ["legionary", "centurion", "cavalry"]:
+		var ss = main._spawn_soldier(main.player.pos + Vector2(-60, 40), -1.0, "follow", main.player.pos, ss_kind)
+		await process_frame
+		ss_kit[ss_kind] = [ss._spear.get_child_count(), ss._shield.get_child_count() if ss._shield else 0,
+			(ss._spear.get_child(0) as MeshInstance3D).mesh.resource_path, (ss._shield.get_child(0) as MeshInstance3D).mesh.resource_path if ss._shield else ""]
+		main.soldiers.erase(ss)
+		ss.queue_free()
+	var ss_raider = main._spawn_raider("raider_chief", main.player.pos + Vector2(400, -400))
+	await process_frame
+	var ss_rshield: String = (ss_raider._shield.get_child(0) as MeshInstance3D).mesh.resource_path
+	main.wolves.erase(ss_raider)
+	ss_raider.queue_free()
+	var SoldierScript = load("res://scripts/soldier.gd")
+	if SoldierScript.use_new_spears:
+		_check(ss_kit["legionary"][2].ends_with("spear_pilum.res") and ss_kit["centurion"][2].ends_with("spear_officer.res")
+			and ss_kit["cavalry"][2].ends_with("spear_lance.res") and ss_kit["legionary"][0] == 1,
+			"legionaries carry the pilum, centurions the officer's spear, cavalry the lance: one mesh each")
+	else:
+		_check(ss_kit["legionary"][0] >= 1 and not ss_kit["legionary"][2].ends_with(".res"), "--spears=0: the old soldiers' spears")
+	if SoldierScript.use_new_shields:
+		_check(ss_kit["legionary"][3].ends_with("scutum.res") and ss_kit["centurion"][3].ends_with("scutum_centurion.res")
+			and ss_kit["legionary"][1] == 1 and ss_rshield.ends_with("shield_chief.res"),
+			"legionaries and the centurion carry painted scuta, a raider chief his round shield: one mesh each")
+	else:
+		_check(not ss_kit["legionary"][3].ends_with(".res") and not ss_rshield.ends_with(".res"), "--shields=0: the old shields")
+	var ss_damage: Array = Gear.SPEAR.map(func(g): return int(g["damage"]))
+	_check(ss_damage == [2, 3, 5, 8, 12] and is_equal_approx(Gear.SPEAR_REACH, 34.0)
+		and is_equal_approx(float(SoldierScript.KINDS["legionary"]["reach"]), 26.0),
+		"spear damage and reach are unchanged (%s)" % str(ss_damage))
 	main.hud.close_inventory()
 	_check(not main.hud.is_modal(), "the inventory closes")
 	main._on_hotbar_slot(2)
