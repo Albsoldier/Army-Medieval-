@@ -248,6 +248,18 @@ func _ready() -> void:
 			sword_models = arg.trim_prefix("--swords=")
 	Player.use_new_weapons = sword_models != "0"  # developers: ?swords=0 shows the old swords and axes, for comparing
 	Raider.use_new_weapons = Player.use_new_weapons
+	for item in ["spears", "shields"]:
+		var flag := PerfOverlay.url_value(item)
+		for arg in OS.get_cmdline_user_args():
+			if arg.begins_with("--%s=" % item):
+				flag = arg.trim_prefix("--%s=" % item)
+		# developers: ?spears=0 and ?shields=0 (each on its own) show the old spears and shields, for comparing
+		if item == "spears":
+			Player.use_new_spears = flag != "0"
+			Soldier.use_new_spears = flag != "0"
+		else:
+			Soldier.use_new_shields = flag != "0"
+			Raider.use_new_shields = flag != "0"
 	# The player's look (the ranger only), for trying the appearance options:
 	# ?hood=down&skin=light|medium|tan|dark|deep&outfit=earth&backpack=0. Not saved.
 	var look_options := {}

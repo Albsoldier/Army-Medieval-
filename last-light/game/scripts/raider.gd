@@ -11,6 +11,10 @@ const SURVIVOR := preload("res://models/raider.glb")  # a hooded fighter in leat
 ## Off with ?swords=0, to compare with the old one.
 const AXE_MODEL := "res://models/weapons/raider_axe.res"
 static var use_new_weapons := true
+## Phase 4E.2: painted round shields (planks, an iron boss; a chief's with an
+## iron rim), on the shared shields material. Off with ?shields=0.
+const SHIELD_MODELS := {"raider": "res://models/weapons/shield_raider.res", "raider_chief": "res://models/weapons/shield_chief.res"}
+static var use_new_shields := true
 
 const RAIDERS := {
 	"raider": {"name": "raider", "hp": 14, "bite": 14.0, "speed": 80.0, "height": 1.66,
@@ -91,9 +95,14 @@ func _build_kit(stats: Dictionary) -> void:
 		Art.part(_helmet, Art.cylinder(0.175, 0.175, 0.04, 8), Color("55595e"), Vector3(0, 0.05, 0))
 		Art.part(_helmet, Art.box(Vector3(0.03, 0.12, 0.03)), Color("55595e"), Vector3(0, -0.01, 0.16))  # nose guard
 	_shield = _piece()
-	Art.part(_shield, Art.cylinder(0.3, 0.3, 0.04, 12), stats["shield"], Vector3.ZERO, Vector3(PI / 2, 0, 0))
-	Art.part(_shield, Art.sphere(0.07, 4, 8), Color("8a8f95"), Vector3(0, 0, 0.03))
-	Art.part(_shield, Art.cylinder(0.31, 0.31, 0.02, 12), Color("3d2a18"), Vector3(0, 0, -0.005), Vector3(PI / 2, 0, 0))
+	if use_new_shields and SHIELD_MODELS.has(kind):
+		var shield := MeshInstance3D.new()
+		shield.mesh = load(SHIELD_MODELS[kind])
+		_shield.add_child(shield)
+	else:
+		Art.part(_shield, Art.cylinder(0.3, 0.3, 0.04, 12), stats["shield"], Vector3.ZERO, Vector3(PI / 2, 0, 0))
+		Art.part(_shield, Art.sphere(0.07, 4, 8), Color("8a8f95"), Vector3(0, 0, 0.03))
+		Art.part(_shield, Art.cylinder(0.31, 0.31, 0.02, 12), Color("3d2a18"), Vector3(0, 0, -0.005), Vector3(PI / 2, 0, 0))
 	_axe = _piece()
 	if use_new_weapons:
 		# One mesh on the shared weapons material (not baked: it is already one surface).

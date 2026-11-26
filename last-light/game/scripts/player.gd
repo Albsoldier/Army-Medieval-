@@ -94,6 +94,13 @@ const SWORD_MODELS := ["res://models/weapons/gladius.res", "res://models/weapons
 const AXE_MODEL := "res://models/weapons/axe.res"
 static var use_new_weapons := true
 var _sword_mesh: MeshInstance3D  # the sword shown (new weapons only)
+## Phase 4E.2: each spear tier is its own modelled spear (wooden: a fire-
+## hardened point; flint: a knapped head bound on; iron; steel; gilded), one
+## mesh each. Off with ?spears=0.
+const SPEAR_MODELS := ["res://models/weapons/spear_wooden.res", "res://models/weapons/spear_flint.res",
+	"res://models/weapons/spear_iron.res", "res://models/weapons/spear_steel.res", "res://models/weapons/spear_gilded.res"]
+static var use_new_spears := true
+var _spear_mesh: MeshInstance3D  # the spear shown (new spears only)
 var _look_mesh: GeometryInstance3D  # the ranger's mesh (null for the adventurer)
 var _armour_look := ""  # which armour the ranger's shell shows
 
@@ -144,8 +151,13 @@ func _ready() -> void:
 	_spear = Node3D.new()
 	_spear.top_level = true
 	add_child(_spear)
-	Art.part(_spear, Art.cylinder(0.022, 0.022, 1.6, 5), Color("caa472"), Vector3(0, 0.3, 0))
-	Art.part(_spear, Art.cylinder(0.0, 0.05, 0.2, 5), Color("c9ccd1"), Vector3(0, 1.2, 0))
+	if use_new_spears:
+		_spear_mesh = MeshInstance3D.new()  # its mesh is chosen by tier (_restyle_gear)
+		_spear_mesh.mesh = load(SPEAR_MODELS[0])
+		_spear.add_child(_spear_mesh)
+	else:
+		Art.part(_spear, Art.cylinder(0.022, 0.022, 1.6, 5), Color("caa472"), Vector3(0, 0.3, 0))
+		Art.part(_spear, Art.cylinder(0.0, 0.05, 0.2, 5), Color("c9ccd1"), Vector3(0, 1.2, 0))
 	_spear.visible = false
 
 	# The sword: a straight blade, a cross-guard and a wrapped grip.
@@ -493,7 +505,10 @@ func _restyle_gear() -> void:
 	_gear_look = look
 	if spear_tier >= 0:
 		var g := Gear.info("spear", spear_tier)
-		_tint(_spear, [g["shaft"], g["tip"]])
+		if _spear_mesh:
+			_spear_mesh.mesh = load(SPEAR_MODELS[clampi(spear_tier, 0, SPEAR_MODELS.size() - 1)])
+		else:
+			_tint(_spear, [g["shaft"], g["tip"]])
 	if sword_tier >= 0 and _sword_mesh:
 		_sword_mesh.mesh = load(SWORD_MODELS[clampi(sword_tier, 0, SWORD_MODELS.size() - 1)])
 	elif sword_tier >= 0:
