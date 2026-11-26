@@ -7,8 +7,9 @@
 // UV is the texture atlas. UV2.x is the part a vertex belongs to, plus a
 // lateral coordinate in its fraction (part + 0.05 + 0.9 * across); UV2.y is a
 // height along the part (armour plates). Parts:
-//   0 clothing, 1 skin, 2 the hood over the head (hood up only),
-//   3 hair (hood down only), 4 armour shell, 5 backpack.
+//   0 clothing, 1 skin, 2 the hood over the head and cropped hair (hood up
+//   only), 3 the hood folded down and hair (hood down only), 4 armour shell,
+//   5 backpack.
 // A hidden part's vertices are collapsed to one point: its triangles have no
 // area and draw nothing, at no cost beyond the vertex itself.
 //

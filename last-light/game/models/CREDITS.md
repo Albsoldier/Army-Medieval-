@@ -70,8 +70,8 @@ allowed, no attribution required.
 
 | Kit | Files used | For |
 |---|---|---|
-| Modular Character Outfits – Fantasy (https://quaternius.com/packs/modularcharacteroutfitsfantasy.html) | `Exports/glTF (Godot-Unreal)/Outfits/Male_Ranger.gltf` and its `.bin` and textures (`T_Ranger_*`, `T_Regular_Male_*`; `T_Ranger_3_BaseColor.png` for the beige and brown outfit) | the outfit, hands, hood and armour shell (made from the tunic's chest) |
-| Universal Base Characters (https://quaternius.com/packs/universalbasecharacters.html) | `Base Characters/Godot - UE/Superhero_Male_FullBody.gltf` (head, eyes and eyebrows only) `Hairstyles/Rigged to Head Bone/glTF (Godot -Unreal)/Hair_Beard.gltf` and `Hair_SimpleParted.gltf`, with their textures | the head, beard, and hair with the hood down |
+| Modular Character Outfits – Fantasy (https://quaternius.com/packs/modularcharacteroutfitsfantasy.html) | `Exports/glTF (Godot-Unreal)/Outfits/Male_Ranger.gltf` and its `.bin` and textures (`T_Ranger_*`, `T_Regular_Male_*`; `T_Ranger_3_BaseColor.png` for the beige and brown outfit) | the outfit, hands, hood (up as made; folded down for the hood-down look) and armour shell (made from the tunic's chest) |
+| Universal Base Characters (https://quaternius.com/packs/universalbasecharacters.html) | `Base Characters/Godot - UE/Superhero_Male_FullBody.gltf` (head, eyes and eyebrows only), and `Hairstyles/Rigged to Head Bone/glTF (Godot -Unreal)/Hair_Beard.gltf`, `Hair_SimpleParted.gltf` and `Hair_Buzzed.gltf`, with their textures | the head, beard, hair with the hood down, and cropped hair under the hood up |
 | Universal Animation Library (https://quaternius.com/packs/universalanimationlibrary.html) | `Unreal-Godot/UAL1_Standard.glb` (Idle, Walk, Jog_Fwd, Punch_Jab, Sword_Attack, Death01) | the animations |
 
 The textures were packed into `player/player_colour.png`, `player_normal.png` and `player_orm.png` (one
