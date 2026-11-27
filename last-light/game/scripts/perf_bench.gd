@@ -77,6 +77,11 @@ func _run() -> void:
 		for s in main.soldiers.duplicate():
 			main.soldiers.erase(s)
 			s.queue_free()
+	# Ships (GRAPHICS_SHIPS.md), only with ?shipbench=1 (or --shipbench): open
+	# sea, then you aboard a galley, then four more galleys round you, then a
+	# shipwreck on its shore.
+	if "--shipbench" in OS.get_cmdline_user_args() or PerfOverlay.url_flag("shipbench"):
+		await _ship_scenes()
 	# 2. Forest: the densest woods near the start.
 	_go(spots["forest"])
 	await _measure("forest")
@@ -197,6 +202,43 @@ func _near_camp(pos: Vector2) -> bool:
 		if (c["pos"] as Vector2).distance_to(pos) < 700.0:
 			return true
 	return false
+
+
+func _ship_scenes() -> void:
+	var w = main.world
+	var sea := Vector2.INF
+	for r in range(200, 6000, 80):
+		for i in 48:
+			var at: Vector2 = w.cell_center(w.spawn_cell) + Vector2.from_angle(i * TAU / 48.0) * r
+			var clear: bool = w.is_sailable(at, true)
+			for k in 8:
+				clear = clear and w.is_sailable(at + Vector2.from_angle(k * TAU / 8.0) * 110.0, true)
+			if clear:
+				sea = at
+				break
+		if sea != Vector2.INF:
+			break
+	if sea == Vector2.INF:
+		return
+	_go(sea)
+	await _measure("sea")
+	var fleet := [main._spawn_boat("galley", sea, Vector2.LEFT)]
+	main._board(fleet[0])
+	await _measure("ship_1")
+	for k in 4:
+		var at: Vector2 = sea + Vector2.from_angle(k * TAU / 4.0 + 0.4) * 95.0
+		if w.is_sailable(at, true):
+			fleet.append(main._spawn_boat("galley", at, Vector2.from_angle(k * 1.3)))
+	await _measure("ships_%d" % fleet.size())
+	main._leave_boat()
+	for b in fleet:
+		main.boats.erase(b)
+		b.queue_free()
+	for data in w.pois:
+		if data["type"] == "shipwreck":
+			_go(w.cell_center(data["cell"]) + Vector2(0, 90))
+			await _measure("shipwreck")
+			break
 
 
 func _go(pos: Vector2) -> void:

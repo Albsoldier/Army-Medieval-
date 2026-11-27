@@ -1,0 +1,13 @@
+[gd_resource type="ShaderMaterial" load_steps=5 format=3]
+
+[ext_resource type="Shader" path="res://shaders/ship.gdshader" id="1_mxpdx"]
+[ext_resource type="Texture2D" path="res://models/ships/ship_hull.png" id="2_01ffj"]
+[ext_resource type="Texture2D" path="res://models/ships/ship_rigging.png" id="3_8qdp7"]
+[ext_resource type="Texture2D" path="res://models/ships/ship_sails.png" id="4_m4kl5"]
+
+[resource]
+render_priority = 0
+shader = ExtResource("1_mxpdx")
+shader_parameter/hull_texture = ExtResource("2_01ffj")
+shader_parameter/rigging_texture = ExtResource("3_8qdp7")
+shader_parameter/sails_texture = ExtResource("4_m4kl5")

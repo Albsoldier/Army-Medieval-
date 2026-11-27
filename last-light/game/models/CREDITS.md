@@ -109,3 +109,17 @@ The spears (`spear_*.res`), shields (`scutum.res`, `scutum_centurion.res`, `shie
 the shields' material (`shields.tres`) and textures (`shields_colour.png`, `shields_orm.png`) of phase 4E.2 are
 original work too, from the same tool (`TARGETS=spears,shields`). See `last-light/GRAPHICS_PHASE_4E2_SPEARS_SHIELDS.md`.
 
+
+## Ships (`ships/`)
+
+**Dutch Ship Large 01** by **James Ray Cock** (model, textures, cleanup), **Rico Cilliers** (sails model,
+textures) and **Nicolò Zubbini** (original model), from **Poly Haven**:
+https://polyhaven.com/a/dutch_ship_large_01. Licence: **CC0 1.0** (public domain dedication). Poly Haven's
+licence page: "Our assets are all licensed as CC0, which is effectively Public Domain even in jurisdictions that
+do not support the Public Domain." Attribution is not required; given here for the record.
+
+`ship_hull.res` (the galley's hull, also the shipwrecks') and `ship_rigging.res` (its masts, ropes and sails) are the 1k glTF decimated
+(`game/tools/decimate_ship.py`, MeshLab's quadric edge collapse) and rebuilt for the game
+(`game/tools/build_ship_model.gd`). `ship_hull.png`, `ship_rigging.png` and `ship_sails.png` are its colour maps
+with the ambient occlusion baked in, downsized. `ship.tres` uses `game/shaders/ship.gdshader`. The original
+files are not in the repository. See `last-light/GRAPHICS_SHIPS.md`.

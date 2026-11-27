@@ -1019,6 +1019,33 @@ func _run_game() -> void:
 	_check(raft != null and main.boats.size() == 1, "the dock builds a raft")
 	var galley = main._build_boat("galley", dock)
 	_check(galley != null and main.boats.size() == 2 and galley.can_cross_deep() and not raft.can_cross_deep(), "and a galley that crosses the open sea")
+	# The galley is the modelled ship (GRAPHICS_SHIPS.md): one mesh, one surface;
+	# speed, deep water and the raft unchanged. Off with --ships=0.
+	var BoatScript = load("res://scripts/boat.gd")
+	var ship_meshes: Array = galley.find_children("*", "MeshInstance3D", true, false)
+	if BoatScript.use_new_ship:
+		_check(ship_meshes.map(func(m): return (m as MeshInstance3D).mesh.resource_path) == BoatScript.SHIP_MODELS + [BoatScript.SHIP_SHADOW]
+			and (ship_meshes[1] as MeshInstance3D).cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			and (ship_meshes[2] as MeshInstance3D).cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+			and ship_meshes.all(func(m): return (m as MeshInstance3D).mesh.get_surface_count() == 1)
+			and is_equal_approx(galley.deck_height(), BoatScript.SHIP_DECK),
+			"the galley is the modelled sailing ship: its hull and its rigging, one surface each (the sails cast the rigging's shadow)")
+	else:
+		_check(ship_meshes.size() > 5 and is_equal_approx(galley.deck_height(), 0.35), "--ships=0: the old galley")
+	_check(is_equal_approx(galley.speed_factor(), 1.7) and is_equal_approx(raft.speed_factor(), 1.2) and is_equal_approx(raft.deck_height(), 0.18),
+		"boat speeds and the raft are unchanged")
+	var wreck_data: Dictionary = {}
+	for data in world.pois:
+		if data["type"] == "shipwreck":
+			wreck_data = data
+			break
+	var wreck = load("res://scripts/poi.gd").new()
+	wreck.setup(world, wreck_data)
+	main.entities.add_child(wreck)
+	var wreck_meshes: Array = wreck.find_children("*", "MeshInstance3D", true, false).filter(
+		func(m): return (m as MeshInstance3D).mesh is ArrayMesh and (m as MeshInstance3D).mesh.resource_path.ends_with("ship_hull.res"))
+	_check(wreck_meshes.size() == (1 if BoatScript.use_new_ship else 0), "shipwrecks are the modelled hull (or the old wreck with --ships=0)")
+	wreck.queue_free()
 	main._board(raft)
 	_check(main.sailing == raft and main.player.on_boat and world.is_sailable(main.player.pos, false), "you board the raft in shallow water")
 	var deep_spot := Vector2(40, 40) * 16.0
