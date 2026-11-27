@@ -92,6 +92,17 @@ const LINES_UP := ["wood_wall", "stone_wall", "gate", "oil_gate"]  # game pixels
 const BUILDING_MODELS := {"house": "cottage", "stone_wall": "stone_wall", "archer_tower": "archer_tower"}
 ## Off with ?buildings=0 (set before any building is made), to compare.
 static var use_models := true
+## The village buildings (GRAPHICS_VILLAGE_BUILDINGS.md): cottages, the
+## workbench, the smokehouse and the barracks from Quaternius' Medieval Village
+## and Fantasy Props MegaKits (CC0; tools/build_village_models.gd). One mesh
+## and one material each (plus a cottage's window glow); a cottage is one of
+## two designs, chosen by its tile. They take the place of the KayKit cottage
+## and the old primitives. Off with ?village=0, to compare.
+const VILLAGE_MODELS := {"house": ["cottage_plaster", "cottage_stone"], "workbench": ["workbench"],
+	"smokehouse": ["smokehouse"], "barracks": ["barracks"]}
+## Where the smokehouse's chimney smokes (its model's chimney top).
+const VILLAGE_SMOKE := Vector3(0.28, 2.0, -0.17)
+static var use_village := true
 static var _model_meshes: Dictionary = {}  # model name -> Mesh, shared by every building of a kind
 static var _model_material: StandardMaterial3D
 
@@ -275,6 +286,13 @@ static func _model_mesh(model: String) -> Mesh:
 	return _model_meshes[model]
 
 
+## A village building's mesh (loaded once, shared by every building of that design).
+static func _village_mesh(design: String) -> Mesh:
+	if not _model_meshes.has("village:" + design):
+		_model_meshes["village:" + design] = load("res://models/village/%s.res" % design)
+	return _model_meshes["village:" + design]
+
+
 static func _building_material() -> StandardMaterial3D:
 	if _model_material == null:
 		_model_material = StandardMaterial3D.new()
@@ -293,7 +311,42 @@ static func _surface_material(mesh: Mesh, surface: int) -> Material:
 	return _building_material()
 
 
+
+## A smoking chimney at `at` (the smokehouse's).
+func _add_smoke(at: Vector3) -> void:
+	var smoke := CPUParticles3D.new()
+	var puff := Art.sphere(0.12, 3, 6)
+	var smoke_mat := Art.material(Color(0.6, 0.6, 0.6, 0.35))
+	smoke_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	puff.material = smoke_mat
+	smoke.mesh = puff
+	smoke.amount = 8
+	smoke.lifetime = 3.0
+	smoke.direction = Vector3.UP
+	smoke.spread = 15.0
+	smoke.gravity = Vector3(0.15, 0.25, 0)
+	smoke.initial_velocity_min = 0.3
+	smoke.initial_velocity_max = 0.5
+	smoke.scale_amount_min = 0.8
+	smoke.scale_amount_max = 2.0
+	smoke.position = at
+	add_child(smoke)
+
+
 func _build_model() -> void:
+	if use_village and VILLAGE_MODELS.has(kind):
+		var designs: Array = VILLAGE_MODELS[kind]
+		var design: String = designs[posmod(cell.x * 7 + cell.y * 13, designs.size())]
+		_model = MeshInstance3D.new()
+		_model.name = "Model"
+		_model.mesh = _village_mesh(design)
+		if _model.mesh.get_surface_count() > 1:
+			_model.set_surface_override_material(1, _surface_material(_model.mesh, 1))  # the window glow
+		add_child(_model)
+		if kind == "smokehouse":
+			_add_smoke(VILLAGE_SMOKE)
+		_update_wear()
+		return
 	if use_models and BUILDING_MODELS.has(kind):
 		_model = MeshInstance3D.new()
 		_model.name = "Model"
@@ -370,23 +423,7 @@ func _build_model() -> void:
 			_add(Art.cylinder(0.0, 0.8, 0.6, 4), Color("4d3420"), Vector3(0, 1.3, 0), Vector3(0, PI / 4, 0))
 			_add(Art.cylinder(0.1, 0.12, 0.5, 6), Color("5d5a52"), Vector3(0.25, 1.65, 0.2))
 			_add(Art.box(Vector3(0.36, 0.5, 0.03)), Color("2b1d12"), Vector3(0, 0.3, 0.49))
-			var smoke := CPUParticles3D.new()
-			var puff := Art.sphere(0.12, 3, 6)
-			var smoke_mat := Art.material(Color(0.6, 0.6, 0.6, 0.35))
-			smoke_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			puff.material = smoke_mat
-			smoke.mesh = puff
-			smoke.amount = 8
-			smoke.lifetime = 3.0
-			smoke.direction = Vector3.UP
-			smoke.spread = 15.0
-			smoke.gravity = Vector3(0.15, 0.25, 0)
-			smoke.initial_velocity_min = 0.3
-			smoke.initial_velocity_max = 0.5
-			smoke.scale_amount_min = 0.8
-			smoke.scale_amount_max = 2.0
-			smoke.position = Vector3(0.25, 1.95, 0.2)
-			add_child(smoke)
+			_add_smoke(Vector3(0.25, 1.95, 0.2))
 		"dock":
 			# Planks on posts, reaching out over the water.
 			var out := water_direction()
