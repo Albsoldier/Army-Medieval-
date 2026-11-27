@@ -294,6 +294,13 @@ func _ready() -> void:
 		if arg.begins_with("--terrain="):
 			terrain_look = arg.trim_prefix("--terrain=")
 	world.terrain_detail = terrain_look != "0"
+	# Phase 5B.1: the upgraded water surface (GRAPHICS_PHASE_5B1_WATER_SURFACE.md).
+	# Developers: ?water=0 shows the original water look, for comparing (same world).
+	var water_look := PerfOverlay.url_value("water")
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--water="):
+			water_look = arg.trim_prefix("--water=")
+	world.water_detail = water_look != "0"
 	world.generate(world_seed)
 	var prop_chunk_override := prop_chunk_size_override()
 	if prop_chunk_override > 0:

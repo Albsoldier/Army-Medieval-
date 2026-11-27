@@ -1409,6 +1409,36 @@ func _run_game() -> void:
 		_check(tr_shader.resource_path == "res://shaders/terrain.gdshader", "--terrain=0: the original terrain shader")
 	_check(tr_arrays[Mesh.ARRAY_VERTEX].size() == (world.CHUNK + 1) * (world.CHUNK + 1) and tr_arrays[Mesh.ARRAY_TEX_UV] == null,
 		"terrain meshes are built as before (same vertices, no new attributes)")
+	# Phase 5B.1 (GRAPHICS_PHASE_5B1_WATER_SURFACE.md): only the water's look
+	# changes. The sheet of water, its level, the swell and the seabed are as
+	# before, and so is where you can walk and sail (this hash is the same with
+	# and without --water=0).
+	var wt_mat: ShaderMaterial = world._water.material_override
+	var wt_plane: PlaneMesh = world._water.mesh
+	if world.water_detail:
+		_check(wt_mat.shader.resource_path == "res://shaders/water_detail.gdshader" and wt_mat.get_shader_parameter("ripples") is Texture2D,
+			"the water is drawn with the upgraded water shader and its ripple map")
+	else:
+		_check(wt_mat.shader.resource_path == "res://shaders/water.gdshader", "--water=0: the original water shader")
+	var swell := "VERTEX.y += sin(world_pos.x * 0.21 + TIME * 0.9) * 0.05 + sin(world_pos.z * 0.17 + TIME * 0.7) * 0.05;"
+	_check(wt_plane.size == Vector2(640, 640) and wt_plane.subdivide_width == 96 and wt_plane.subdivide_depth == 96
+		and is_equal_approx(world._water.position.y, world.WATER_LEVEL) and is_equal_approx(world._bed.position.y, -3.05)
+		and world._water.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		and swell in wt_mat.shader.code and swell in (load("res://shaders/water.gdshader") as Shader).code,
+		"the water sheet, its level, the seabed and the swell are as before")
+	if world.water_detail:
+		_check(world._ice_mat is ShaderMaterial and (world._ice_mat as ShaderMaterial).shader.resource_path == "res://shaders/ice.gdshader",
+			"the winter ice is drawn with the ice shader, without tile edges")
+	else:
+		_check(world._ice_mat is StandardMaterial3D, "--water=0: the original winter ice")
+	var wt_cells := []
+	var wt_c0: Vector2i = world.spawn_cell
+	for dz in range(-160, 161, 4):
+		for dx in range(-160, 161, 4):
+			var c: Vector2i = wt_c0 + Vector2i(dx, dz)
+			var at: Vector2 = world.cell_center(c)
+			wt_cells.append([world.terrain_at(c), world.is_walkable(at), world.is_sailable(at, false), world.is_sailable(at, true), world.height_at(at)])
+	print("water and shore hash around spawn: ", hash(wt_cells))
 	# Building prototype (phase 4B): cottages, stone walls and archer towers are
 	# KayKit models: one mesh and one shared material each, and otherwise the
 	# same buildings (hit points, blocking, previews, damage).
