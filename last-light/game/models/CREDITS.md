@@ -123,3 +123,20 @@ do not support the Public Domain." Attribution is not required; given here for t
 (`game/tools/build_ship_model.gd`). `ship_hull.png`, `ship_rigging.png` and `ship_sails.png` are its colour maps
 with the ambient occlusion baked in, downsized. `ship.tres` uses `game/shaders/ship.gdshader`. The original
 files are not in the repository. See `last-light/GRAPHICS_SHIPS.md`.
+
+## Village buildings (`village/`)
+
+From **Quaternius** (quaternius.com), free Standard editions, **CC0 1.0** (each pack's `License_Standard.txt`:
+"CC0 1.0 Universal (CC0 1.0) Public Domain Dedication"):
+
+- **Medieval Village MegaKit** (https://quaternius.com/packs/medievalvillagemegakit.html): the wall, roof and
+  gable pieces (`Wall_Plaster_*`, `Wall_UnevenBrick_*`, `Roof_RoundTiles_4x4`, `Roof_Front_Brick4`) and their colour
+  maps (`T_WoodTrim`, `T_Plaster`, `T_RockTrim`, `T_Brick`, `T_UnevenBrick`, `T_RoundTiles`).
+- **Fantasy Props MegaKit** (https://quaternius.com/packs/fantasypropsmegakit.html): `Workbench`, `Workbench_Drawers`,
+  `Whetstone`, `Bench`, `Banner_1_Cloth`, `Banner_2` and their colour maps (`T_Trim_Furniture`, `T_Trim_Metal`,
+  `T_Trim_Props`, `T_Trim_Cloth`).
+
+`cottage_plaster.res`, `cottage_stone.res`, `smokehouse.res`, `barracks.res` and `workbench.res` are those pieces placed
+together and merged by `game/tools/build_village_models.gd` (the chimneys and doors are made in that tool).
+`village_textures.png` is the ten colour maps, downsized to 256², stacked into one texture array; `village.tres` uses
+`game/shaders/village.gdshader`. The original files are not in the repository. See `last-light/GRAPHICS_VILLAGE_BUILDINGS.md`.

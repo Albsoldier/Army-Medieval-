@@ -1,0 +1,9 @@
+[gd_resource type="ShaderMaterial" load_steps=3 format=3]
+
+[ext_resource type="Shader" path="res://shaders/village.gdshader" id="1_rxo14"]
+[ext_resource type="CompressedTexture2DArray" path="res://models/village/village_textures.png" id="2_w4kvc"]
+
+[resource]
+render_priority = 0
+shader = ExtResource("1_rxo14")
+shader_parameter/textures = ExtResource("2_w4kvc")

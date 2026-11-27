@@ -1402,16 +1402,45 @@ func _run_game() -> void:
 	await process_frame
 	var bp_ok := true
 	for b in bp:
+		var village_house: bool = b.kind == "house" and StructureScript.use_village  # its own material (GRAPHICS_VILLAGE_BUILDINGS.md)
 		bp_ok = bp_ok and b._model != null and b._parts == [b._model] and b._model.mesh.get_surface_count() == (2 if b.kind == "house" else 1) \
-			and b._model.get_surface_override_material(0) == StructureScript._building_material() and b.hp == StructureScript.max_hp(b.kind) \
+			and (village_house or b._model.get_surface_override_material(0) == StructureScript._building_material()) and b.hp == StructureScript.max_hp(b.kind) \
 			and not world.is_walkable(world.cell_center(b.cell))
 	var bp_house2 = main._add_structure("house", _free_cells(world, bp_cells[0], 1, cells + bp_cells)[0])
 	await process_frame
-	_check(bp_ok and bp_house2._model.mesh == bp[0]._model.mesh, "cottages, stone walls and towers are the new models: one shared mesh and material each, same hit points, and they block")
+	_check(bp_ok and (bp_house2._model.mesh == bp[0]._model.mesh or StructureScript.use_village), "cottages, stone walls and towers are the new models: one shared mesh and material each, same hit points, and they block")
 	var bp_glow: Material = bp[0]._model.get_surface_override_material(1)
 	_check(bp_glow == load("res://scripts/art.gd").shared_material(Color(1.0, 0.85, 0.5), 0.8) and (bp_glow as BaseMaterial3D).emission_enabled
 		and bp_house2._model.get_surface_override_material(1) == bp_glow,
 		"cottage windows glow with the old window's shared material")
+	# The village buildings (GRAPHICS_VILLAGE_BUILDINGS.md): cottages (two
+	# designs), workbench, smokehouse and barracks from the MegaKits, one shared
+	# mesh and the one village material each; same hit points, blocking and
+	# smoke. Off with --village=0.
+	var vb_cells: Array = _free_cells(world, world.cell_of(home_pos) + Vector2i(-6, 6), 6, cells + bp_cells)
+	var vb: Array = []
+	for vi in 6:
+		vb.append(main._add_structure(["house", "house", "house", "workbench", "smokehouse", "barracks"][vi], vb_cells[vi]))
+	await process_frame
+	if StructureScript.use_village:
+		var vb_ok := true
+		var vb_designs := {}
+		var vb_material: Material = load("res://models/village/village.tres")
+		for b in vb:
+			var path: String = b._model.mesh.resource_path if b._model else ""
+			vb_designs[path] = true
+			vb_ok = vb_ok and b._model != null and b._parts == [b._model] and path.begins_with("res://models/village/") \
+				and b._model.mesh.surface_get_material(0) == vb_material and b.hp == StructureScript.max_hp(b.kind) \
+				and not world.is_walkable(world.cell_center(b.cell))
+		var vb_smoke: bool = vb[4].find_children("*", "CPUParticles3D", true, false).size() == 1
+		var vb_glow: bool = vb[5]._model.get_surface_override_material(1) == bp_glow
+		_check(vb_ok and vb_smoke and vb_glow and vb_designs.size() >= 5,
+			"village buildings are the MegaKit models: one mesh and material each, %d designs, the smokehouse smokes, windows glow" % vb_designs.size())
+	else:
+		_check(vb[3]._model == null and vb[4].find_children("*", "CPUParticles3D", true, false).size() == 1, "--village=0: the previous workbench and smokehouse")
+	for b in vb:
+		main._remove_structure(b.cell)
+	await process_frame
 	bp[0].damage(StructureScript.max_hp("house") * 0.6)
 	var bp_ghost = StructureScript.new()
 	bp_ghost.setup(world, "archer_tower", bp_cells[2] + Vector2i(0, 1))

@@ -228,6 +228,13 @@ func _ready() -> void:
 		if arg.begins_with("--buildings="):
 			building_models = arg.trim_prefix("--buildings=")
 	Structure.use_models = building_models != "0"  # developers: ?buildings=0 shows the old buildings, for comparing
+	# The village buildings (GRAPHICS_VILLAGE_BUILDINGS.md): cottages, workbench,
+	# smokehouse and barracks. Developers: ?village=0 shows the previous ones, for comparing.
+	var village := PerfOverlay.url_value("village")
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--village="):
+			village = arg.trim_prefix("--village=")
+	Structure.use_village = village != "0"
 	var player_model := PerfOverlay.url_value("player")
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--player="):
