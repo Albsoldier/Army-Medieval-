@@ -4,7 +4,8 @@
 ## lake, a beach on open water, the water by the village, and boats moored
 ## at the shore; each from low over the water and from the game's camera at
 ## the closest, normal and farthest zoom; the shore at night, in every
-## season and from a low sun. Run it twice, with and without --water=0:
+## season and from a low sun. With WINTER=1, every place in winter instead
+## (the ice), and nothing else. Run it twice, with and without --water=0:
 ##   xvfb-run godot --path last-light/game --rendering-driver opengl3 \
 ##       --resolution 1280x720 --script res://tools/water_shots.gd [-- --water=0]
 ## Images go to $SHOT_DIR (default: user://water_shots).
@@ -34,7 +35,9 @@ func _run() -> void:
 		main.hud._choose(0)
 	main.hud.toggle_help()
 	main.bench_mode = true
-	main.world.set_season("spring")
+	# WINTER=1: every place in winter instead (the ice), and nothing else.
+	var winter_only := OS.get_environment("WINTER") == "1"
+	main.world.set_season("winter" if winter_only else "spring")
 	main.rng.seed = 20261124
 	var bench = PerfBench.new()
 	bench.main = main
@@ -90,6 +93,10 @@ func _run() -> void:
 			main.cam_yaw = 0.6
 			await _frames(25)
 			_save("%s-z%.2f" % [place, z])
+	if winter_only:
+		print("WATER_SHOTS_DONE ", _dir)
+		quit(0)
+		return
 	# The shore at night, from a low sun, and in every season.
 	var sh_at: Vector2 = places.get("shore", places.values()[0])
 	bench._go(sh_at)

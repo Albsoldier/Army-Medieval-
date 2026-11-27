@@ -25,7 +25,7 @@ What it costs:
 | Seabed | A flat, dark 640 m plane at −3.05 m under the open sea, where no terrain is built. Elsewhere the seabed is the terrain itself, textured since 5A and darkened when wet. |
 | Shader | `water.gdshader`: alpha-blended, with a vertex swell of ±0.1 m (two sines). There are three sine ripples for the normal and a fixed colour (shallow and deep mixed 60%) blended towards a sky tint by Fresnel. Alpha is 0.76–0.95, roughness 0.06 and specular 0.7. It has **no depth awareness**: the same colour everywhere, and a hard edge where it meets the shore. |
 | Animation | Vertex swell plus moving normal sines. |
-| Ice | In winter, each chunk's shallow-water tiles get an ice mesh (`_build_ice`, `StandardMaterial3D`) at y = 0.04. Ice is gameplay: you can walk on it and boats can't sail on it. **Untouched.** |
+| Ice | In winter, each chunk's shallow-water tiles got an ice mesh (`_build_ice`, `StandardMaterial3D`): **one flat square per frozen tile** at y = 0.04. Where you can walk on ice and where boats can't sail is decided by the frozen tiles (`is_ice`, `is_sailable`, `to_3d`), not by the mesh, and that is **untouched**. The ice's **look** was restyled on request after review (§2b). |
 | Boats | `boat.gd` places boats at `WATER_LEVEL` with their own bob, independent of the shader. Sailing uses `is_sailable` (terrain type and season). **Untouched.** |
 | Collision / navigation | Tile-based: `is_walkable` and `is_sailable` read terrain types, not meshes. **Untouched.** |
 | Cost | One draw call for the water and one for the seabed. Alpha blending over the whole visible water. |
@@ -78,8 +78,30 @@ The original shader is kept as it was. The new one is used by default.
 | `game/tools/smoke_test.gd` | Phase 5B.1 checks (§6). |
 | `perf/water/*` | Screenshots and browser benchmark JSON. |
 
+### 2b. Winter ice without square tiles (added after review)
+
+The original ice was one flat square per frozen tile. That showed three problems in winter (`perf/water/ice.jpg`, left):
+- **stepped, square edges** everywhere;
+- **dark-blue strips** of water between the ice squares and the shore;
+- **blue blotches** where the water's swell (up to +0.1 m) rose through the ice sheet at +0.04 m.
+
+The ice is now drawn differently, with `?water=0` still showing the old ice. Only the look changed: walking on the ice, boats stopping at it, and where it is for gameplay are still the frozen tiles.
+
+- **`world.gd` `_build_ice_smooth`** (used when `water_detail` is on) builds each chunk's ice as a grid:
+  - **At the shore:** it also reaches over the land tiles beside frozen water, and over low ground under the ice level near it. So the terrain cuts the ice off along the real, smooth shoreline, with no water strips.
+  - **Towards open deep water:** each grid corner carries how much ice is there: the share of non-deep tiles among the 4×4 tiles around it. The edge against unfrozen water is therefore a smooth curve instead of tile steps.
+  - It reads the chunk's terrain types once into a small array.
+- **`shaders/ice.gdshader`** (new):
+  - **Edge:** alpha-scissor, so the ice stays solid and writes depth. It cuts a ragged, noise-broken edge where the ice fades towards open water.
+  - **Look:** pale grey-blue ice with clearer, darker patches, drifts of powder snow, faint thin cracks here and there (fading by 45 m), and gentle unevenness from the ripple map. Roughness is 0.22 on ice and 0.85 on snow.
+  - **Because the ice writes depth,** the new water shader reads the water above it as zero depth and fades out. The swell no longer shows through the ice, and open water meets the ice edge with the same soft lap as a shore.
+- **Cost:**
+  - **Ice triangles:** 9,118 → 13,518 (+48%) for the 53 chunks around a frozen lake. The extra quads are the shore fringe, mostly hidden under the ground.
+  - **Build time:** building all their ice went from 55 to 119 ms in total, about 1 ms more per chunk. That's spread over chunk builds, a few per frame, and only in chunks with frozen water.
+  - **Draw calls:** unchanged, one per chunk with ice.
+
 **Not touched:**
-- water, boat and ice physics;
+- water, boat and ice physics (where the ice is for walking and sailing);
 - `is_walkable` and `is_sailable`;
 - water level and placement;
 - world generation;
@@ -102,6 +124,7 @@ These are in `perf/water/`, with the **original on the left and the upgrade on t
 | `close.jpg` | Low over the water: small channel, large channel, lake, beach, water by the village, boats off the beach |
 | `zoom-near.jpg` / `zoom-normal.jpg` / `zoom-max.jpg` | Same six places from the game camera at zoom 0.55 / 1.0 / 3.2 |
 | `seasons-light.jpg` | The beach in summer, autumn, winter (ice) and at night by torchlight |
+| `ice.jpg` | Winter: the beach, lake and small channel at zoom 1.0, the large channel at 3.2, and the beach from low down: square tiles → smooth ice |
 | `browser.jpg` | The final benchmark frame in Chromium (WebGL 2, ANGLE), old and new: the depth effects work in the browser |
 
 The places come from the seed's own map; the island has no rivers, see §1:
@@ -126,7 +149,7 @@ The places come from the seed's own map; the island has no rivers, see §1:
   - The 5A wet-shore darkening and the textured seabed stay visible through the shallows.
   - Checked against sand, grass, forest and rock shores in the shots.
 - **Summer and autumn:** the water has no seasonal tint, as before. Autumn leaves fall as before.
-- **Winter:** the gameplay ice sheet is unchanged. The thin strips of unfrozen water between ice tiles and the shore now read as pale shallows, where they used to be dark blue bands.
+- **Winter:** the ice now meets the shore along the ground's own contour. The edge against open deep water is a ragged curve, with no squares, water strips or swell showing through (§2b, `ice.jpg`). A few small steps remain where the terrain's own shoreline is stepped; that's terrain geometry, which this phase doesn't change.
 - **Night:** the water is lit by the scene as before. By torchlight the shallows show the seabed.
 - **Weather and lighting:** the game has seasonal particles (snow, leaves) and a day/night clock. There is no rain or storm system, and nothing else changes.
 - **Not checked:** a low-sun "evening" frame came out fully dark at that clock time in both versions, so it was left out.
@@ -137,11 +160,12 @@ The places come from the seed's own map; the island has no rivers, see §1:
 
 | Run | Result |
 |---|---|
-| Default (upgraded water) | **327 ok, 0 FAIL — "Smoke test passed."** |
-| `--water=0` | **327 ok, 0 FAIL — passed** |
+| Default (upgraded water) | **328 ok, 0 FAIL — "Smoke test passed."** |
+| `--water=0` | **328 ok, 0 FAIL — passed** |
 
 New checks:
 - **Shader in use:** the upgraded run uses `water_detail.gdshader` with its ripple map, and `--water=0` uses `water.gdshader`.
+- **Ice material:** the upgraded run's winter ice uses `ice.gdshader`, and `--water=0` keeps the original ice material.
 - **Water sheet unchanged:** the water plane (640 m, 96×96), its level, the seabed level, no shadow, and the **identical swell line in both shaders**.
 - **Walking and sailing unchanged:** terrain type, `is_walkable`, `is_sailable` (raft and galley) and height over a 320 m area around spawn give the **same hash in both runs: `3082881264`**. The Phase 5A terrain mesh hash is unchanged too: `1279805263`.
 
@@ -226,14 +250,17 @@ The default scenes, with water mostly off screen, behave as before within noise:
 3. **No real reflections.** Trees, ships and the sky aren't mirrored; the sky sheen is a flat colour. This was ruled out by the brief: no expensive reflection systems.
 4. **No flow.** Ripples drift the same way everywhere. The island has no rivers or flow data, so channels don't "run" in one direction.
 5. **Transparent objects behind water aren't in the depth copy.** Nothing transparent sits under the water today.
-6. **The winter ice is unchanged.** It is still the tile-shaped ice sheet; restyling it is gameplay-adjacent and was left for later.
+6. **Ice:**
+   - **Not exactly the gameplay tiles.** The smooth ice is drawn a little differently from the frozen tiles. Near open deep water, the last frozen tile can look like open water at the ragged edge (and the reverse), by up to about one tile. Walking still follows the tiles.
+   - **Stepped shores remain stepped.** Where the terrain's shoreline is itself stepped, the ice edge follows it.
+   - **Benchmark:** the web benchmark was run before the ice change; the ice's cost was measured natively (§2b).
 7. **Very low sun wasn't checked.** The day/night clock has no visible low-sun frame at the tested time.
 8. **Software-renderer numbers only.** No real-GPU measurement was possible here.
 
 ## 9. Recommendations for Phase 5B.2
 
 1. **Real-GPU check:** run `?bench=1&waterbench=1` with and without `&water=0` on an integrated GPU (Intel UHD / Apple M1) and on a phone. If the depth copy hurts, a quality setting could fall back to `water.gdshader`.
-2. **Ice:** soften the tile edges of the winter ice sheet in its material only, with depth-faded edges and frost texture, keeping the ice mesh and its gameplay.
+2. **Ice:** if the one-tile difference at the deep-water edge matters for play, make the walkable edge match the drawn edge, or draw a crack line on the last walkable tile. Also add a winter scene to `?waterbench=1`.
 3. **Shore foam on the open sea:** stronger, wave-timed foam only where the shore faces open `DEEP` water (beaches), not on lakes.
 4. **Water near boats:** a small wake behind a moving boat, as a decal or particles following the boat, with no physics change.
 5. **Reflections, cheaply:** a fixed sky colour gradient or a low-resolution baked sky cubemap for the sheen, still with no real-time reflection pass.

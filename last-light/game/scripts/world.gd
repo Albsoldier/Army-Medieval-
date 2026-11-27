@@ -149,7 +149,7 @@ var water_detail := true
 var islets: Array = []  # [{"cell": Vector2i, "r": float, "name": String}]
 var _islets_on := false
 var season := "spring"  # spring, summer, autumn or winter (main.gd sets it)
-var _ice_mat: StandardMaterial3D
+var _ice_mat: Material
 var _water: MeshInstance3D
 var _bed: MeshInstance3D
 
@@ -204,10 +204,16 @@ func generate(p_seed: int) -> void:
 	_corners.clear()
 	_base_props.clear()
 	_place_hoards()
-	_ice_mat = StandardMaterial3D.new()
-	_ice_mat.albedo_color = Color(0.78, 0.86, 0.92)
-	_ice_mat.roughness = 0.2
-	_ice_mat.metallic_specular = 0.8
+	var ice_std := StandardMaterial3D.new()
+	ice_std.albedo_color = Color(0.78, 0.86, 0.92)
+	ice_std.roughness = 0.2
+	ice_std.metallic_specular = 0.8
+	_ice_mat = ice_std
+	if water_detail and ResourceLoader.exists("res://shaders/ice.gdshader"):
+		var ice_sm := ShaderMaterial.new()
+		ice_sm.shader = load("res://shaders/ice.gdshader")
+		ice_sm.set_shader_parameter("ripples", load("res://textures/water/ripples_normal.png"))
+		_ice_mat = ice_sm
 	map_image = Image.create(SIZE / MAP_SCALE, SIZE / MAP_SCALE, false, Image.FORMAT_RGBA8)
 	map_image.fill(UNEXPLORED)
 	map_texture = ImageTexture.create_from_image(map_image)
@@ -819,6 +825,9 @@ func _terrain_arrays(ck: Vector2i, corners: PackedFloat32Array) -> Array:
 
 ## A sheet of ice over the shallow water in a chunk, shown in winter.
 func _build_ice(ck: Vector2i, parent: Node3D) -> void:
+	if water_detail:
+		_build_ice_smooth(ck, parent)
+		return
 	var verts := PackedVector3Array()
 	for lz in CHUNK:
 		for lx in CHUNK:
@@ -847,6 +856,97 @@ func _build_ice(ck: Vector2i, parent: Node3D) -> void:
 	ice.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	ice.visible = season == "winter"
 	parent.add_child(ice)
+
+
+## Phase 5B.1 (GRAPHICS_PHASE_5B1_WATER_SURFACE.md): the winter ice drawn
+## without the square tile edges. Only the look: where the ice is for walking
+## and sailing (is_ice, is_sailable, to_3d) is still the frozen tiles.
+## The sheet also covers the land tiles next to the ice, under the ground, so
+## the ground cuts it off along the real, smooth shoreline. Towards open
+## (unfrozen) deep water it fades out: each corner of the grid carries how
+## much ice is there (none where a deep-water tile touches it), and ice.gdshader
+## cuts the edge where that fades, broken up by noise, so it is a ragged ice
+## edge rather than steps.
+func _build_ice_smooth(ck: Vector2i, parent: Node3D) -> void:
+	# The terrain types in and around the chunk, two tiles beyond each side.
+	var pad := 2
+	var span := CHUNK + pad * 2
+	var types := PackedByteArray()
+	types.resize(span * span)
+	var any_water := false
+	for z in span:
+		for x in span:
+			var t := terrain_at(Vector2i(ck.x * CHUNK + x - pad, ck.y * CHUNK + z - pad))
+			types[z * span + x] = t
+			any_water = any_water or t == WATER
+	if not any_water:
+		return
+	# How much ice at each grid corner: none unless a frozen tile touches it;
+	# towards deep water, the share of non-deep tiles in the 4×4 tiles around
+	# it, so the edge against open water is a smooth curve, not tile steps.
+	# The ice also reaches over low ground beside frozen tiles (ground still
+	# under the ice there), so it meets the shore wherever the ground rises.
+	var w := CHUNK + 1
+	var heights := _chunk_corners(ck)
+	var ice := PackedFloat32Array()
+	ice.resize(w * w)
+	var any := false
+	for lz in w:
+		for lx in w:
+			var cx := lx + pad
+			var cz := lz + pad
+			var water := false
+			for c in [Vector2i(cx - 1, cz - 1), Vector2i(cx, cz - 1), Vector2i(cx - 1, cz), Vector2i(cx, cz)]:
+				water = water or types[c.y * span + c.x] == WATER
+			var open := 0
+			var near_water := false
+			for dz in range(-2, 2):
+				for dx in range(-2, 2):
+					var t2 := types[(cz + dz) * span + cx + dx]
+					if t2 != DEEP:
+						open += 1
+					near_water = near_water or t2 == WATER
+			if not water and not (near_water and heights[lz * w + lx] < 0.12):
+				continue
+			var v := clampf((open - 4.0) / 10.0, 0.0, 1.0)
+			ice[lz * w + lx] = v
+			any = any or v > 0.0
+	if not any:
+		return
+	var verts := PackedVector3Array()
+	var colors := PackedColorArray()
+	var y := 0.04
+	for lz in CHUNK:
+		for lx in CHUNK:
+			var a00 := ice[lz * w + lx]
+			var a10 := ice[lz * w + lx + 1]
+			var a01 := ice[(lz + 1) * w + lx]
+			var a11 := ice[(lz + 1) * w + lx + 1]
+			if a00 + a10 + a01 + a11 == 0.0:
+				continue
+			var x := float(ck.x * CHUNK + lx)
+			var z := float(ck.y * CHUNK + lz)
+			verts.append_array(PackedVector3Array([Vector3(x, y, z), Vector3(x + 1, y, z), Vector3(x + 1, y, z + 1),
+				Vector3(x, y, z), Vector3(x + 1, y, z + 1), Vector3(x, y, z + 1)]))
+			colors.append_array(PackedColorArray([Color(1, 1, 1, a00), Color(1, 1, 1, a10), Color(1, 1, 1, a11),
+				Color(1, 1, 1, a00), Color(1, 1, 1, a11), Color(1, 1, 1, a01)]))
+	var normals := PackedVector3Array()
+	normals.resize(verts.size())
+	normals.fill(Vector3.UP)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_COLOR] = colors
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mi := MeshInstance3D.new()
+	mi.name = "Ice"
+	mi.mesh = mesh
+	mi.material_override = _ice_mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.visible = season == "winter"
+	parent.add_child(mi)
 
 
 func _build_water() -> void:

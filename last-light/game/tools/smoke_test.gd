@@ -1426,6 +1426,11 @@ func _run_game() -> void:
 		and world._water.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		and swell in wt_mat.shader.code and swell in (load("res://shaders/water.gdshader") as Shader).code,
 		"the water sheet, its level, the seabed and the swell are as before")
+	if world.water_detail:
+		_check(world._ice_mat is ShaderMaterial and (world._ice_mat as ShaderMaterial).shader.resource_path == "res://shaders/ice.gdshader",
+			"the winter ice is drawn with the ice shader, without tile edges")
+	else:
+		_check(world._ice_mat is StandardMaterial3D, "--water=0: the original winter ice")
 	var wt_cells := []
 	var wt_c0: Vector2i = world.spawn_cell
 	for dz in range(-160, 161, 4):
