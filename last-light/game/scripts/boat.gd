@@ -4,6 +4,18 @@ extends Node3D
 
 const World = preload("res://scripts/world.gd")
 const Art = preload("res://scripts/art.gd")
+## The galley is a modelled sailing ship (GRAPHICS_SHIPS.md): Poly Haven's
+## "Dutch Ship Large 01" (CC0), decimated (tools/decimate_ship.py,
+## tools/build_ship_model.gd): the hull (shared with the shipwrecks) and the
+## rigging and sails, one surface each on one material: two draw calls.
+## Off with ?ships=0, to compare with the old galley.
+const SHIP_MODELS := ["res://models/ships/ship_hull.res", "res://models/ships/ship_rigging.res"]
+## The rigging casts no shadow of its own (its ropes, drawn again in each
+## shadow cascade, cost more than they show); its sails cast it, unseen.
+const SHIP_SHADOW := "res://models/ships/ship_sails_shadow.res"
+static var use_new_ship := true
+## The modelled ship's main deck, above the water (the hull's waist).
+const SHIP_DECK := 0.6
 
 const KINDS := {
 	"raft": {"name": "Raft", "cost": {"wood": 12}, "speed": 1.2, "deep": false,
@@ -68,7 +80,9 @@ func _place(delta: float) -> void:
 
 ## Deck height above the water, for whoever stands on it.
 func deck_height() -> float:
-	return 0.35 if kind == "galley" else 0.18
+	if kind == "galley":
+		return SHIP_DECK if use_new_ship else 0.35
+	return 0.18
 
 
 func _build_raft() -> void:
@@ -81,6 +95,18 @@ func _build_raft() -> void:
 
 
 func _build_galley() -> void:
+	if use_new_ship:
+		for path in SHIP_MODELS:
+			var part := MeshInstance3D.new()
+			part.mesh = load(path)
+			if path.ends_with("rigging.res"):
+				part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_model.add_child(part)
+		var shadow := MeshInstance3D.new()
+		shadow.mesh = load(SHIP_SHADOW)
+		shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		_model.add_child(shadow)
+		return
 	var hull := Color("5a3d22")
 	var trim := Color("c9a24a")
 	# A long hull with a pointed bow and a raised stern.

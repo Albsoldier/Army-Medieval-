@@ -300,6 +300,14 @@ func _ready() -> void:
 		if arg.begins_with("--kitbatch="):
 			kit_batch = arg.trim_prefix("--kitbatch=")
 	KitBatcher.enabled = kit_batch != "0"
+	# The galley and the shipwrecks as the modelled ship (GRAPHICS_SHIPS.md).
+	# Developers: ?ships=0 shows the old galley and wrecks, for comparing.
+	var ship_model := PerfOverlay.url_value("ships")
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--ships="):
+			ship_model = arg.trim_prefix("--ships=")
+	Boat.use_new_ship = ship_model != "0"
+	Poi.use_new_ship = Boat.use_new_ship
 	var kit_batcher := KitBatcher.new()
 	kit_batcher.name = "KitBatcher"
 	add_child(kit_batcher)

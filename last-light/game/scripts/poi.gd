@@ -5,6 +5,10 @@ extends Node3D
 
 const World = preload("res://scripts/world.gd")
 const Art = preload("res://scripts/art.gd")
+## Shipwrecks are the modelled ship's hull (GRAPHICS_SHIPS.md), keeled over in
+## the sand, with the old broken mast and torn sail. Off with ?ships=0.
+const WRECK_MODEL := "res://models/ships/ship_hull.res"  # the galley's hull
+static var use_new_ship := true
 
 const TITLES := {
 	"lighthouse": "Lighthouse", "shipwreck": "Shipwreck", "ruins": "Ruins",
@@ -182,6 +186,17 @@ func _build_lighthouse() -> void:
 
 func _build_shipwreck() -> void:
 	var wood := Color("5b4027")
+	if use_new_ship:
+		var wreck := MeshInstance3D.new()
+		wreck.mesh = load(WRECK_MODEL)
+		# Bow to +x, as the old wreck; rolled onto its side and sunk into the sand.
+		wreck.rotation = Vector3(0.0, PI / 2, 0.45)
+		wreck.position = Vector3(0.0, -0.15, 0.0)
+		add_child(wreck)
+		Art.part(self, Art.cylinder(0.12, 0.15, 5.0, 6), wood.darkened(0.15), Vector3(0.4, 1.8, -0.2), Vector3(0, 0, -0.9))
+		Art.part(self, Art.box(Vector3(1.6, 1.2, 0.03)), Color("a89c84"), Vector3(1.5, 1.6, -0.2), Vector3(0, 0, -0.9))  # the ship's weathered canvas
+		_chest(Vector3(-1.5, 0, 1.8))
+		return
 	var hull := Node3D.new()
 	hull.rotation = Vector3(0.0, 0.0, 0.35)  # keeled over on the sand
 	add_child(hull)
