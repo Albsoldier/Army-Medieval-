@@ -129,6 +129,11 @@ func _run() -> void:
 	main.player.torch_time = 0.0
 	_day()
 	await _measure_travel("area_transitions", spots["village"])
+	# Phase 5B.1 (GRAPHICS_PHASE_5B1_WATER_SURFACE.md), only with ?waterbench=1
+	# (or --waterbench): the water, after everything else so the other scenes
+	# are as before.
+	if "--waterbench" in OS.get_cmdline_user_args() or PerfOverlay.url_flag("waterbench"):
+		await _water_scenes()
 
 	print("PERF_DONE")
 	if OS.has_feature("web"):
@@ -218,6 +223,152 @@ func _near_camp(pos: Vector2) -> bool:
 		if (c["pos"] as Vector2).distance_to(pos) < 700.0:
 			return true
 	return false
+
+
+## The water scenes (?waterbench=1): a narrow channel, a wide one, a lake, a
+## beach, a village by the water, boats off the beach, the farthest zoom and
+## night, all at the default zoom and by day unless named.
+func _water_scenes() -> void:
+	var w = main.world
+	var ws := _find_water_spots()
+	_note("water_spots", ws)
+	main.zoom = 1.0
+	_day()
+	for k in ["small_channel", "large_channel", "lake", "shore"]:
+		if ws[k] != Vector2.INF:
+			_go(ws[k])
+			await _measure("water_" + k)
+	if ws["village_shore"] != Vector2.INF:
+		_go(ws["village_shore"])
+		_build_village(ws["village_shore"])
+		await _measure("water_village")
+	if ws["shore"] == Vector2.INF:
+		return
+	var sh: Vector2 = ws["shore"]
+	var fleet := [main._spawn_boat("galley", sh + Vector2(40, 22 * w.TILE), Vector2.LEFT),
+		main._spawn_boat("raft", sh + Vector2(-60, 7 * w.TILE), Vector2.RIGHT),
+		main._spawn_boat("raft", sh + Vector2(90, 9 * w.TILE), Vector2.LEFT)]
+	_go(sh + Vector2(0, 2 * w.TILE))
+	await _measure("water_boats")
+	main.zoom = 3.2
+	await _measure("water_max_zoom")
+	main.zoom = 1.0
+	main.clock = main.DAY_LENGTH * 0.85
+	main.player.torch_time = 9999.0
+	main._update_lighting()
+	await _measure("water_night")
+	main.player.torch_time = 0.0
+	_day()
+	for b in fleet:
+		main.boats.erase(b)
+		b.queue_free()
+
+
+## Phase 5B.1 (GRAPHICS_PHASE_5B1_WATER_SURFACE.md): water to look at, nearest
+## the start first. The island has no rivers as such (water is only shallow
+## water and deep sea), so a narrow channel of water between land stands in
+## for a small river and a wider one for a large river. Returns positions:
+## "small_channel", "large_channel", "lake" (water not joined to the sea),
+## "shore" (a beach on open water) and "village_shore" (land by the water
+## with room for the benchmark's village). A missing one is Vector2.INF.
+func _find_water_spots() -> Dictionary:
+	var w = main.world
+	var start: Vector2i = w.spawn_cell
+	var found := {"small_channel": Vector2.INF, "large_channel": Vector2.INF, "lake": Vector2.INF,
+		"shore": Vector2.INF, "village_shore": Vector2.INF}
+	var seen_lake := {}
+	for r in range(4, 500, 3):
+		var steps := maxi(16, r)
+		for i in steps:
+			var c: Vector2i = start + Vector2i(roundi(cos(i * TAU / steps) * r), roundi(sin(i * TAU / steps) * r))
+			var t: int = w.terrain_at(c)
+			if t != w.WATER and t != w.DEEP:
+				if found["village_shore"] == Vector2.INF and (t == w.GRASS or t == w.SAND):
+					var share := _land_around(c, 10)
+					if share >= 0.6 and share <= 0.8:
+						found["village_shore"] = w.cell_center(c)
+				if found["shore"] == Vector2.INF and t == w.SAND and _water_width(c + Vector2i(0, 6), 40) >= 40 \
+						and _water_width(c + Vector2i(0, 10), 40) >= 40:
+					found["shore"] = w.cell_center(c)
+				continue
+			var width := _water_width(c, 40)
+			if found["small_channel"] == Vector2.INF and width >= 3 and width <= 7 and _channel_runs(c, width):
+				found["small_channel"] = w.cell_center(c)
+			if found["large_channel"] == Vector2.INF and width >= 10 and width <= 24 and _channel_runs(c, width):
+				found["large_channel"] = w.cell_center(c)
+			if found["lake"] == Vector2.INF and not seen_lake.has(c):
+				var size := _water_body(c, 5000, seen_lake)
+				if size >= 150 and size < 5000:
+					found["lake"] = w.cell_center(c)
+		var done := true
+		for k in found:
+			done = done and found[k] != Vector2.INF
+		if done:
+			break
+	return found
+
+
+## The narrower of the runs of water through `cell` across and along (capped).
+func _water_width(cell: Vector2i, cap: int) -> int:
+	var best := cap
+	for d in [Vector2i(1, 0), Vector2i(0, 1)]:
+		var n := 1
+		for s in [1, -1]:
+			var k := 1
+			while k < cap and not main.world.is_land(cell + d * s * k):
+				k += 1
+				n += 1
+		best = mini(best, n)
+	return best
+
+
+## Whether the water through `cell` goes on along some direction for at least
+## twice its width each way, like a river, rather than being a round pond or a
+## narrow gap in one place.
+func _channel_runs(cell: Vector2i, width: int) -> bool:
+	var w = main.world
+	for d in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(1, -1)]:
+		var ok := true
+		for s in [1, -1]:
+			for k in range(1, mini(width * 2, 30) + 1):
+				if w.is_land(cell + d * s * k):
+					ok = false
+					break
+		if ok:
+			return true
+	return false
+
+
+## The share of land within `r` cells of `cell`.
+func _land_around(cell: Vector2i, r: int) -> float:
+	var land := 0
+	var n := 0
+	for dz in range(-r, r + 1, 2):
+		for dx in range(-r, r + 1, 2):
+			n += 1
+			if main.world.is_land(cell + Vector2i(dx, dz)):
+				land += 1
+	return float(land) / float(n)
+
+
+## The size of the body of water at `cell`, up to `cap` cells (cap = joined to the sea).
+func _water_body(cell: Vector2i, cap: int, seen: Dictionary) -> int:
+	var w = main.world
+	var todo := [cell]
+	var body := {cell: true}
+	while not todo.is_empty() and body.size() < cap:
+		var c: Vector2i = todo.pop_back()
+		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var n: Vector2i = c + d
+			if body.has(n) or w.is_land(n):
+				continue
+			if n.x < 0 or n.y < 0 or n.x >= w.SIZE or n.y >= w.SIZE:
+				return cap
+			body[n] = true
+			todo.append(n)
+	for c in body:
+		seen[c] = true
+	return body.size()
 
 
 func _ship_scenes() -> void:

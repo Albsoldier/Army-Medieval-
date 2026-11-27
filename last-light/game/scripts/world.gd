@@ -141,6 +141,11 @@ var _terrain_mat: ShaderMaterial
 ## changes only how the ground is drawn: the terrain data, heights and meshes
 ## are the same either way.
 var terrain_detail := true
+## Phase 5B.1 (GRAPHICS_PHASE_5B1_WATER_SURFACE.md): the upgraded water surface
+## shader. Off with ?water=0 (set before generate()), to compare with the
+## original look. It changes only how the water is drawn: where water is, its
+## level, boats and everything that walks or sails are the same either way.
+var water_detail := true
 var islets: Array = []  # [{"cell": Vector2i, "r": float, "name": String}]
 var _islets_on := false
 var season := "spring"  # spring, summer, autumn or winter (main.gd sets it)
@@ -851,6 +856,9 @@ func _build_water() -> void:
 	plane.subdivide_depth = 96
 	var mat := ShaderMaterial.new()
 	mat.shader = preload("res://shaders/water.gdshader")
+	if water_detail and ResourceLoader.exists("res://shaders/water_detail.gdshader"):
+		mat.shader = load("res://shaders/water_detail.gdshader")
+		mat.set_shader_parameter("ripples", load("res://textures/water/ripples_normal.png"))
 	_water = MeshInstance3D.new()
 	_water.name = "Water"
 	_water.mesh = plane
