@@ -106,6 +106,22 @@ func _run() -> void:
 	main.player.torch_time = 9999.0
 	main._update_lighting()
 	await _measure("night_village_30_soldiers")
+	# Phase 5A (GRAPHICS_PHASE_5A_TERRAIN.md), only with ?zoombench=1 (or
+	# --zoombench): the village and its army by day from the farthest zoom, then
+	# the open field there, where the most terrain is on screen.
+	if "--zoombench" in OS.get_cmdline_user_args() or PerfOverlay.url_flag("zoombench"):
+		main.clock = main.DAY_LENGTH * 0.3
+		main.player.torch_time = 0.0
+		main._update_lighting()
+		main.zoom = 3.2
+		await _measure("village_max_zoom")
+		_go(spots["empty"])
+		await _measure("field_max_zoom")
+		main.zoom = 1.0
+		_go(spots["village"])
+		main.clock = main.DAY_LENGTH * 0.85
+		main.player.torch_time = 9999.0
+		main._update_lighting()
 	# 7. Area transitions: no army, crossing chunk after chunk at riding pace.
 	for s in main.soldiers.duplicate():
 		main.soldiers.erase(s)

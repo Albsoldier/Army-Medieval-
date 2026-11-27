@@ -136,6 +136,11 @@ var _props_root: Node3D
 ## Parts that share a mesh and material (a bush's berries) share one layer.
 var _prop_defs: Dictionary = {}
 var _terrain_mat: ShaderMaterial
+## Phase 5A (GRAPHICS_PHASE_5A_TERRAIN.md): the textured terrain shader. Off with
+## ?terrain=0 (set before generate()), to compare with the original look. It
+## changes only how the ground is drawn: the terrain data, heights and meshes
+## are the same either way.
+var terrain_detail := true
 var islets: Array = []  # [{"cell": Vector2i, "r": float, "name": String}]
 var _islets_on := false
 var season := "spring"  # spring, summer, autumn or winter (main.gd sets it)
@@ -178,6 +183,10 @@ func generate(p_seed: int) -> void:
 
 	_terrain_mat = ShaderMaterial.new()
 	_terrain_mat.shader = preload("res://shaders/terrain.gdshader")
+	if terrain_detail and ResourceLoader.exists("res://shaders/terrain_detail.gdshader"):
+		_terrain_mat.shader = load("res://shaders/terrain_detail.gdshader")
+		_terrain_mat.set_shader_parameter("ground", load("res://textures/terrain/ground_albedo.png"))
+		_terrain_mat.set_shader_parameter("ground_normal", load("res://textures/terrain/ground_normal.png"))
 
 	_islets_on = false
 	_find_spawn()

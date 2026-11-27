@@ -1392,6 +1392,23 @@ func _run_game() -> void:
 	main.action_cooldown = 0.0
 	main._interact()
 	_check(main.riding_horse == null and not main.player.riding and wild.visible, "E again: you get off, and the horse waits")
+	# Phase 5A (GRAPHICS_PHASE_5A_TERRAIN.md): the textured terrain is only a new
+	# shader on the same meshes. --terrain=0 shows the original shader; the
+	# terrain data, heights and mesh arrays are identical either way (the hash
+	# is printed so two runs can be compared).
+	var tr_shader: Shader = world._terrain_mat.shader
+	var tr_ck: Vector2i = world._chunk_of_cell(world.spawn_cell)
+	var tr_arrays: Array = world._terrain_arrays(tr_ck, world._chunk_corners(tr_ck))
+	var tr_hash := hash([tr_arrays[Mesh.ARRAY_VERTEX], tr_arrays[Mesh.ARRAY_NORMAL], tr_arrays[Mesh.ARRAY_COLOR], tr_arrays[Mesh.ARRAY_INDEX]])
+	print("terrain mesh hash at spawn chunk: ", tr_hash)
+	if world.terrain_detail:
+		_check(tr_shader.resource_path == "res://shaders/terrain_detail.gdshader" and world._terrain_mat.get_shader_parameter("ground") is TextureLayered
+			and world._terrain_mat.get_shader_parameter("ground_normal") is TextureLayered,
+			"the terrain is drawn with the textured terrain shader and its two texture arrays")
+	else:
+		_check(tr_shader.resource_path == "res://shaders/terrain.gdshader", "--terrain=0: the original terrain shader")
+	_check(tr_arrays[Mesh.ARRAY_VERTEX].size() == (world.CHUNK + 1) * (world.CHUNK + 1) and tr_arrays[Mesh.ARRAY_TEX_UV] == null,
+		"terrain meshes are built as before (same vertices, no new attributes)")
 	# Building prototype (phase 4B): cottages, stone walls and archer towers are
 	# KayKit models: one mesh and one shared material each, and otherwise the
 	# same buildings (hit points, blocking, previews, damage).
