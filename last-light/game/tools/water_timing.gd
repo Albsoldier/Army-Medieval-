@@ -47,7 +47,7 @@ func _run() -> void:
 			var after := await _frame_ms(10)
 			mi.queue_free()
 			await _frames(3)
-			var key := path.get_file().get_basename()
+			var key: String = path.get_file().get_basename()
 			if not out.has(key):
 				out[key] = []
 			out[key].append({"first_frame_ms": first, "frame_ms_before": before, "frame_ms_after": after})
