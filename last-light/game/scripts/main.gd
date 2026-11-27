@@ -287,6 +287,13 @@ func _ready() -> void:
 		if arg.begins_with("--devlook="):
 			dev_look_flag = arg.trim_prefix("--devlook=")
 	dev_look = dev_look_flag != "" and dev_look_flag != "0"
+	# Phase 5A: the textured terrain (GRAPHICS_PHASE_5A_TERRAIN.md). Developers:
+	# ?terrain=0 shows the original terrain look, for comparing (same world).
+	var terrain_look := PerfOverlay.url_value("terrain")
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--terrain="):
+			terrain_look = arg.trim_prefix("--terrain=")
+	world.terrain_detail = terrain_look != "0"
 	world.generate(world_seed)
 	var prop_chunk_override := prop_chunk_size_override()
 	if prop_chunk_override > 0:

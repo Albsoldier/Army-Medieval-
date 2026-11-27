@@ -140,3 +140,21 @@ From **Quaternius** (quaternius.com), free Standard editions, **CC0 1.0** (each 
 together and merged by `game/tools/build_village_models.gd` (the chimneys and doors are made in that tool).
 `village_textures.png` is the ten colour maps, downsized to 256², stacked into one texture array; `village.tres` uses
 `game/shaders/village.gdshader`. The original files are not in the repository. See `last-light/GRAPHICS_VILLAGE_BUILDINGS.md`.
+
+## Terrain textures (`../textures/terrain/`)
+
+Five ground textures from **Poly Haven**, **CC0 1.0** (public domain dedication; Poly Haven's licence page: "Our
+assets are all licensed as CC0"). Attribution is not required; given here for the record.
+
+| Layer | Texture | Author | Page |
+|---|---|---|---|
+| 0 grass | Rocky Terrain 02 | Amal Kumar | https://polyhaven.com/a/rocky_terrain_02 |
+| 1 forest floor | Forest Leaves 02 | Rob Tuytel | https://polyhaven.com/a/forest_leaves_02 |
+| 2 dirt | Dirt | Charlotte Baglioni | https://polyhaven.com/a/dirt |
+| 3 sand | Coast Sand 01 | Rob Tuytel | https://polyhaven.com/a/coast_sand_01 |
+| 4 rock | Aerial Rocks 02 | Rob Tuytel | https://polyhaven.com/a/aerial_rocks_02 |
+
+`ground_albedo.png` (their 1k colour maps at 512², normalised to 0.5 grey) and `ground_normal.png` (their OpenGL
+normal maps at 256²) are 5-layer texture arrays built by `game/tools/build_terrain_textures.gd`, used by
+`game/shaders/terrain_detail.gdshader`. The original files are not in the repository. See
+`last-light/GRAPHICS_PHASE_5A_TERRAIN.md`.
